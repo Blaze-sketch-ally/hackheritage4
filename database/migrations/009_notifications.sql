@@ -1,0 +1,5 @@
+-- Migration: 009_notifications
+-- Purpose: per-user notification records (application updates, interview
+-- invites, deadlines, etc).
+--
+-- Not implemented yet — schema defined when the Notifications feature is built.

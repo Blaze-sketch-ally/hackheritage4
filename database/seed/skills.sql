@@ -1,0 +1,2 @@
+-- Seed data: master skill catalog.
+-- Populated once the 002_skills migration schema exists.

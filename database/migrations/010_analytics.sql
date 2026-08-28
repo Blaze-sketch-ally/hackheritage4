@@ -1,0 +1,5 @@
+-- Migration: 010_analytics
+-- Purpose: aggregated/derived tables (or views) powering student, faculty,
+-- industry, and institution analytics dashboards.
+--
+-- Not implemented yet — schema defined when the Analytics feature is built.

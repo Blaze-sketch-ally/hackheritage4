@@ -1,0 +1,2 @@
+-- Seed data: demo job postings for local development.
+-- Populated once the 005_jobs migration schema exists.

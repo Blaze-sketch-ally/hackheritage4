@@ -1,0 +1,2 @@
+-- Seed data: sample assessment questions.
+-- Populated once the 003_assessments migration schema exists.

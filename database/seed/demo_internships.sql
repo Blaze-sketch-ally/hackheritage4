@@ -1,0 +1,2 @@
+-- Seed data: demo internship postings for local development.
+-- Populated once the 004_internships migration schema exists.

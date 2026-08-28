@@ -1,0 +1,5 @@
+-- Migration: 003_assessments
+-- Purpose: assessment definitions, questions, and student attempt/result
+-- records used for the Skill Assessment stage of the workflow.
+--
+-- Not implemented yet — schema defined when the Assessments feature is built.

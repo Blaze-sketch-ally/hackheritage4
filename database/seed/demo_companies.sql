@@ -1,0 +1,2 @@
+-- Seed data: demo industry/company accounts for local development.
+-- Populated once the relevant schema exists.

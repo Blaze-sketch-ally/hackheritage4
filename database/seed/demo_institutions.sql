@@ -1,0 +1,2 @@
+-- Seed data: demo institution accounts for local development.
+-- Populated once the relevant schema exists.

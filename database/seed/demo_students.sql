@@ -1,0 +1,2 @@
+-- Seed data: demo student accounts/profiles for local development.
+-- Populated once the 001_profiles migration schema exists.

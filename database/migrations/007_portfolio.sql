@@ -1,0 +1,5 @@
+-- Migration: 007_portfolio
+-- Purpose: student projects, certifications, and achievements that make up
+-- the Digital Portfolio stage of the workflow.
+--
+-- Not implemented yet — schema defined when the Portfolio feature is built.

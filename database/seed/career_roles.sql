@@ -1,0 +1,2 @@
+-- Seed data: career role definitions used for skill-gap comparisons.
+-- Populated once the relevant schema exists.

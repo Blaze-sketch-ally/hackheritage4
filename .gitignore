@@ -1,0 +1,25 @@
+# dependencies
+node_modules/
+
+# frontend build output
+.next/
+out/
+
+# environment variables
+.env
+.env.local
+.env.*.local
+
+# python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# build output
+dist/
+build/
+coverage/
+
+# OS
+.DS_Store

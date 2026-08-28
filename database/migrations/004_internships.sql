@@ -1,0 +1,5 @@
+-- Migration: 004_internships
+-- Purpose: internship postings created by industry partners, plus student
+-- applications and application-status tracking for internships.
+--
+-- Not implemented yet — schema defined when the Internships feature is built.

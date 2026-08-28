@@ -1,0 +1,5 @@
+-- Migration: 008_collaboration
+-- Purpose: mentorship pairings, workshops, research/consultancy engagements,
+-- and other academia-industry collaboration records.
+--
+-- Not implemented yet — schema defined when the Collaboration feature is built.

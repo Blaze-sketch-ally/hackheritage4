@@ -1,0 +1,5 @@
+-- Migration: 002_skills
+-- Purpose: master skill catalog and per-student skill proficiency records,
+-- feeding the Skill Profile and Skill Gap Analysis stages of the workflow.
+--
+-- Not implemented yet — schema defined when the Skills feature is built.

@@ -1,0 +1,5 @@
+-- Migration: 006_learning
+-- Purpose: courses/learning resources and student enrollment + progress
+-- records for the Personalized Learning stage of the workflow.
+--
+-- Not implemented yet — schema defined when the Learning feature is built.

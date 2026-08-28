@@ -1,0 +1,5 @@
+-- Migration: 005_jobs
+-- Purpose: job postings created by industry partners, plus student
+-- applications and application-status tracking for full-time jobs.
+--
+-- Not implemented yet — schema defined when the Jobs feature is built.
