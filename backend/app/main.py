@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api import assessments
 from app.core.config import settings
 
 app = FastAPI(title="AIC Portal API")
@@ -12,6 +13,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(assessments.router, prefix="/api/v1")
 
 
 @app.get("/")
