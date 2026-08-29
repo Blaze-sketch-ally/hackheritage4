@@ -71,7 +71,29 @@ See `.env.example`. Names only — never commit real values.
 - `app/database/` — Supabase client + query helpers
 - `app/core/` — settings, security, shared dependencies, exceptions
 - `app/utils/` — small stateless helpers
-- `tests/` — pytest suite, one file per resource
+- `tests/` — pytest suite, one file per resource; most are placeholders
+  populated alongside their feature — `test_health.py` is the one real
+  suite today, covering `GET /` and `GET /health`
+
+## Testing
+
+```bash
+pytest
+```
+
+## Linting
+
+[Ruff](https://docs.astral.sh/ruff/) is configured in `pyproject.toml`. It's
+a dev-only dependency — install it via `requirements-dev.txt` instead of
+`requirements.txt`:
+
+```bash
+pip install -r requirements-dev.txt
+ruff check .
+```
+
+CI (`.github/workflows/ci.yml`) runs both `ruff check .` and `pytest` on
+every push/PR.
 
 ## Notes
 
