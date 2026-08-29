@@ -45,25 +45,42 @@ AIC-Portal/
 
 ## Local development
 
-**Frontend**
+**Frontend** (macOS/Linux/Windows — same commands)
 
 ```bash
 cd frontend
 npm install
-copy .env.example .env.local   # then fill in Supabase values
+cp .env.example .env.local     # macOS/Linux — on Windows: copy .env.example .env.local
+# then fill in the Supabase values
 npm run dev                     # http://localhost:3000
 ```
 
 **Backend**
 
+macOS/Linux:
+
 ```bash
+cd backend
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env            # then fill in Supabase/AI values
+uvicorn app.main:app --reload   # http://localhost:8000
+```
+
+Windows:
+
+```bat
 cd backend
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
-copy .env.example .env          # then fill in Supabase/AI values
-uvicorn app.main:app --reload --port 8000   # http://localhost:8000
+copy .env.example .env
+uvicorn app.main:app --reload
 ```
+
+See `backend/README.md` for the full backend setup, structure, and endpoint
+reference (including the `/docs` Swagger UI).
 
 **Or with Docker Compose**
 
