@@ -1,7 +1,11 @@
-export function Loading() {
+import { Loader2 } from "lucide-react";
+import { cn } from "@/lib/utils";
+
+export function Loading({ label = "Loading...", className }: { label?: string; className?: string }) {
   return (
-    <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
-      Loading – placeholder
+    <div className={cn("flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground", className)}>
+      <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+      {label}
     </div>
   );
 }

@@ -1,7 +1,10 @@
-export default function Page() {
+import { AuthShell } from "@/components/auth/auth-shell";
+import { RegisterForm } from "@/components/auth/register-form";
+
+export default function RegisterPage() {
   return (
-    <div className="p-8">
-      <h1 className="text-xl font-semibold">Register – Coming Soon</h1>
-    </div>
+    <AuthShell title="Create your account" description="Join the Academia-Industry Collaboration Portal">
+      <RegisterForm />
+    </AuthShell>
   );
 }

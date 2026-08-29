@@ -1,0 +1,44 @@
+-- Migration: 013_harden_is_student
+-- Purpose: closes a privilege gap found during Student Profile
+-- verification — public.is_student(uuid), the SECURITY DEFINER role-check
+-- helper introduced in 012_student_profiles.sql, is currently callable by
+-- the `anon` Postgres role and returns a real (if boolean-only) answer.
+--
+-- 012's own `revoke all on function public.is_student(uuid) from public;`
+-- only revokes the PUBLIC pseudo-role's blanket privilege. It does not
+-- touch a privilege `anon` may hold independently — Supabase projects
+-- commonly configure default privileges (roughly:
+-- `alter default privileges in schema public grant execute on functions
+-- to anon, authenticated`) that apply automatically at function-creation
+-- time, before 012's own revoke/grant statements ever ran. That is the
+-- likely source of the gap: `anon` picked up EXECUTE from the project's
+-- default privileges, independent of and unaffected by 012's
+-- "... from public" revoke.
+--
+-- This does NOT weaken student_profiles' actual row security: every
+-- student_profiles RLS policy is scoped `to authenticated` only, so an
+-- `anon` request never matches any policy in the first place and already
+-- gets zero rows regardless of is_student's privilege state. The only
+-- thing anon's current EXECUTE enables is a direct, standalone call to
+-- is_student(...) as its own RPC endpoint — a minor "is this UUID a
+-- student" oracle, not a path to real profile data.
+--
+-- No table, policy, or function definition changes here — purely
+-- tightening who may invoke the existing function. `authenticated` keeps
+-- EXECUTE (anon and authenticated are independent roles in this
+-- project's own grant model — see get_email_for_identifier in
+-- 001_profiles.sql, granted "to anon, authenticated" as two separate,
+-- independent grants — so revoking from one never touches the other),
+-- so the student_profiles RLS policies that call
+-- is_student(auth.uid()) keep working exactly as before: RLS policy
+-- expressions execute as whatever role ran the underlying query — for
+-- every real app request that's `authenticated` — and EXECUTE privilege
+-- is checked against that calling role, not against the function's
+-- SECURITY DEFINER owner. Granting/revoking EXECUTE is orthogonal to
+-- SECURITY DEFINER (which only governs what privileges the function body
+-- runs with internally once invoked, not who is allowed to invoke it),
+-- so none of that needs to change here.
+
+revoke all on function public.is_student(uuid) from public;
+revoke all on function public.is_student(uuid) from anon;
+grant execute on function public.is_student(uuid) to authenticated;

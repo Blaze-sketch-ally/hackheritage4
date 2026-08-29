@@ -1,7 +1,13 @@
-export default function Page() {
+import { Suspense } from "react";
+import { AuthShell } from "@/components/auth/auth-shell";
+import { LoginForm } from "@/components/auth/login-form";
+
+export default function LoginPage() {
   return (
-    <div className="p-8">
-      <h1 className="text-xl font-semibold">Login – Coming Soon</h1>
-    </div>
+    <AuthShell title="Welcome back 👋" description="Sign in to continue to your account">
+      <Suspense fallback={null}>
+        <LoginForm />
+      </Suspense>
+    </AuthShell>
   );
 }

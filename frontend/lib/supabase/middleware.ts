@@ -1,16 +1,19 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import type { User } from "@supabase/supabase-js";
 
-// Refreshes the Supabase auth session on every request. Route protection /
-// role-based redirects are intentionally NOT implemented yet — that lands
-// with the Authentication feature.
-export async function updateSession(request: NextRequest) {
+// Refreshes the Supabase auth session on every request and reports the
+// current user so the proxy can gate protected routes. Role-based
+// authorization is not implemented yet — only "is there a session".
+export async function updateSession(
+  request: NextRequest,
+): Promise<{ response: NextResponse; user: User | null }> {
   let response = NextResponse.next({ request });
 
   // Supabase isn't configured yet during initial scaffolding — skip so
   // local dev still works without a project URL/key.
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
-    return response;
+    return { response, user: null };
   }
 
   const supabase = createServerClient(
@@ -32,7 +35,9 @@ export async function updateSession(request: NextRequest) {
     },
   );
 
-  await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
-  return response;
+  return { response, user };
 }
