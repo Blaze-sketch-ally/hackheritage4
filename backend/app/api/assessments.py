@@ -1,35 +1,136 @@
-"""API routes for assessments."""
+"""API routes for assessments. Endpoints implemented feature-by-feature.
 
-from fastapi import APIRouter, Depends
+Phase 1D: read-only endpoints. Phase 1E: attempt creation. Every route
+requires require_student() (which itself requires get_current_user()) and
+reads/writes through build_user_client(access_token) -- never
+get_supabase() -- so RLS stays the real access-control boundary. See
+app.services.assessment_service for the actual queries.
+"""
 
-from app.core.dependencies import get_current_student_id
-from app.database.supabase import get_supabase
-from app.schemas.assessment import SubmitAssessmentResult
-from app.services.assessment_service import submit_and_score_attempt
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException, status
+
+from app.core.dependencies import CurrentUser, require_student
+from app.core.security import build_user_client
+from app.schemas.assessment import (
+    AssessmentAttemptResponse,
+    AssessmentListResponse,
+    AssessmentQuestionResponse,
+    AssessmentResponse,
+)
+from app.services import assessment_service
 
 router = APIRouter(prefix="/assessments", tags=["assessments"])
 
 
-@router.post("/{attempt_id}/submit", response_model=SubmitAssessmentResult)
-def submit_assessment(
-    attempt_id: str,
-    student_id: str = Depends(get_current_student_id),
-) -> SubmitAssessmentResult:
-    """Authoritatively scores and completes the caller's own attempt.
+@router.get("", response_model=AssessmentListResponse)
+def list_assessments(
+    current_user: CurrentUser = Depends(require_student),
+) -> AssessmentListResponse:
+    client = build_user_client(current_user.access_token)
+    try:
+        rows = assessment_service.list_active_assessments(client)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not load assessments.",
+        ) from exc
+    return AssessmentListResponse(assessments=rows)
 
-    attempt_id comes from the URL path only to identify *which* attempt;
-    ownership is verified against the authenticated student_id (resolved
-    from the bearer token, never trusted from the request) inside
-    submit_and_score_attempt.
 
-    get_supabase() is called directly here (not as a second, sibling
-    Depends()) rather than in the function signature: by the time this
-    body runs, get_current_student_id has already proven a working
-    Supabase client is reachable, and get_supabase() is @lru_cache'd, so
-    this is a free cache hit, not a new construction attempt. Declaring
-    it as a sibling Depends() previously masked the auth check entirely
-    when Supabase was unconfigured — see the comment on
-    app.core.dependencies._resolve_supabase for the full explanation.
+@router.get("/{assessment_id}", response_model=AssessmentResponse)
+def get_assessment(
+    assessment_id: UUID,
+    current_user: CurrentUser = Depends(require_student),
+) -> AssessmentResponse:
+    client = build_user_client(current_user.access_token)
+    try:
+        row = assessment_service.get_active_assessment(client, assessment_id)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not load the assessment.",
+        ) from exc
+
+    if row is None:
+        # Same response whether the assessment never existed or exists but
+        # is inactive -- never reveal which.
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assessment not found.")
+
+    return AssessmentResponse(**row)
+
+
+@router.get("/{assessment_id}/questions", response_model=list[AssessmentQuestionResponse])
+def get_assessment_questions(
+    assessment_id: UUID,
+    current_user: CurrentUser = Depends(require_student),
+) -> list[AssessmentQuestionResponse]:
+    client = build_user_client(current_user.access_token)
+
+    try:
+        assessment = assessment_service.get_active_assessment(client, assessment_id)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not load the assessment.",
+        ) from exc
+
+    if assessment is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assessment not found.")
+
+    try:
+        questions = assessment_service.list_visible_questions(client, assessment_id)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not load the assessment's questions.",
+        ) from exc
+
+    return [AssessmentQuestionResponse(**question) for question in questions]
+
+
+@router.post(
+    "/{assessment_id}/attempts",
+    response_model=AssessmentAttemptResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_attempt(
+    assessment_id: UUID,
+    current_user: CurrentUser = Depends(require_student),
+) -> AssessmentAttemptResponse:
+    """Start a new attempt for the calling student.
+
+    No request body is accepted at all -- assessment_id comes from the
+    URL, student_id from current_user.id, and every other column
+    (status/score/total_marks/percentage/submitted_at) is either a fixed
+    server-controlled value or left for the DB's own defaults. There is no
+    field a client could inject here even by mistake.
     """
-    supabase = get_supabase()
-    return submit_and_score_attempt(supabase, attempt_id, student_id)
+    client = build_user_client(current_user.access_token)
+
+    try:
+        assessment = assessment_service.get_active_assessment(client, assessment_id)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not load the assessment.",
+        ) from exc
+
+    if assessment is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assessment not found.")
+
+    try:
+        row = assessment_service.create_attempt(client, current_user.id, assessment_id)
+    except assessment_service.DuplicateInProgressAttemptError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="You already have an in-progress attempt for this assessment.",
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not start the attempt.",
+        ) from exc
+
+    return AssessmentAttemptResponse(**row)

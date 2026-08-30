@@ -45,25 +45,42 @@ AIC-Portal/
 
 ## Local development
 
-**Frontend**
+**Frontend** (macOS/Linux/Windows — same commands)
 
 ```bash
 cd frontend
 npm install
-copy .env.example .env.local   # then fill in Supabase values
+cp .env.example .env.local     # macOS/Linux — on Windows: copy .env.example .env.local
+# then fill in the Supabase values
 npm run dev                     # http://localhost:3000
 ```
 
 **Backend**
 
+macOS/Linux:
+
 ```bash
+cd backend
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env            # then fill in Supabase/AI values
+uvicorn app.main:app --reload   # http://localhost:8000
+```
+
+Windows:
+
+```bat
 cd backend
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
-copy .env.example .env          # then fill in Supabase/AI values
-uvicorn app.main:app --reload --port 8000   # http://localhost:8000
+copy .env.example .env
+uvicorn app.main:app --reload
 ```
+
+See `backend/README.md` for the full backend setup, structure, and endpoint
+reference (including the `/docs` Swagger UI).
 
 **Or with Docker Compose**
 
@@ -73,6 +90,66 @@ docker compose up
 
 ## Environment variables
 
-See `frontend/.env.example` and `backend/.env.example`. Never commit `.env`
+See `frontend/.env.example` and `backend/.env.example` — copy each to
+`.env.local`/`.env` and fill in real values locally; the `.example` files
+themselves stay committed with variable *names* only. Never commit `.env`
 or `.env.local` files, and never expose `SUPABASE_SERVICE_ROLE_KEY` to the
 frontend.
+
+## CI
+
+`.github/workflows/ci.yml` runs on every push to `main`/`feature/**` and on
+every pull request into `main`:
+
+- **Frontend**: `npm ci` → `npm run lint` → `npm run build`
+- **Backend**: install `requirements-dev.txt` → `ruff check .` → import
+  check → `pytest`
+
+## Development workflow
+
+Before pushing:
+
+- Never commit `.env` or `.env.local` — copy from the matching `.env.example`.
+- Pull `main` before starting new work.
+- Run local checks before pushing:
+  - Frontend: `npm run lint && npm run build`
+  - Backend: `ruff check . && pytest`
+
+### Git workflow
+
+Three of us work on this simultaneously, so branch per task rather than
+committing straight to `main`. PR approval isn't required — merge your own
+branch once it's ready — but keeping work on a branch avoids stepping on
+each other's uncommitted changes.
+
+Before starting work:
+
+```bash
+git checkout main
+git pull origin main
+git checkout -b feature/my-task
+```
+
+During work:
+
+```bash
+git status
+git add .
+git commit -m "feat: description"
+```
+
+Push:
+
+```bash
+git push -u origin feature/my-task
+```
+
+Before merging:
+
+```bash
+git checkout main
+git pull origin main
+```
+
+Then merge your feature branch (via a fast local merge or a PR, whichever's
+convenient — no mandatory reviewers either way).

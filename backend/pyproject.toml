@@ -1,0 +1,15 @@
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+# app/schemas/*.py are pre-scaffolded ahead of their features and each
+# currently only imports BaseModel for a model that hasn't been written yet.
+[tool.ruff.lint.per-file-ignores]
+"app/schemas/*.py" = ["F401"]
+
+# Depends(...)/Header(...) in argument defaults is FastAPI's own documented
+# dependency-injection pattern, not the mutable-default-argument bug B008
+# exists to catch.
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Header", "fastapi.Query", "fastapi.Path"]
