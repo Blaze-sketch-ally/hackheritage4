@@ -55,12 +55,26 @@ def save_answer(
 
     Validation order matches ownership/state before content: the attempt
     must exist and belong to the caller, then be IN_PROGRESS, then the
-    question must exist, belong to the attempt's own assessment, and be
-    eligible (approved/active/OBJECTIVE) -- only then is the answer
-    itself written. AssessmentAnswerRequest's own extra="forbid" already
-    makes awarded_marks/is_correct/attempt ownership impossible for a
-    client to submit; this function never reads a student_id from the
-    request at all, only current_user.id.
+    question must be part of THIS ATTEMPT'S PERSISTED selection
+    (assessment_attempt_questions) -- only then is the answer itself
+    written. AssessmentAnswerRequest's own extra="forbid" already makes
+    awarded_marks/is_correct/attempt ownership impossible for a client to
+    submit; this function never reads a student_id from the request at
+    all, only current_user.id.
+
+    Phase 1K bug fix: this used to check the question's CURRENT
+    review_status/is_active/scoring_method (get_visible_question, a Phase
+    1F live-eligibility check never revisited for Phase 1K). That let a
+    question deactivated after being selected into an attempt become
+    permanently unanswerable through that attempt, even though scoring
+    and results both already treat the persisted selection as
+    authoritative regardless of later deactivation -- a real conflict
+    with the central Phase 1K invariant. Now uses
+    is_question_in_attempt(), which checks attempt membership only, never
+    live eligibility -- a question not selected into this attempt is
+    still correctly rejected (this is a membership check, not a relaxed
+    one), but a selected-then-deactivated question stays answerable
+    through the attempt it was persisted into.
     """
     client = build_user_client(current_user.access_token)
 
@@ -84,8 +98,8 @@ def save_answer(
         )
 
     try:
-        question = assessment_service.get_visible_question(
-            client, UUID(attempt["assessment_id"]), body.question_id
+        belongs_to_attempt = assessment_service.is_question_in_attempt(
+            client, attempt_id, body.question_id
         )
     except Exception as exc:
         raise HTTPException(
@@ -93,10 +107,9 @@ def save_answer(
             detail="Could not load the question.",
         ) from exc
 
-    if question is None:
-        # Same response whether the question doesn't exist, belongs to a
-        # different assessment, or isn't currently eligible -- never
-        # reveal which.
+    if not belongs_to_attempt:
+        # Same response whether the question doesn't exist or simply
+        # wasn't selected into this attempt -- never reveal which.
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found.")
 
     try:
@@ -114,6 +127,59 @@ def save_answer(
         ) from exc
 
     return AssessmentAnswerResponse(**row)
+
+
+@router.get("/{attempt_id}/questions", response_model=list[AssessmentQuestionResponse])
+def get_attempt_questions(
+    attempt_id: UUID,
+    current_user: CurrentUser = Depends(require_student),
+) -> list[AssessmentQuestionResponse]:
+    """The persisted question set selected for the calling student's own
+    attempt (Phase 1K) -- the taking UI's source of truth. A page refresh
+    calls this again and gets the identical set every time, since nothing
+    here is re-randomized after attempt creation; see
+    assessment_service.get_attempt_questions and
+    015_question_bank_random_assessment.sql.
+
+    Same hard-failure posture as get_attempt_result: if a selected
+    question's current content is no longer RLS-visible (deactivated
+    after being selected into this attempt), that is a 500, never a
+    silently shorter question list.
+    """
+    client = build_user_client(current_user.access_token)
+
+    try:
+        attempt = assessment_service.get_own_attempt(client, current_user.id, attempt_id)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not load the attempt.",
+        ) from exc
+
+    if attempt is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attempt not found.")
+
+    try:
+        rows = assessment_service.get_attempt_questions(client, attempt_id)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not load the attempt's questions.",
+        ) from exc
+
+    questions: list[AssessmentQuestionResponse] = []
+    for row in rows:
+        question = row.get("question")
+        if question is None:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Could not load one of this attempt's questions.",
+            )
+        question["options"] = sorted(
+            question.get("options") or [], key=lambda option: option["display_order"]
+        )
+        questions.append(AssessmentQuestionResponse(**question))
+    return questions
 
 
 @router.post("/{attempt_id}/submit", response_model=AssessmentAttemptResponse)
@@ -163,11 +229,7 @@ def submit_attempt(
         )
 
     try:
-        assessment_id = UUID(attempt["assessment_id"])
-        eligible_question_ids = {
-            question["id"]
-            for question in assessment_service.list_visible_questions(client, assessment_id)
-        }
+        eligible_question_ids = assessment_service.get_attempt_question_ids(client, attempt_id)
         answered_question_ids = assessment_service.get_answered_question_ids(client, attempt_id)
     except Exception as exc:
         raise HTTPException(
@@ -175,10 +237,15 @@ def submit_attempt(
             detail="Could not verify submission eligibility.",
         ) from exc
 
-    # Vacuously satisfied when eligible_question_ids is empty -- an
-    # assessment with zero currently-eligible questions has nothing to
-    # require an answer for, matching how Phase 1D already treats a
-    # zero-question assessment as a normal (not exceptional) state.
+    # Phase 1K: eligible_question_ids is this attempt's own PERSISTED
+    # selection (assessment_attempt_questions), never the assessment's
+    # current live-eligible pool -- a blueprint-driven attempt only ever
+    # contains a subset of that pool, so comparing against the live pool
+    # would incorrectly demand answers to questions never part of this
+    # attempt. Vacuously satisfied when eligible_question_ids is empty
+    # (shouldn't happen for a Phase 1K attempt with a real blueprint, but
+    # matches how Phase 1D already treated a zero-question assessment as
+    # a normal, not exceptional, state).
     if not eligible_question_ids.issubset(answered_question_ids):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

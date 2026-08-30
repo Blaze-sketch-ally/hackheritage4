@@ -51,5 +51,6 @@ def authenticated_as(role: str | None, user_id: str = "student-1"):
         patch("app.core.dependencies.build_user_client", return_value=client),
         patch("app.api.assessments.build_user_client", return_value=client),
         patch("app.api.attempts.build_user_client", return_value=client),
+        patch("app.api.questions.build_user_client", return_value=client),
     ):
         yield

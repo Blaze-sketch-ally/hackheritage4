@@ -129,26 +129,37 @@ def test_service_get_own_attempt_filters_id_and_student_id():
     eq1.return_value.eq.assert_called_once_with("student_id", "student-1")
 
 
-def test_service_get_visible_question_filters_all_eligibility_conditions():
+def test_service_is_question_in_attempt_checks_membership_not_eligibility():
+    """Phase 1K bug fix: this queries assessment_attempt_questions (attempt
+    membership) -- it must NOT query assessment_questions or reference
+    review_status/is_active/scoring_method at all. A question's current
+    eligibility is irrelevant once it's part of a persisted attempt."""
     mock_client = MagicMock()
     query = mock_client.table.return_value.select.return_value
     query.eq.return_value = query
     response = MagicMock()
-    response.data = {"id": "q1"}
+    response.data = {"question_id": "q1"}
     query.maybe_single.return_value.execute.return_value = response
 
     question_id = uuid4()
-    assessment_id = uuid4()
-    assessment_service.get_visible_question(mock_client, assessment_id, question_id)
+    attempt_id = uuid4()
+    result = assessment_service.is_question_in_attempt(mock_client, attempt_id, question_id)
 
-    mock_client.table.assert_called_once_with("assessment_questions")
+    mock_client.table.assert_called_once_with("assessment_attempt_questions")
     assert query.eq.call_args_list == [
-        (("id", str(question_id)), {}),
-        (("assessment_id", str(assessment_id)), {}),
-        (("review_status", "APPROVED"), {}),
-        (("is_active", True), {}),
-        (("scoring_method", "OBJECTIVE"), {}),
+        (("attempt_id", str(attempt_id)), {}),
+        (("question_id", str(question_id)), {}),
     ]
+    assert result is True
+
+
+def test_service_is_question_in_attempt_returns_false_when_not_a_member():
+    mock_client = MagicMock()
+    query = mock_client.table.return_value.select.return_value
+    query.eq.return_value = query
+    query.maybe_single.return_value.execute.return_value = None
+
+    assert assessment_service.is_question_in_attempt(mock_client, uuid4(), uuid4()) is False
 
 
 def test_service_save_answer_inserts_when_no_existing_answer():
@@ -327,7 +338,7 @@ def test_save_answer_in_progress_own_attempt_allowed():
     with (
         authenticated_as("STUDENT"),
         patch.object(assessment_service, "get_own_attempt", return_value=attempt_row),
-        patch.object(assessment_service, "get_visible_question", return_value={"id": str(question_id)}),
+        patch.object(assessment_service, "is_question_in_attempt", return_value=True),
         patch.object(
             assessment_service,
             "save_answer",
@@ -354,7 +365,7 @@ def test_save_answer_nonexistent_question_returns_404():
         patch.object(
             assessment_service, "get_own_attempt", return_value=_row_attempt(id=str(attempt_id))
         ),
-        patch.object(assessment_service, "get_visible_question", return_value=None),
+        patch.object(assessment_service, "is_question_in_attempt", return_value=False),
     ):
         response = client.post(
             _answers_url(attempt_id),
@@ -364,17 +375,23 @@ def test_save_answer_nonexistent_question_returns_404():
     assert response.status_code == 404
 
 
-def test_save_answer_question_from_another_assessment_returns_404():
-    # get_visible_question filters by the attempt's OWN assessment_id -- a
-    # question belonging to a different assessment is indistinguishable
-    # from a nonexistent one, by design.
+def test_save_answer_question_not_selected_into_this_attempt_returns_404():
+    # is_question_in_attempt checks membership in THIS attempt's persisted
+    # assessment_attempt_questions -- a question that was never selected
+    # into it (whether it belongs to a different assessment, was never
+    # approved, or simply wasn't drawn by the blueprint) is indistinguishable
+    # from a nonexistent one, by design. Phase 1K bug-fix note: this is no
+    # longer a live eligibility check (see is_question_in_attempt's own
+    # docstring) -- it is a pure membership check.
     attempt_id = uuid4()
     with (
         authenticated_as("STUDENT"),
         patch.object(
             assessment_service, "get_own_attempt", return_value=_row_attempt(id=str(attempt_id))
         ),
-        patch.object(assessment_service, "get_visible_question", return_value=None) as mock_get_q,
+        patch.object(
+            assessment_service, "is_question_in_attempt", return_value=False
+        ) as mock_is_member,
     ):
         response = client.post(
             _answers_url(attempt_id),
@@ -382,27 +399,40 @@ def test_save_answer_question_from_another_assessment_returns_404():
             headers={"Authorization": "Bearer token"},
         )
     assert response.status_code == 404
-    mock_get_q.assert_called_once()
+    mock_is_member.assert_called_once()
 
 
-def test_save_answer_ai_evaluated_question_returns_404():
-    """get_visible_question filters scoring_method = OBJECTIVE, so an
-    AI_EVALUATED question -- Phase 1 has no scoring path for it -- is
-    unreachable through this endpoint, same as a nonexistent question."""
+def test_save_answer_deactivated_but_selected_question_is_still_answerable():
+    """Phase 1K bug fix (the actual regression this fixes): a question
+    that WAS selected into this attempt remains answerable even after
+    being deactivated -- is_question_in_attempt checks persisted
+    membership only, never the question's current is_active/review_status.
+    AI_EVALUATED exclusion also no longer needs a save-time check: it's
+    enforced once, at selection time, inside create_assessment_attempt()
+    (scoring_method = 'OBJECTIVE' in its own eligible-question query) --
+    an AI_EVALUATED question can never become a member of any persisted
+    attempt in the first place, so there is nothing left for save_answer
+    to separately guard against."""
     attempt_id = uuid4()
+    question_id = uuid4()
     with (
         authenticated_as("STUDENT"),
         patch.object(
             assessment_service, "get_own_attempt", return_value=_row_attempt(id=str(attempt_id))
         ),
-        patch.object(assessment_service, "get_visible_question", return_value=None),
+        patch.object(assessment_service, "is_question_in_attempt", return_value=True),
+        patch.object(
+            assessment_service,
+            "save_answer",
+            return_value=_row_answer(attempt_id=str(attempt_id), question_id=str(question_id)),
+        ),
     ):
         response = client.post(
             _answers_url(attempt_id),
-            json=_valid_body(uuid4()),
+            json=_valid_body(question_id),
             headers={"Authorization": "Bearer token"},
         )
-    assert response.status_code == 404
+    assert response.status_code == 200
 
 
 # ============================================================
@@ -461,7 +491,7 @@ def test_save_answer_updated_answer_preserves_attempt_and_question():
         patch.object(
             assessment_service, "get_own_attempt", return_value=_row_attempt(id=str(attempt_id))
         ),
-        patch.object(assessment_service, "get_visible_question", return_value={"id": str(question_id)}),
+        patch.object(assessment_service, "is_question_in_attempt", return_value=True),
         patch.object(
             assessment_service,
             "save_answer",
@@ -513,7 +543,7 @@ def test_save_answer_response_has_no_answer_key_fields():
         patch.object(
             assessment_service, "get_own_attempt", return_value=_row_attempt(id=str(attempt_id))
         ),
-        patch.object(assessment_service, "get_visible_question", return_value={"id": str(question_id)}),
+        patch.object(assessment_service, "is_question_in_attempt", return_value=True),
         patch.object(
             assessment_service,
             "save_answer",
@@ -555,7 +585,7 @@ def test_save_answer_uses_user_scoped_client_not_service_role():
             assessment_service, "get_own_attempt", return_value=_row_attempt(id=str(attempt_id))
         ) as mock_get_attempt,
         patch.object(
-            assessment_service, "get_visible_question", return_value={"id": str(question_id)}
+            assessment_service, "is_question_in_attempt", return_value=True
         ) as mock_get_question,
         patch.object(
             assessment_service,
@@ -587,7 +617,7 @@ def test_save_answer_unexpected_failure_returns_clean_500():
         patch.object(
             assessment_service, "get_own_attempt", return_value=_row_attempt(id=str(attempt_id))
         ),
-        patch.object(assessment_service, "get_visible_question", return_value={"id": str(question_id)}),
+        patch.object(assessment_service, "is_question_in_attempt", return_value=True),
         patch.object(
             assessment_service,
             "save_answer",
@@ -824,7 +854,7 @@ def test_submit_all_eligible_answered_succeeds():
         patch.object(
             assessment_service, "get_own_attempt", return_value=_row_attempt(id=str(attempt_id))
         ),
-        patch.object(assessment_service, "list_visible_questions", return_value=[q1, q2]),
+        patch.object(assessment_service, "get_attempt_question_ids", return_value={q1["id"], q2["id"]}),
         patch.object(
             assessment_service,
             "get_answered_question_ids",
@@ -848,7 +878,7 @@ def test_submit_one_unanswered_eligible_question_returns_400():
         patch.object(
             assessment_service, "get_own_attempt", return_value=_row_attempt(id=str(attempt_id))
         ),
-        patch.object(assessment_service, "list_visible_questions", return_value=[q1, q2]),
+        patch.object(assessment_service, "get_attempt_question_ids", return_value={q1["id"], q2["id"]}),
         patch.object(
             assessment_service, "get_answered_question_ids", return_value={q1["id"]}
         ),
@@ -867,7 +897,7 @@ def test_submit_multiple_unanswered_eligible_questions_returns_400():
         patch.object(
             assessment_service, "get_own_attempt", return_value=_row_attempt(id=str(attempt_id))
         ),
-        patch.object(assessment_service, "list_visible_questions", return_value=[q1, q2, q3]),
+        patch.object(assessment_service, "get_attempt_question_ids", return_value={q1["id"], q2["id"], q3["id"]}),
         patch.object(assessment_service, "get_answered_question_ids", return_value=set()),
         patch.object(assessment_service, "mark_attempt_submitted") as mock_mark,
     ):
@@ -888,7 +918,7 @@ def test_submit_answers_from_another_assessment_do_not_satisfy_completeness():
         patch.object(
             assessment_service, "get_own_attempt", return_value=_row_attempt(id=str(attempt_id))
         ),
-        patch.object(assessment_service, "list_visible_questions", return_value=[q1]),
+        patch.object(assessment_service, "get_attempt_question_ids", return_value={q1["id"]}),
         patch.object(
             assessment_service,
             "get_answered_question_ids",
@@ -911,7 +941,7 @@ def test_submit_ineligible_extra_answers_do_not_block_submission():
         patch.object(
             assessment_service, "get_own_attempt", return_value=_row_attempt(id=str(attempt_id))
         ),
-        patch.object(assessment_service, "list_visible_questions", return_value=[q1]),
+        patch.object(assessment_service, "get_attempt_question_ids", return_value={q1["id"]}),
         patch.object(
             assessment_service,
             "get_answered_question_ids",
@@ -938,7 +968,7 @@ def test_submit_zero_eligible_questions_succeeds_vacuously():
         patch.object(
             assessment_service, "get_own_attempt", return_value=_row_attempt(id=str(attempt_id))
         ),
-        patch.object(assessment_service, "list_visible_questions", return_value=[]),
+        patch.object(assessment_service, "get_attempt_question_ids", return_value=set()),
         patch.object(assessment_service, "get_answered_question_ids", return_value=set()),
         patch.object(
             assessment_service,
@@ -971,7 +1001,7 @@ def test_submit_success_response_has_correct_fields():
         patch.object(
             assessment_service, "get_own_attempt", return_value=_row_attempt(id=str(attempt_id))
         ),
-        patch.object(assessment_service, "list_visible_questions", return_value=[q1]),
+        patch.object(assessment_service, "get_attempt_question_ids", return_value={q1["id"]}),
         patch.object(
             assessment_service, "get_answered_question_ids", return_value={q1["id"]}
         ),
@@ -1017,7 +1047,7 @@ def test_submit_ignores_client_supplied_body_entirely():
         patch.object(
             assessment_service, "get_own_attempt", return_value=_row_attempt(id=str(attempt_id))
         ),
-        patch.object(assessment_service, "list_visible_questions", return_value=[q1]),
+        patch.object(assessment_service, "get_attempt_question_ids", return_value={q1["id"]}),
         patch.object(
             assessment_service, "get_answered_question_ids", return_value={q1["id"]}
         ),
@@ -1046,7 +1076,7 @@ def test_submit_response_has_no_answer_key_fields():
         patch.object(
             assessment_service, "get_own_attempt", return_value=_row_attempt(id=str(attempt_id))
         ),
-        patch.object(assessment_service, "list_visible_questions", return_value=[q1]),
+        patch.object(assessment_service, "get_attempt_question_ids", return_value={q1["id"]}),
         patch.object(
             assessment_service, "get_answered_question_ids", return_value={q1["id"]}
         ),
@@ -1084,7 +1114,7 @@ def test_submit_uses_user_scoped_client_not_service_role():
             assessment_service, "get_own_attempt", return_value=_row_attempt(id=str(attempt_id))
         ) as mock_get_attempt,
         patch.object(
-            assessment_service, "list_visible_questions", return_value=[q1]
+            assessment_service, "get_attempt_question_ids", return_value={q1["id"]}
         ) as mock_list_questions,
         patch.object(
             assessment_service, "get_answered_question_ids", return_value={q1["id"]}
@@ -1126,7 +1156,7 @@ def test_submit_never_queries_answer_key_table():
         patch.object(
             assessment_service, "get_own_attempt", return_value=_row_attempt(id=str(attempt_id))
         ),
-        patch.object(assessment_service, "list_visible_questions", return_value=[q1]),
+        patch.object(assessment_service, "get_attempt_question_ids", return_value={q1["id"]}),
         patch.object(
             assessment_service, "get_answered_question_ids", return_value={q1["id"]}
         ),
@@ -1183,7 +1213,7 @@ def test_submit_incomplete_does_not_call_mark_submitted():
         patch.object(
             assessment_service, "get_own_attempt", return_value=_row_attempt(id=str(attempt_id))
         ),
-        patch.object(assessment_service, "list_visible_questions", return_value=[q1, q2]),
+        patch.object(assessment_service, "get_attempt_question_ids", return_value={q1["id"], q2["id"]}),
         patch.object(
             assessment_service, "get_answered_question_ids", return_value={q1["id"]}
         ),
@@ -1202,7 +1232,7 @@ def test_submit_database_update_failure_returns_clean_500():
         patch.object(
             assessment_service, "get_own_attempt", return_value=_row_attempt(id=str(attempt_id))
         ),
-        patch.object(assessment_service, "list_visible_questions", return_value=[q1]),
+        patch.object(assessment_service, "get_attempt_question_ids", return_value={q1["id"]}),
         patch.object(
             assessment_service, "get_answered_question_ids", return_value={q1["id"]}
         ),
@@ -1232,7 +1262,7 @@ def test_submit_race_loss_returns_409_not_fabricated_success():
         patch.object(
             assessment_service, "get_own_attempt", return_value=_row_attempt(id=str(attempt_id))
         ),
-        patch.object(assessment_service, "list_visible_questions", return_value=[q1]),
+        patch.object(assessment_service, "get_attempt_question_ids", return_value={q1["id"]}),
         patch.object(
             assessment_service, "get_answered_question_ids", return_value={q1["id"]}
         ),
@@ -2488,3 +2518,166 @@ def test_service_get_attempt_result_rows_handles_no_answers():
     fake_client = _FakeResultClient([], [])
     rows = assessment_service.get_attempt_result_rows(fake_client, uuid4())
     assert rows == []
+
+
+# ============================================================
+# Phase 1K -- GET /attempts/{id}/questions (persisted, per-attempt
+# randomized selection)
+# ============================================================
+
+
+def _questions_url(attempt_id) -> str:
+    return f"/api/v1/attempts/{attempt_id}/questions"
+
+
+_UNSET = object()
+
+
+def _attempt_question_row(display_order=0, question=_UNSET):
+    # A sentinel default, not None: callers must be able to explicitly
+    # pass question=None (the "deactivated after selection" case) and have
+    # it actually land in the row, distinct from "didn't specify one."
+    if question is _UNSET:
+        question = _result_question()
+    return {"display_order": display_order, "question": question}
+
+
+def test_get_attempt_questions_missing_token_returns_401():
+    response = client.get(_questions_url(uuid4()))
+    assert response.status_code == 401
+
+
+def test_get_attempt_questions_nonexistent_or_not_owned_returns_404():
+    with (
+        authenticated_as("STUDENT"),
+        patch.object(assessment_service, "get_own_attempt", return_value=None),
+    ):
+        response = client.get(_questions_url(uuid4()), headers={"Authorization": "Bearer token"})
+    assert response.status_code == 404
+
+
+def test_get_attempt_questions_returns_persisted_set_ordered_by_display_order():
+    """The core Phase 1K contract: this endpoint returns exactly what was
+    persisted at attempt-creation time, in display_order -- never
+    re-derived from current eligibility."""
+    attempt_id = uuid4()
+    q_first = _result_question(question_text="first", display_order=0)
+    q_second = _result_question(question_text="second", display_order=1)
+    rows = [
+        _attempt_question_row(display_order=0, question=q_first),
+        _attempt_question_row(display_order=1, question=q_second),
+    ]
+    with (
+        authenticated_as("STUDENT"),
+        patch.object(
+            assessment_service, "get_own_attempt", return_value=_row_attempt(id=str(attempt_id))
+        ),
+        patch.object(assessment_service, "get_attempt_questions", return_value=rows),
+    ):
+        response = client.get(
+            _questions_url(attempt_id), headers={"Authorization": "Bearer token"}
+        )
+
+    assert response.status_code == 200
+    texts = [q["question_text"] for q in response.json()]
+    assert texts == ["first", "second"]
+
+
+def test_get_attempt_questions_returns_identical_set_on_repeated_calls():
+    """Simulates a page refresh: calling the endpoint twice against an
+    unchanged persisted selection must return the identical question set
+    both times -- the mock's return value never varies between calls,
+    modeling that assessment_attempt_questions is never re-generated."""
+    attempt_id = uuid4()
+    question = _result_question(id=str(uuid4()))
+    rows = [_attempt_question_row(display_order=0, question=question)]
+    with (
+        authenticated_as("STUDENT"),
+        patch.object(
+            assessment_service, "get_own_attempt", return_value=_row_attempt(id=str(attempt_id))
+        ),
+        patch.object(assessment_service, "get_attempt_questions", return_value=rows),
+    ):
+        first = client.get(_questions_url(attempt_id), headers={"Authorization": "Bearer token"})
+        second = client.get(_questions_url(attempt_id), headers={"Authorization": "Bearer token"})
+
+    assert first.json() == second.json()
+
+
+def test_get_attempt_questions_missing_question_embed_returns_500_not_partial_list():
+    """A selected question whose current content is no longer RLS-visible
+    (deactivated after selection) must be a hard failure, mirroring
+    get_attempt_result's own documented posture -- never a silently
+    shorter question list."""
+    attempt_id = uuid4()
+    rows = [_attempt_question_row(display_order=0, question=None)]
+    with (
+        authenticated_as("STUDENT"),
+        patch.object(
+            assessment_service, "get_own_attempt", return_value=_row_attempt(id=str(attempt_id))
+        ),
+        patch.object(assessment_service, "get_attempt_questions", return_value=rows),
+    ):
+        response = client.get(
+            _questions_url(attempt_id), headers={"Authorization": "Bearer token"}
+        )
+    assert response.status_code == 500
+
+
+def test_get_attempt_questions_never_exposes_answer_key_fields():
+    attempt_id = uuid4()
+    rows = [_attempt_question_row(display_order=0)]
+    with (
+        authenticated_as("STUDENT"),
+        patch.object(
+            assessment_service, "get_own_attempt", return_value=_row_attempt(id=str(attempt_id))
+        ),
+        patch.object(assessment_service, "get_attempt_questions", return_value=rows),
+    ):
+        response = client.get(
+            _questions_url(attempt_id), headers={"Authorization": "Bearer token"}
+        )
+    body_text = response.text
+    for forbidden in ("correct_option_ids", "correct_answer_text", "explanation"):
+        assert forbidden not in body_text
+
+
+def test_get_attempt_questions_uses_build_user_client_never_service_role():
+    """Unlike create_attempt, this is an ordinary owned read -- RLS
+    ("Students can view their own attempt's selected questions") is
+    sufficient; no service-role escalation needed."""
+    attempt_id = uuid4()
+    sentinel_client = object()
+    rows = [_attempt_question_row(display_order=0)]
+    with (
+        authenticated_as("STUDENT"),
+        patch("app.api.attempts.build_user_client", return_value=sentinel_client),
+        patch.object(
+            assessment_service, "get_own_attempt", return_value=_row_attempt(id=str(attempt_id))
+        ) as mock_get_attempt,
+        patch.object(
+            assessment_service, "get_attempt_questions", return_value=rows
+        ) as mock_get_questions,
+    ):
+        client.get(_questions_url(attempt_id), headers={"Authorization": "Bearer token"})
+
+    assert mock_get_attempt.call_args[0][0] is sentinel_client
+    assert mock_get_questions.call_args[0][0] is sentinel_client
+
+
+def test_service_get_attempt_questions_filters_and_orders_by_attempt_id():
+    mock_client = MagicMock()
+    response = MagicMock()
+    response.data = [_attempt_question_row(display_order=0)]
+    mock_client.table.return_value.select.return_value.eq.return_value.order.return_value.execute.return_value = response
+
+    attempt_id = uuid4()
+    assessment_service.get_attempt_questions(mock_client, attempt_id)
+
+    mock_client.table.assert_called_once_with("assessment_attempt_questions")
+    mock_client.table.return_value.select.return_value.eq.assert_called_once_with(
+        "attempt_id", str(attempt_id)
+    )
+    mock_client.table.return_value.select.return_value.eq.return_value.order.assert_called_once_with(
+        "display_order"
+    )

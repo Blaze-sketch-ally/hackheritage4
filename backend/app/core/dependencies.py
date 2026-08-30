@@ -69,3 +69,18 @@ def require_student(current_user: CurrentUser = Depends(get_current_user)) -> Cu
             detail="This action requires the STUDENT role.",
         )
     return current_user
+
+
+def require_faculty(current_user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
+    """Role guard: only FACULTY accounts may proceed. Phase 1K's
+    question-bank/review/blueprint routes use this the same way every
+    student-facing route uses require_student -- an app-layer check that
+    complements, not replaces, the RLS/trigger enforcement in
+    015_question_bank_random_assessment.sql (e.g. is_faculty(auth.uid())
+    inside every relevant policy)."""
+    if current_user.role != "FACULTY":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This action requires the FACULTY role.",
+        )
+    return current_user

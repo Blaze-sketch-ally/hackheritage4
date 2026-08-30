@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 
 const {
   getAssessment,
-  getAssessmentQuestions,
+  getAttemptQuestions,
   createAttempt,
   saveAnswer,
   submitAttempt,
@@ -12,7 +12,7 @@ const {
   getAttemptResult,
 } = vi.hoisted(() => ({
   getAssessment: vi.fn(),
-  getAssessmentQuestions: vi.fn(),
+  getAttemptQuestions: vi.fn(),
   createAttempt: vi.fn(),
   saveAnswer: vi.fn(),
   submitAttempt: vi.fn(),
@@ -27,7 +27,7 @@ vi.mock("@/lib/student/assessment", async () => {
   return {
     ...actual,
     getAssessment,
-    getAssessmentQuestions,
+    getAttemptQuestions,
     createAttempt,
     saveAnswer,
     submitAttempt,
@@ -38,7 +38,7 @@ vi.mock("@/lib/student/assessment", async () => {
 
 import { AssessmentTakingView } from "@/components/student/assessment/assessment-taking-view";
 import { ApiError } from "@/lib/api";
-import { clearStoredAttempt } from "@/lib/student/assessment-session";
+import { clearStoredAttempt, saveStoredAttempt } from "@/lib/student/assessment-session";
 
 const ASSESSMENT_ID = "assessment-1";
 
@@ -96,7 +96,7 @@ describe("AssessmentTakingView", () => {
 
   it("shows the start screen, then creates an attempt and moves to taking", async () => {
     getAssessment.mockResolvedValue(assessment);
-    getAssessmentQuestions.mockResolvedValue([question]);
+    getAttemptQuestions.mockResolvedValue([question]);
     createAttempt.mockResolvedValue(attemptRow());
 
     render(<AssessmentTakingView assessmentId={ASSESSMENT_ID} />);
@@ -109,9 +109,31 @@ describe("AssessmentTakingView", () => {
     expect(screen.getByText(question.question_text)).toBeInTheDocument();
   });
 
+  it("on refresh (a stored attempt already exists), fetches the SAME persisted question set via getAttemptQuestions and never starts a new attempt", async () => {
+    getAssessment.mockResolvedValue(assessment);
+    getAttemptQuestions.mockResolvedValue([question]);
+    saveStoredAttempt({ assessmentId: ASSESSMENT_ID, attemptId: "attempt-1", answers: {} });
+
+    render(<AssessmentTakingView assessmentId={ASSESSMENT_ID} />);
+
+    expect(await screen.findByText("Question 1 of 1")).toBeInTheDocument();
+    expect(getAttemptQuestions).toHaveBeenCalledWith("attempt-1");
+    expect(createAttempt).not.toHaveBeenCalled();
+  });
+
+  it("clears a stale stored attempt (404 from getAttemptQuestions) and falls back to ready-to-start", async () => {
+    getAssessment.mockResolvedValue(assessment);
+    getAttemptQuestions.mockRejectedValue(new ApiError(404, "Attempt not found."));
+    saveStoredAttempt({ assessmentId: ASSESSMENT_ID, attemptId: "stale-attempt", answers: {} });
+
+    render(<AssessmentTakingView assessmentId={ASSESSMENT_ID} />);
+
+    expect(await screen.findByRole("button", { name: /start assessment/i })).toBeInTheDocument();
+  });
+
   it("shows an honest, unrecoverable message on 409 without fabricating an attempt id", async () => {
     getAssessment.mockResolvedValue(assessment);
-    getAssessmentQuestions.mockResolvedValue([question]);
+    getAttemptQuestions.mockResolvedValue([question]);
     createAttempt.mockRejectedValue(new ApiError(409, "You already have an in-progress attempt for this assessment."));
 
     render(<AssessmentTakingView assessmentId={ASSESSMENT_ID} />);
@@ -125,7 +147,7 @@ describe("AssessmentTakingView", () => {
 
   it("saves an MCQ answer through the API and marks it answered in progress", async () => {
     getAssessment.mockResolvedValue(assessment);
-    getAssessmentQuestions.mockResolvedValue([question]);
+    getAttemptQuestions.mockResolvedValue([question]);
     createAttempt.mockResolvedValue(attemptRow());
     saveAnswer.mockResolvedValue({
       id: "ans1",
@@ -156,7 +178,7 @@ describe("AssessmentTakingView", () => {
 
   it("full happy path: submit -> score -> result, displaying only backend-provided values", async () => {
     getAssessment.mockResolvedValue(assessment);
-    getAssessmentQuestions.mockResolvedValue([question]);
+    getAttemptQuestions.mockResolvedValue([question]);
     createAttempt.mockResolvedValue(attemptRow());
     saveAnswer.mockResolvedValue({
       id: "ans1",
@@ -234,7 +256,7 @@ describe("AssessmentTakingView", () => {
 
   it("a scoring failure lets the student retry without re-submitting", async () => {
     getAssessment.mockResolvedValue(assessment);
-    getAssessmentQuestions.mockResolvedValue([question]);
+    getAttemptQuestions.mockResolvedValue([question]);
     createAttempt.mockResolvedValue(attemptRow());
     saveAnswer.mockResolvedValue({
       id: "ans1",

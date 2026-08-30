@@ -13,7 +13,7 @@ import { ApiError } from "@/lib/api";
 import {
   createAttempt,
   getAssessment,
-  getAssessmentQuestions,
+  getAttemptQuestions,
   getAttemptResult,
   saveAnswer,
   scoreAttempt,
@@ -81,34 +81,56 @@ export function AssessmentTakingView({ assessmentId }: { assessmentId: string })
   const processingInFlightRef = useRef(false);
   const [processingError, setProcessingError] = useState<ProcessingError | null>(null);
 
-  // ---- Initial load: assessment metadata + questions, then decide
-  // whether a recoverable attempt already exists for this tab/session. ----
+  // ---- Initial load: assessment metadata, then decide whether a
+  // recoverable attempt already exists for this tab/session. Phase 1K:
+  // the question SET itself doesn't exist until an attempt is created
+  // (server-side randomized selection, persisted per attempt) -- so
+  // unlike before Phase 1K, this effect does NOT fetch questions for the
+  // pre-start screen at all. If a stored attempt is found, its questions
+  // are fetched via getAttemptQuestions(attemptId) -- the persisted,
+  // attempt-scoped set -- which is exactly what makes a page refresh
+  // return the SAME questions every time: nothing here can re-trigger
+  // random selection, since that only ever happens once, inside
+  // createAttempt/handleStart below. ----
   useEffect(() => {
     let cancelled = false;
 
     async function load() {
       try {
-        const [assessmentData, questionData] = await Promise.all([
-          getAssessment(assessmentId),
-          getAssessmentQuestions(assessmentId),
-        ]);
+        const assessmentData = await getAssessment(assessmentId);
         if (cancelled) return;
         setAssessment(assessmentData);
-        setQuestions(questionData);
 
         const stored = loadStoredAttempt(assessmentId);
         if (stored) {
-          attemptIdRef.current = stored.attemptId;
-          setAnswers(stored.answers);
-          const confirmed = new Set(Object.keys(stored.answers));
-          setConfirmedIds(confirmed);
-          const states: Record<string, AnswerSaveState> = {};
-          for (const qid of confirmed) states[qid] = "saved";
-          setSaveStates(states);
-          setStage({ name: "taking" });
-        } else {
-          setStage({ name: "ready-to-start" });
+          try {
+            const questionData = await getAttemptQuestions(stored.attemptId);
+            if (cancelled) return;
+            setQuestions(questionData);
+            attemptIdRef.current = stored.attemptId;
+            setAnswers(stored.answers);
+            const confirmed = new Set(Object.keys(stored.answers));
+            setConfirmedIds(confirmed);
+            const states: Record<string, AnswerSaveState> = {};
+            for (const qid of confirmed) states[qid] = "saved";
+            setSaveStates(states);
+            setStage({ name: "taking" });
+            return;
+          } catch (err) {
+            if (cancelled) return;
+            if (err instanceof ApiError && err.status === 404) {
+              // The stored attempt id no longer resolves to anything this
+              // account can see (e.g. stale local cache) -- clear it and
+              // fall through to a fresh "ready to start" rather than
+              // showing a hard error for what is really just stale data.
+              clearStoredAttempt(assessmentId);
+            } else {
+              setStage({ name: "load-error", message: friendlyMessage(err) });
+              return;
+            }
+          }
         }
+        setStage({ name: "ready-to-start" });
       } catch (err) {
         if (cancelled) return;
         setStage({
@@ -132,7 +154,12 @@ export function AssessmentTakingView({ assessmentId }: { assessmentId: string })
     setStartError(null);
     try {
       const attempt = await createAttempt(assessmentId);
+      // The randomized selection was already persisted server-side inside
+      // createAttempt() -- this fetch just retrieves it, it does not
+      // trigger a second selection.
+      const questionData = await getAttemptQuestions(attempt.id);
       attemptIdRef.current = attempt.id;
+      setQuestions(questionData);
       saveStoredAttempt({ assessmentId, attemptId: attempt.id, answers: {} });
       setStage({ name: "taking" });
     } catch (err) {
@@ -261,7 +288,9 @@ export function AssessmentTakingView({ assessmentId }: { assessmentId: string })
           {assessment?.duration_minutes != null && (
             <Badge variant="outline">{assessment.duration_minutes} min</Badge>
           )}
-          <Badge variant="outline">{questions.length} questions</Badge>
+          {assessment?.question_count != null && (
+            <Badge variant="outline">{assessment.question_count} questions</Badge>
+          )}
         </CardContent>
         <CardFooter className="flex-col items-stretch gap-2">
           {startError && (

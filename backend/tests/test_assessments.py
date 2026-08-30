@@ -508,28 +508,23 @@ def test_assessments_student_allowed():
     assert response.status_code == 200
 
 
-def test_assessments_faculty_forbidden():
-    with authenticated_as("FACULTY"):
-        response = client.get(
-            "/api/v1/assessments", headers={"Authorization": "Bearer token"}
-        )
-    assert response.status_code == 403
-
-
-def test_assessments_industry_forbidden():
-    with authenticated_as("INDUSTRY"):
-        response = client.get(
-            "/api/v1/assessments", headers={"Authorization": "Bearer token"}
-        )
-    assert response.status_code == 403
-
-
-def test_assessments_institution_forbidden():
-    with authenticated_as("INSTITUTION"):
-        response = client.get(
-            "/api/v1/assessments", headers={"Authorization": "Bearer token"}
-        )
-    assert response.status_code == 403
+def test_assessments_allowed_for_every_authenticated_role():
+    """Phase 1K: list_assessments/get_assessment are no longer
+    STUDENT-only (see test_list_and_get_assessment_now_allowed_for_faculty
+    below) -- matching RLS ("Authenticated users can view active
+    assessments"), which was never role-restricted to begin with. Content
+    here (title/description/difficulty) carries no sensitive information,
+    so widening to every authenticated role leaks nothing RLS wouldn't
+    already permit."""
+    for role in ("FACULTY", "INDUSTRY", "INSTITUTION"):
+        with (
+            authenticated_as(role),
+            patch.object(assessment_service, "list_active_assessments", return_value=[]),
+        ):
+            response = client.get(
+                "/api/v1/assessments", headers={"Authorization": "Bearer token"}
+            )
+        assert response.status_code == 200
 
 
 def test_assessments_returns_active_assessments():
@@ -814,14 +809,18 @@ def test_ai_evaluated_question_excluded_from_questions_endpoint():
 # ------------------------------------------------------------
 
 
-def test_service_role_not_referenced_in_assessment_routes():
-    # Checking module *namespace*, not source text: the module's own
-    # docstring explains get_supabase() is deliberately NOT used, which
-    # would false-positive a plain substring search. If get_supabase were
-    # ever imported for real use, it would show up as a module attribute.
+def test_service_role_intentionally_imported_only_for_create_attempt():
+    """As of Phase 1K, app.api.assessments DOES import get_supabase --
+    create_attempt is the one documented, deliberate exception (mirroring
+    score_attempt in app.api.attempts), needed for the single atomic
+    transaction that starts an attempt and persists its randomized
+    question selection together. Every other route in this module still
+    uses build_user_client only -- confirmed by the sentinel-object tests
+    right below, not by a blanket "get_supabase absent" check, which would
+    now be a false assertion."""
     from app.api import assessments as assessments_routes
 
-    assert not hasattr(assessments_routes, "get_supabase")
+    assert hasattr(assessments_routes, "get_supabase")
 
 
 def test_service_role_not_referenced_in_assessment_service():
@@ -836,20 +835,39 @@ def test_response_schemas_carry_no_student_identifying_fields():
         assert "student_id" not in schema.model_fields
 
 
-def test_non_student_forbidden_on_all_three_endpoints():
+def test_non_student_forbidden_on_the_student_only_questions_endpoint():
+    """GET .../questions stays require_student -- it's the student-safe,
+    approved-only view used by the taking flow. FACULTY has its own richer
+    view via GET /questions?assessment_id=... (app.api.questions), so this
+    endpoint has no reason to widen the way list_assessments/get_assessment
+    did in Phase 1K."""
     assessment_id = uuid4()
     with authenticated_as("FACULTY"):
+        response = client.get(
+            f"/api/v1/assessments/{assessment_id}/questions",
+            headers={"Authorization": "Bearer token"},
+        )
+    assert response.status_code == 403
+
+
+def test_list_and_get_assessment_now_allowed_for_faculty():
+    """Phase 1K: list_assessments/get_assessment were widened from
+    require_student to get_current_user() -- RLS never role-restricted
+    these reads, and FACULTY needs them to pick an assessment for
+    question authoring / blueprint configuration."""
+    assessment_id = uuid4()
+    assessment_row = _row_assessment(id=str(assessment_id))
+    with (
+        authenticated_as("FACULTY"),
+        patch.object(assessment_service, "list_active_assessments", return_value=[assessment_row]),
+        patch.object(assessment_service, "get_active_assessment", return_value=assessment_row),
+    ):
         r1 = client.get("/api/v1/assessments", headers={"Authorization": "Bearer token"})
         r2 = client.get(
             f"/api/v1/assessments/{assessment_id}", headers={"Authorization": "Bearer token"}
         )
-        r3 = client.get(
-            f"/api/v1/assessments/{assessment_id}/questions",
-            headers={"Authorization": "Bearer token"},
-        )
-    assert r1.status_code == 403
-    assert r2.status_code == 403
-    assert r3.status_code == 403
+    assert r1.status_code == 200
+    assert r2.status_code == 200
 
 
 # ============================================================
@@ -884,36 +902,35 @@ def _attempts_url(assessment_id) -> str:
 # ------------------------------------------------------------
 
 
-def test_service_create_attempt_inserts_fresh_in_progress_row():
-    """Confirms exactly what WE send to Supabase -- student_id/
-    assessment_id/status only, nothing else, status always IN_PROGRESS.
-    Mirrors (as defense in depth) what the RLS WITH CHECK independently
-    requires."""
+def test_service_create_attempt_calls_rpc_with_correct_params():
+    """Phase 1K: create_attempt no longer does a plain table insert -- it
+    calls the create_assessment_attempt() RPC (the same trusted,
+    single-transaction pattern score_attempt already uses for scoring),
+    so that persisting the attempt row and its randomized
+    assessment_attempt_questions selection happens atomically."""
     mock_client = MagicMock()
     response = MagicMock()
-    response.data = [_row_attempt()]
-    mock_client.table.return_value.insert.return_value.execute.return_value = response
+    response.data = _row_attempt()
+    mock_client.rpc.return_value.execute.return_value = response
 
     student_id = "student-1"
     assessment_id = uuid4()
     assessment_service.create_attempt(mock_client, student_id, assessment_id)
 
-    mock_client.table.assert_called_once_with("assessment_attempts")
-    mock_client.table.return_value.insert.assert_called_once_with(
-        {
-            "student_id": student_id,
-            "assessment_id": str(assessment_id),
-            "status": "IN_PROGRESS",
-        }
+    mock_client.rpc.assert_called_once_with(
+        "create_assessment_attempt",
+        {"p_assessment_id": str(assessment_id), "p_student_id": student_id},
     )
 
 
 def test_service_create_attempt_translates_unique_violation_to_duplicate_error():
     """A real 23505 (unique_violation) from the DB's own partial unique
-    index must become DuplicateInProgressAttemptError, not propagate as a
-    raw postgrest APIError."""
+    index -- still enforced exactly as before Phase 1K, now surfacing from
+    inside the RPC instead of a plain insert -- must become
+    DuplicateInProgressAttemptError, not propagate as a raw postgrest
+    APIError."""
     mock_client = MagicMock()
-    mock_client.table.return_value.insert.return_value.execute.side_effect = APIError(
+    mock_client.rpc.return_value.execute.side_effect = APIError(
         {"code": "23505", "message": "duplicate key value violates unique constraint"}
     )
 
@@ -921,11 +938,28 @@ def test_service_create_attempt_translates_unique_violation_to_duplicate_error()
         assessment_service.create_attempt(mock_client, "student-1", uuid4())
 
 
-def test_service_create_attempt_reraises_other_api_errors():
-    """Only 23505 is special-cased -- any other database error must
-    propagate normally (the route layer turns it into a generic 500)."""
+def test_service_create_attempt_translates_55000_to_insufficient_pool_error():
+    """Phase 1K: SQLSTATE 55000 from create_assessment_attempt() (either no
+    blueprint configured, or too few approved questions in some difficulty
+    bucket) must become InsufficientQuestionPoolError, not propagate as a
+    raw postgrest APIError -- same SQLSTATE score_attempt's own
+    AttemptNotEligibleForScoringError already uses for "object not in
+    prerequisite state"."""
     mock_client = MagicMock()
-    mock_client.table.return_value.insert.return_value.execute.side_effect = APIError(
+    mock_client.rpc.return_value.execute.side_effect = APIError(
+        {"code": "55000", "message": "Insufficient approved Beginner questions..."}
+    )
+
+    with pytest.raises(assessment_service.InsufficientQuestionPoolError):
+        assessment_service.create_attempt(mock_client, "student-1", uuid4())
+
+
+def test_service_create_attempt_reraises_other_api_errors():
+    """Only 23505 and 55000 are special-cased -- any other database error
+    must propagate normally (the route layer turns it into a generic
+    500)."""
+    mock_client = MagicMock()
+    mock_client.rpc.return_value.execute.side_effect = APIError(
         {"code": "23503", "message": "foreign key violation"}
     )
 
@@ -1123,28 +1157,52 @@ def test_create_attempt_ignores_client_supplied_body_entirely():
     assert called_assessment_id == assessment_id
 
 
-def test_create_attempt_uses_user_scoped_client_not_service_role():
-    """The client object passed to both service calls must be exactly what
-    build_user_client() returned -- never get_supabase()."""
+def test_create_attempt_uses_build_user_client_for_ownership_check():
+    """The FIRST client used must be the user-scoped one, for the
+    assessment existence/active check -- never get_supabase(), even for a
+    read. Mirrors test_score_uses_build_user_client_for_ownership_check in
+    test_attempts.py."""
     assessment_id = uuid4()
     assessment_row = _row_assessment(id=str(assessment_id))
     attempt_row = _row_attempt(assessment_id=str(assessment_id))
-    sentinel_client = object()
+    sentinel_user_client = object()
 
     with (
         authenticated_as("STUDENT"),
-        patch("app.api.assessments.build_user_client", return_value=sentinel_client),
+        patch("app.api.assessments.build_user_client", return_value=sentinel_user_client),
+        patch("app.api.assessments.get_supabase", return_value=MagicMock()),
         patch.object(
             assessment_service, "get_active_assessment", return_value=assessment_row
         ) as mock_get_assessment,
+        patch.object(assessment_service, "create_attempt", return_value=attempt_row),
+    ):
+        client.post(_attempts_url(assessment_id), headers={"Authorization": "Bearer token"})
+
+    assert mock_get_assessment.call_args[0][0] is sentinel_user_client
+
+
+def test_create_attempt_uses_service_role_client_only_for_creation():
+    """get_supabase()'s return value must be exactly what reaches
+    assessment_service.create_attempt() -- confirming the service-role
+    client is used for the trusted attempt-creation-plus-selection call,
+    and (via the previous test) NOT for the assessment existence check.
+    Mirrors test_score_uses_service_role_client_only_for_scoring."""
+    assessment_id = uuid4()
+    assessment_row = _row_assessment(id=str(assessment_id))
+    attempt_row = _row_attempt(assessment_id=str(assessment_id))
+    sentinel_service_client = object()
+
+    with (
+        authenticated_as("STUDENT"),
+        patch("app.api.assessments.get_supabase", return_value=sentinel_service_client),
+        patch.object(assessment_service, "get_active_assessment", return_value=assessment_row),
         patch.object(
             assessment_service, "create_attempt", return_value=attempt_row
         ) as mock_create,
     ):
         client.post(_attempts_url(assessment_id), headers={"Authorization": "Bearer token"})
 
-    assert mock_get_assessment.call_args[0][0] is sentinel_client
-    assert mock_create.call_args[0][0] is sentinel_client
+    assert mock_create.call_args[0][0] is sentinel_service_client
 
 
 # ------------------------------------------------------------
@@ -1188,6 +1246,123 @@ def test_create_attempt_duplicate_in_progress_returns_409():
             assessment_service,
             "create_attempt",
             side_effect=assessment_service.DuplicateInProgressAttemptError(),
+        ),
+    ):
+        response = client.post(
+            _attempts_url(assessment_id), headers={"Authorization": "Bearer token"}
+        )
+    assert response.status_code == 409
+
+
+# ============================================================
+# Phase 1K -- Assessment blueprint
+# ============================================================
+
+
+def _blueprint_url(assessment_id) -> str:
+    return f"/api/v1/assessments/{assessment_id}/blueprint"
+
+
+def _row_blueprint_rule(**overrides):
+    row = {
+        "id": str(uuid4()),
+        "assessment_id": str(uuid4()),
+        "difficulty": "Beginner",
+        "question_count": 8,
+        "created_at": "2026-01-01T00:00:00Z",
+        "updated_at": "2026-01-01T00:00:00Z",
+    }
+    row.update(overrides)
+    return row
+
+
+def test_get_blueprint_readable_by_student():
+    assessment_id = uuid4()
+    with (
+        authenticated_as("STUDENT"),
+        patch("app.services.question_bank_service.get_blueprint", return_value=[]),
+    ):
+        response = client.get(
+            _blueprint_url(assessment_id), headers={"Authorization": "Bearer token"}
+        )
+    assert response.status_code == 200
+    assert response.json() == {"assessment_id": str(assessment_id), "rules": []}
+
+
+def test_get_blueprint_readable_by_faculty():
+    assessment_id = uuid4()
+    rule = _row_blueprint_rule(assessment_id=str(assessment_id))
+    with (
+        authenticated_as("FACULTY", user_id="faculty-a"),
+        patch("app.services.question_bank_service.get_blueprint", return_value=[rule]),
+    ):
+        response = client.get(
+            _blueprint_url(assessment_id), headers={"Authorization": "Bearer token"}
+        )
+    assert response.status_code == 200
+    assert response.json()["rules"][0]["difficulty"] == "Beginner"
+
+
+def test_replace_blueprint_requires_faculty():
+    assessment_id = uuid4()
+    with authenticated_as("STUDENT"):
+        response = client.put(
+            _blueprint_url(assessment_id),
+            json={"rules": [{"difficulty": "Beginner", "question_count": 8}]},
+            headers={"Authorization": "Bearer token"},
+        )
+    assert response.status_code == 403
+
+
+def test_replace_blueprint_faculty_success():
+    assessment_id = uuid4()
+    rule = _row_blueprint_rule(assessment_id=str(assessment_id), question_count=8)
+    with (
+        authenticated_as("FACULTY", user_id="faculty-a"),
+        patch("app.services.question_bank_service.replace_blueprint", return_value=[rule]),
+    ):
+        response = client.put(
+            _blueprint_url(assessment_id),
+            json={"rules": [{"difficulty": "Beginner", "question_count": 8}]},
+            headers={"Authorization": "Bearer token"},
+        )
+    assert response.status_code == 200
+    assert response.json()["rules"][0]["question_count"] == 8
+
+
+def test_replace_blueprint_rejects_duplicate_difficulty_before_reaching_service():
+    assessment_id = uuid4()
+    with (
+        authenticated_as("FACULTY", user_id="faculty-a"),
+        patch("app.services.question_bank_service.replace_blueprint") as mock_replace,
+    ):
+        response = client.put(
+            _blueprint_url(assessment_id),
+            json={
+                "rules": [
+                    {"difficulty": "Beginner", "question_count": 8},
+                    {"difficulty": "Beginner", "question_count": 3},
+                ]
+            },
+            headers={"Authorization": "Bearer token"},
+        )
+    assert response.status_code == 422
+    mock_replace.assert_not_called()
+
+
+def test_create_attempt_insufficient_question_pool_returns_409():
+    """Phase 1K: create_assessment_attempt() rejecting a too-small or
+    unconfigured question pool (SQLSTATE 55000) must surface as a clean
+    409, never a silently smaller question set and never a 500."""
+    assessment_id = uuid4()
+    assessment_row = _row_assessment(id=str(assessment_id))
+    with (
+        authenticated_as("STUDENT"),
+        patch.object(assessment_service, "get_active_assessment", return_value=assessment_row),
+        patch.object(
+            assessment_service,
+            "create_attempt",
+            side_effect=assessment_service.InsufficientQuestionPoolError(),
         ),
     ):
         response = client.post(

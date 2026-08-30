@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import assessments, attempts
+from app.api import assessments, attempts, questions
 from app.core.config import settings
 
 app = FastAPI(title="AIC Portal API")
@@ -16,6 +16,7 @@ app.add_middleware(
 
 app.include_router(assessments.router, prefix="/api/v1")
 app.include_router(attempts.router, prefix="/api/v1")
+app.include_router(questions.router, prefix="/api/v1")
 
 
 @app.get("/")

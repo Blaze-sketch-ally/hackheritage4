@@ -29,17 +29,38 @@ export function getAssessment(assessmentId: string): Promise<Assessment> {
   return api.get(`/api/v1/assessments/${assessmentId}`);
 }
 
+/** The assessment's read-only question pool (whatever is currently
+ * APPROVED/active/OBJECTIVE) -- used for browsing/preview only. As of
+ * Phase 1K this is NOT what the taking flow displays or answers against;
+ * see getAttemptQuestions below for the actual, per-attempt persisted set
+ * a student answers. */
 export function getAssessmentQuestions(assessmentId: string): Promise<AssessmentQuestion[]> {
   return api.get(`/api/v1/assessments/${assessmentId}/questions`);
 }
 
-/** Starts a new attempt. The backend returns 409 (ApiError.status === 409)
- * if the student already has an IN_PROGRESS attempt for this assessment
- * -- that response carries no attempt id, so callers cannot recover which
- * attempt it is from this call alone. See lib/student/assessment-session.ts
- * for how the frontend handles that without inventing a resume system. */
+/** Starts a new attempt, with a randomized question set (Phase 1K)
+ * selected and persisted for it atomically server-side. The backend
+ * returns 409 (ApiError.status === 409) if the student already has an
+ * IN_PROGRESS attempt for this assessment -- that response carries no
+ * attempt id, so callers cannot recover which attempt it is from this
+ * call alone. See lib/student/assessment-session.ts for how the frontend
+ * handles that without inventing a resume system. Also returns 409 if the
+ * assessment's blueprint can't currently be satisfied (too few approved
+ * questions in some difficulty bucket) -- never a silently smaller
+ * question set. */
 export function createAttempt(assessmentId: string): Promise<AssessmentAttempt> {
   return api.post(`/api/v1/assessments/${assessmentId}/attempts`);
+}
+
+/** Phase 1K: the question set actually selected and persisted for this
+ * specific attempt -- the taking flow's ONLY source of truth for which
+ * questions to show/answer. Calling this again (e.g. after a page
+ * refresh) returns the identical set every time; nothing here is
+ * re-randomized after createAttempt(). Never call getAssessmentQuestions
+ * from the taking flow -- that endpoint reflects the CURRENT pool, not
+ * this attempt's fixed selection. */
+export function getAttemptQuestions(attemptId: string): Promise<AssessmentQuestion[]> {
+  return api.get(`/api/v1/attempts/${attemptId}/questions`);
 }
 
 export interface SaveAnswerInput {
