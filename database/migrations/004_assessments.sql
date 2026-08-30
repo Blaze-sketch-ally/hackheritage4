@@ -39,6 +39,13 @@
 --   assessment_answers               one row per (attempt, question) — the
 --                                    student's submitted answer + its score
 --
+-- Note on build order below: this diagram groups tables conceptually
+-- (question content, then attempts), but assessment_attempts is actually
+-- CREATED before assessment_question_answers in this file. That's because
+-- assessment_question_answers' RLS policy references assessment_attempts,
+-- and Postgres resolves table references in a policy's USING/WITH CHECK
+-- clause at CREATE POLICY time — the referenced table must already exist.
+--
 -- LLM-first, provider-agnostic by design:
 --   - assessment_questions.generation_source distinguishes MANUAL vs
 --     LLM_GENERATED. generation_model is a free-text label (e.g.
@@ -148,17 +155,19 @@ create index if not exists assessments_active_skill_id_idx on assessments (skill
 
 alter table assessments enable row level security;
 
--- Same precedent as skills/skill_categories in 003_skills.sql: readable by
--- ANY authenticated role (not gated to STUDENT), because this is catalog-
--- like reference data, not personal student data. No insert/update/delete
--- policy exists for `authenticated` here, so — with RLS enabled — only
+-- Deliberately narrower than the skills/skill_categories precedent in
+-- 003_skills.sql: assessment content is graded, potentially proprietary
+-- question-bank material (not generic taxonomy like a skill name), so
+-- this is gated to STUDENT via public.is_student(auth.uid()) rather than
+-- opened to every authenticated role. No insert/update/delete policy
+-- exists for `authenticated` here either, so — with RLS enabled — only
 -- service_role can write to it. That's deliberate: assessment content is
 -- curated/LLM-generated-then-reviewed, not student- or even faculty-
 -- authored through this app.
-create policy "Authenticated users can view active assessments"
+create policy "Students can view active assessments"
   on assessments for select
   to authenticated
-  using (is_active = true);
+  using (is_active = true and public.is_student(auth.uid()));
 
 create trigger assessments_set_updated_at
   before update on assessments
@@ -216,8 +225,8 @@ create table if not exists assessment_questions (
   generation_model text,
   generated_at timestamptz,
 
-  -- Gates visibility to students (see the "Authenticated users can view
-  -- approved active questions" policy below). Defaults to PENDING
+  -- Gates visibility to students (see the "Students can view approved
+  -- active questions" policy below). Defaults to PENDING
   -- regardless of generation_source — MANUAL content is not auto-approved
   -- either, so there is exactly one rule ("must be APPROVED to be shown"),
   -- not a MANUAL-bypasses-review exception that a mislabeled row could
@@ -240,11 +249,12 @@ alter table assessment_questions enable row level security;
 -- regardless of the parent assessment's state, and vice versa. No write
 -- policy for `authenticated` — only service_role can create/edit/delete
 -- questions (see the migration header + final security review).
-create policy "Authenticated users can view approved active questions"
+create policy "Students can view approved active questions"
   on assessment_questions for select
   to authenticated
   using (
-    review_status = 'APPROVED'
+    public.is_student(auth.uid())
+    and review_status = 'APPROVED'
     and is_active = true
     and exists (
       select 1 from assessments a
@@ -291,11 +301,12 @@ alter table assessment_question_options enable row level security;
 -- an option is readable only when its question is approved+active AND
 -- that question's assessment is active. No write policy for
 -- `authenticated`.
-create policy "Authenticated users can view options for visible questions"
+create policy "Students can view options for visible questions"
   on assessment_question_options for select
   to authenticated
   using (
-    exists (
+    public.is_student(auth.uid())
+    and exists (
       select 1 from assessment_questions q
       join assessments a on a.id = q.assessment_id
       where q.id = assessment_question_options.question_id
@@ -311,83 +322,12 @@ create trigger assessment_question_options_set_updated_at
   execute procedure public.set_updated_at();
 
 -- ============================================================
--- assessment_question_answers — THE PROTECTED ANSWER KEY.
--- No general student SELECT policy exists on this table. The only way a
--- student can ever read a row here is the narrow "own completed attempt"
--- policy below.
--- ============================================================
-
-create table if not exists assessment_question_answers (
-  id uuid primary key default gen_random_uuid(),
-
-  -- 1:1 with assessment_questions (unique, not just indexed) — one answer
-  -- key per question. Deliberately not folded into assessment_questions
-  -- itself: keeping it a physically separate table is what makes the
-  -- security boundary structural (enforced by table separation + RLS)
-  -- rather than a matter of "this table's app code just happens not to
-  -- render this column" — see the migration header comment.
-  question_id uuid not null unique references assessment_questions (id) on delete cascade,
-
-  -- For MCQ (one element) / MULTIPLE_SELECT (one or more elements):
-  -- assessment_question_options.id values that are correct. A uuid[]
-  -- rather than a separate join table on purpose — this is a foundation
-  -- migration and a real per-element foreign key (Postgres cannot FK
-  -- individual array elements) would need a full extra join table for a
-  -- property that only the trusted backend ever writes. That backend is
-  -- responsible for only ever placing option ids belonging to this same
-  -- question_id in this array — documented here as an application-layer
-  -- invariant, not enforced by a DB constraint. Revisit with a proper join
-  -- table only if this ever needs to be enforced at the DB level.
-  correct_option_ids uuid[],
-
-  -- For SHORT_ANSWER/CODE/SUBJECTIVE: the reference/expected answer, used
-  -- either for objective exact-match scoring or as grounding context handed
-  -- to the future LLM evaluator. Nullable — a SUBJECTIVE question may have
-  -- only rubric-style guidance here, or none at all.
-  correct_answer_text text,
-
-  -- Shown to the student only AFTER they've completed the attempt (see the
-  -- SELECT policy below) — lives here, not on assessment_questions,
-  -- specifically because an explanation of why an answer is correct
-  -- routinely gives the answer away.
-  explanation text,
-
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
-
-alter table assessment_question_answers enable row level security;
-
--- The ONLY way a student can read an answer key row: they must be a
--- STUDENT, and must have a COMPLETED attempt at the assessment that this
--- question belongs to. No recursion risk — assessment_attempts' own
--- policies only reference profiles (via is_student, itself SECURITY
--- DEFINER and bypassing profiles' RLS by construction) and
--- assessment_questions' own policy only references assessments; neither
--- references assessment_question_answers back, so this subquery chain
--- cannot cycle.
-create policy "Students can view answer keys for their own completed attempts"
-  on assessment_question_answers for select
-  to authenticated
-  using (
-    public.is_student(auth.uid())
-    and exists (
-      select 1
-      from assessment_attempts aa
-      join assessment_questions aq on aq.assessment_id = aa.assessment_id
-      where aq.id = assessment_question_answers.question_id
-        and aa.student_id = auth.uid()
-        and aa.status = 'COMPLETED'
-    )
-  );
-
-create trigger assessment_question_answers_set_updated_at
-  before update on assessment_question_answers
-  for each row
-  execute procedure public.set_updated_at();
-
--- ============================================================
 -- assessment_attempts
+--
+-- Created here — before assessment_question_answers — because that
+-- table's RLS policy needs to reference assessment_attempts, and Postgres
+-- resolves table references inside a policy's USING/WITH CHECK clause at
+-- CREATE POLICY time, so the referenced table must already exist.
 -- ============================================================
 
 create table if not exists assessment_attempts (
@@ -530,6 +470,82 @@ create trigger assessment_attempts_prevent_self_scoring
 
 create trigger assessment_attempts_set_updated_at
   before update on assessment_attempts
+  for each row
+  execute procedure public.set_updated_at();
+
+-- ============================================================
+-- assessment_question_answers — THE PROTECTED ANSWER KEY.
+-- No general student SELECT policy exists on this table. The only way a
+-- student can ever read a row here is the narrow "own completed attempt"
+-- policy below.
+-- ============================================================
+
+create table if not exists assessment_question_answers (
+  id uuid primary key default gen_random_uuid(),
+
+  -- 1:1 with assessment_questions (unique, not just indexed) — one answer
+  -- key per question. Deliberately not folded into assessment_questions
+  -- itself: keeping it a physically separate table is what makes the
+  -- security boundary structural (enforced by table separation + RLS)
+  -- rather than a matter of "this table's app code just happens not to
+  -- render this column" — see the migration header comment.
+  question_id uuid not null unique references assessment_questions (id) on delete cascade,
+
+  -- For MCQ (one element) / MULTIPLE_SELECT (one or more elements):
+  -- assessment_question_options.id values that are correct. A uuid[]
+  -- rather than a separate join table on purpose — this is a foundation
+  -- migration and a real per-element foreign key (Postgres cannot FK
+  -- individual array elements) would need a full extra join table for a
+  -- property that only the trusted backend ever writes. That backend is
+  -- responsible for only ever placing option ids belonging to this same
+  -- question_id in this array — documented here as an application-layer
+  -- invariant, not enforced by a DB constraint. Revisit with a proper join
+  -- table only if this ever needs to be enforced at the DB level.
+  correct_option_ids uuid[],
+
+  -- For SHORT_ANSWER/CODE/SUBJECTIVE: the reference/expected answer, used
+  -- either for objective exact-match scoring or as grounding context handed
+  -- to the future LLM evaluator. Nullable — a SUBJECTIVE question may have
+  -- only rubric-style guidance here, or none at all.
+  correct_answer_text text,
+
+  -- Shown to the student only AFTER they've completed the attempt (see the
+  -- SELECT policy below) — lives here, not on assessment_questions,
+  -- specifically because an explanation of why an answer is correct
+  -- routinely gives the answer away.
+  explanation text,
+
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table assessment_question_answers enable row level security;
+
+-- The ONLY way a student can read an answer key row: they must be a
+-- STUDENT, and must have a COMPLETED attempt at the assessment that this
+-- question belongs to. No recursion risk — assessment_attempts' own
+-- policies only reference profiles (via is_student, itself SECURITY
+-- DEFINER and bypassing profiles' RLS by construction) and
+-- assessment_questions' own policy only references assessments; neither
+-- references assessment_question_answers back, so this subquery chain
+-- cannot cycle.
+create policy "Students can view answer keys for their own completed attempts"
+  on assessment_question_answers for select
+  to authenticated
+  using (
+    public.is_student(auth.uid())
+    and exists (
+      select 1
+      from assessment_attempts aa
+      join assessment_questions aq on aq.assessment_id = aa.assessment_id
+      where aq.id = assessment_question_answers.question_id
+        and aa.student_id = auth.uid()
+        and aa.status = 'COMPLETED'
+    )
+  );
+
+create trigger assessment_question_answers_set_updated_at
+  before update on assessment_question_answers
   for each row
   execute procedure public.set_updated_at();
 
