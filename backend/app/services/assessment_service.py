@@ -1,5 +1,5 @@
-"""Business logic for the Assessment API -- Phase 1D (read-only) and
-Phase 1E (attempt creation).
+"""Business logic for the Assessment API -- Phase 1D (read-only),
+Phase 1E (attempt creation), and Phase 1F (answer saving).
 
 Every function here takes an already user-scoped Supabase client (see
 app.core.security.build_user_client). RLS does the real access-control
@@ -153,4 +153,117 @@ def create_attempt(client: Client, student_id: str, assessment_id: UUID) -> dict
         if exc.code == "23505":
             raise DuplicateInProgressAttemptError() from exc
         raise
+    return response.data[0]
+
+
+_ATTEMPT_COLUMNS = (
+    "id, student_id, assessment_id, status, started_at, submitted_at, "
+    "score, total_marks, percentage, created_at, updated_at"
+)
+
+_ANSWER_COLUMNS = (
+    "id, attempt_id, question_id, answer_text, selected_option_ids, "
+    "awarded_marks, is_correct, created_at, updated_at"
+)
+
+
+def get_own_attempt(client: Client, student_id: str, attempt_id: UUID) -> dict | None:
+    """One attempt, scoped to the caller.
+
+    RLS ("Students can view their own attempts") already restricts this to
+    auth.uid() = student_id; the explicit .eq("student_id", ...) here is
+    defense in depth, matching the pattern used throughout this module.
+    Callers must turn None into a 404 -- never reveal whether another
+    student's attempt exists.
+    """
+    response = (
+        client.table("assessment_attempts")
+        .select(_ATTEMPT_COLUMNS)
+        .eq("id", str(attempt_id))
+        .eq("student_id", student_id)
+        .maybe_single()
+        .execute()
+    )
+    return response.data if response is not None else None
+
+
+def get_visible_question(client: Client, assessment_id: UUID, question_id: UUID) -> dict | None:
+    """Confirms one question both exists and is eligible to be answered:
+    belongs to the given assessment, and is approved/active/OBJECTIVE --
+    the exact same eligibility filters as list_visible_questions (Phase
+    1D), scoped to a single id instead of listing every question. A
+    student may only answer a question that would actually appear on
+    GET .../questions for this assessment; this is what stops answering a
+    question from a different assessment, an unapproved/inactive one, or
+    an AI_EVALUATED one Phase 1 has no scoring path for.
+    """
+    response = (
+        client.table("assessment_questions")
+        .select("id")
+        .eq("id", str(question_id))
+        .eq("assessment_id", str(assessment_id))
+        .eq("review_status", "APPROVED")
+        .eq("is_active", True)
+        .eq("scoring_method", "OBJECTIVE")
+        .maybe_single()
+        .execute()
+    )
+    return response.data if response is not None else None
+
+
+def get_existing_answer(client: Client, attempt_id: UUID, question_id: UUID) -> dict | None:
+    """The caller's own existing answer for this (attempt, question) pair,
+    if any -- assessment_answers_unique_per_attempt_question guarantees at
+    most one row. RLS ("Students can view their own answers") already
+    scopes this to the caller."""
+    response = (
+        client.table("assessment_answers")
+        .select(_ANSWER_COLUMNS)
+        .eq("attempt_id", str(attempt_id))
+        .eq("question_id", str(question_id))
+        .maybe_single()
+        .execute()
+    )
+    return response.data if response is not None else None
+
+
+def save_answer(
+    client: Client,
+    attempt_id: UUID,
+    question_id: UUID,
+    answer_text: str | None,
+    selected_option_ids: list[UUID] | None,
+) -> dict:
+    """Insert a new answer, or update the existing one for this
+    (attempt_id, question_id) pair.
+
+    assessment_answers_unique_per_attempt_question is the DB's own
+    guarantee that at most one row exists per pair -- this function
+    decides insert vs. update by checking first (get_existing_answer)
+    rather than relying on upsert's on-conflict semantics, so the two
+    paths map 1:1 onto the two separate RLS policies that govern them:
+    "Students can answer questions in their own in-progress attempts"
+    (insert) and "Students can revise their own in-progress answers"
+    (update). Never sends awarded_marks/is_correct -- those columns are
+    simply absent from every payload this function builds, so there is no
+    value for the prevent_self_answer_scoring trigger to even reject.
+    """
+    payload = {
+        "answer_text": answer_text,
+        "selected_option_ids": (
+            [str(option_id) for option_id in selected_option_ids] if selected_option_ids else None
+        ),
+    }
+
+    existing = get_existing_answer(client, attempt_id, question_id)
+    if existing is not None:
+        response = (
+            client.table("assessment_answers").update(payload).eq("id", existing["id"]).execute()
+        )
+    else:
+        response = (
+            client.table("assessment_answers")
+            .insert({**payload, "attempt_id": str(attempt_id), "question_id": str(question_id)})
+            .execute()
+        )
     return response.data[0]
