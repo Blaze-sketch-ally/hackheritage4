@@ -1,14 +1,16 @@
-"""Business logic for the Assessment API -- Phase 1D (read-only).
+"""Business logic for the Assessment API -- Phase 1D (read-only) and
+Phase 1E (attempt creation).
 
 Every function here takes an already user-scoped Supabase client (see
 app.core.security.build_user_client). RLS does the real access-control
 work; these functions only shape the query and the return value. None of
-them use the service-role client -- ordinary assessment reads must never
+them use the service-role client -- ordinary student operations must never
 bypass RLS.
 """
 
 from uuid import UUID
 
+from postgrest.exceptions import APIError
 from supabase import Client
 
 _ASSESSMENT_COLUMNS = (
@@ -106,3 +108,49 @@ def list_visible_questions(client: Client, assessment_id: UUID) -> list[dict]:
             question.get("options") or [], key=lambda option: option["display_order"]
         )
     return questions
+
+
+class DuplicateInProgressAttemptError(Exception):
+    """Raised when the student already has an IN_PROGRESS attempt for this
+    assessment. Mirrors the DB's own partial unique index
+    (assessment_attempts_one_in_progress_idx on (student_id, assessment_id)
+    WHERE status = 'IN_PROGRESS') -- callers should turn this into a 409,
+    not a generic 500."""
+
+
+def create_attempt(client: Client, student_id: str, assessment_id: UUID) -> dict:
+    """Start a new attempt for the calling student.
+
+    RLS ("Students can start their own attempts") is the real enforcement:
+    its WITH CHECK independently requires auth.uid() = student_id,
+    is_student(), and a fresh IN_PROGRESS/unscored/unsubmitted row,
+    regardless of what this function sends -- the explicit fields below
+    mirror that policy as defense in depth, not the only guard. student_id
+    must always be the authenticated caller's own id (never taken from a
+    request body); this function has no way to accept one from a client at
+    all, since the route never parses one.
+
+    "No second concurrent attempt" is enforced by the DB's own partial
+    unique index, not application logic -- a violation raises postgrest's
+    APIError with code 23505 (unique_violation), which this function
+    translates into DuplicateInProgressAttemptError so the route layer can
+    return a clean 409 instead of a raw DB error. Same pattern already
+    used for this exact error code in frontend/lib/student/skills.ts.
+    """
+    try:
+        response = (
+            client.table("assessment_attempts")
+            .insert(
+                {
+                    "student_id": student_id,
+                    "assessment_id": str(assessment_id),
+                    "status": "IN_PROGRESS",
+                }
+            )
+            .execute()
+        )
+    except APIError as exc:
+        if exc.code == "23505":
+            raise DuplicateInProgressAttemptError() from exc
+        raise
+    return response.data[0]

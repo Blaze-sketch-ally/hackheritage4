@@ -1,10 +1,10 @@
-"""Tests for the Assessment API: schemas (Phase 1C) and the read endpoints
-(Phase 1D).
+"""Tests for the Assessment API: schemas (Phase 1C), the read endpoints
+(Phase 1D), and attempt creation (Phase 1E).
 
 No live Supabase project or real token is used anywhere in this file --
-Phase 1C tests are pure Pydantic model tests; Phase 1D tests mock the auth
-dependency chain (see conftest.py) and, where appropriate, the Supabase
-client/service layer directly.
+Phase 1C tests are pure Pydantic model tests; Phase 1D/1E tests mock the
+auth dependency chain (see conftest.py) and, where appropriate, the
+Supabase client/service layer directly.
 """
 
 from unittest.mock import MagicMock, patch
@@ -12,6 +12,7 @@ from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
+from postgrest.exceptions import APIError
 from pydantic import ValidationError
 
 from app.core.security import InvalidTokenError
@@ -849,3 +850,347 @@ def test_non_student_forbidden_on_all_three_endpoints():
     assert r1.status_code == 403
     assert r2.status_code == 403
     assert r3.status_code == 403
+
+
+# ============================================================
+# Phase 1E -- Assessment attempt creation
+# ============================================================
+
+
+def _row_attempt(**overrides):
+    row = {
+        "id": str(uuid4()),
+        "student_id": str(uuid4()),
+        "assessment_id": str(uuid4()),
+        "status": "IN_PROGRESS",
+        "started_at": "2026-01-01T00:00:00Z",
+        "submitted_at": None,
+        "score": None,
+        "total_marks": None,
+        "percentage": None,
+        "created_at": "2026-01-01T00:00:00Z",
+        "updated_at": "2026-01-01T00:00:00Z",
+    }
+    row.update(overrides)
+    return row
+
+
+def _attempts_url(assessment_id) -> str:
+    return f"/api/v1/assessments/{assessment_id}/attempts"
+
+
+# ------------------------------------------------------------
+# Service layer: insert construction + duplicate translation
+# ------------------------------------------------------------
+
+
+def test_service_create_attempt_inserts_fresh_in_progress_row():
+    """Confirms exactly what WE send to Supabase -- student_id/
+    assessment_id/status only, nothing else, status always IN_PROGRESS.
+    Mirrors (as defense in depth) what the RLS WITH CHECK independently
+    requires."""
+    mock_client = MagicMock()
+    response = MagicMock()
+    response.data = [_row_attempt()]
+    mock_client.table.return_value.insert.return_value.execute.return_value = response
+
+    student_id = "student-1"
+    assessment_id = uuid4()
+    assessment_service.create_attempt(mock_client, student_id, assessment_id)
+
+    mock_client.table.assert_called_once_with("assessment_attempts")
+    mock_client.table.return_value.insert.assert_called_once_with(
+        {
+            "student_id": student_id,
+            "assessment_id": str(assessment_id),
+            "status": "IN_PROGRESS",
+        }
+    )
+
+
+def test_service_create_attempt_translates_unique_violation_to_duplicate_error():
+    """A real 23505 (unique_violation) from the DB's own partial unique
+    index must become DuplicateInProgressAttemptError, not propagate as a
+    raw postgrest APIError."""
+    mock_client = MagicMock()
+    mock_client.table.return_value.insert.return_value.execute.side_effect = APIError(
+        {"code": "23505", "message": "duplicate key value violates unique constraint"}
+    )
+
+    with pytest.raises(assessment_service.DuplicateInProgressAttemptError):
+        assessment_service.create_attempt(mock_client, "student-1", uuid4())
+
+
+def test_service_create_attempt_reraises_other_api_errors():
+    """Only 23505 is special-cased -- any other database error must
+    propagate normally (the route layer turns it into a generic 500)."""
+    mock_client = MagicMock()
+    mock_client.table.return_value.insert.return_value.execute.side_effect = APIError(
+        {"code": "23503", "message": "foreign key violation"}
+    )
+
+    with pytest.raises(APIError):
+        assessment_service.create_attempt(mock_client, "student-1", uuid4())
+
+
+# ------------------------------------------------------------
+# API layer: AUTH
+# ------------------------------------------------------------
+
+
+def test_create_attempt_missing_token_returns_401():
+    response = client.post(_attempts_url(uuid4()))
+    assert response.status_code == 401
+
+
+def test_create_attempt_invalid_token_returns_401():
+    with patch(
+        "app.core.dependencies.verify_access_token",
+        side_effect=InvalidTokenError("bad"),
+    ):
+        response = client.post(
+            _attempts_url(uuid4()), headers={"Authorization": "Bearer not-real"}
+        )
+    assert response.status_code == 401
+
+
+def test_create_attempt_faculty_forbidden():
+    with authenticated_as("FACULTY"):
+        response = client.post(
+            _attempts_url(uuid4()), headers={"Authorization": "Bearer token"}
+        )
+    assert response.status_code == 403
+
+
+def test_create_attempt_industry_forbidden():
+    with authenticated_as("INDUSTRY"):
+        response = client.post(
+            _attempts_url(uuid4()), headers={"Authorization": "Bearer token"}
+        )
+    assert response.status_code == 403
+
+
+def test_create_attempt_institution_forbidden():
+    with authenticated_as("INSTITUTION"):
+        response = client.post(
+            _attempts_url(uuid4()), headers={"Authorization": "Bearer token"}
+        )
+    assert response.status_code == 403
+
+
+# ------------------------------------------------------------
+# API layer: assessment validation
+# ------------------------------------------------------------
+
+
+def test_create_attempt_invalid_uuid_returns_422():
+    with authenticated_as("STUDENT"):
+        response = client.post(
+            "/api/v1/assessments/not-a-uuid/attempts", headers={"Authorization": "Bearer token"}
+        )
+    assert response.status_code == 422
+
+
+def test_create_attempt_nonexistent_assessment_returns_404():
+    with (
+        authenticated_as("STUDENT"),
+        patch.object(assessment_service, "get_active_assessment", return_value=None),
+    ):
+        response = client.post(
+            _attempts_url(uuid4()), headers={"Authorization": "Bearer token"}
+        )
+    assert response.status_code == 404
+
+
+def test_create_attempt_inactive_assessment_returns_404():
+    # get_active_assessment() is the single source of truth for
+    # "exists AND active" -- it returns None for both an unknown id and an
+    # inactive one, so this is the same observable behavior as the
+    # nonexistent-assessment case, deliberately (never reveal which).
+    with (
+        authenticated_as("STUDENT"),
+        patch.object(assessment_service, "get_active_assessment", return_value=None),
+    ):
+        response = client.post(
+            _attempts_url(uuid4()), headers={"Authorization": "Bearer token"}
+        )
+    assert response.status_code == 404
+
+
+# ------------------------------------------------------------
+# API layer: creation + initial state
+# ------------------------------------------------------------
+
+
+def test_create_attempt_student_can_create():
+    assessment_id = uuid4()
+    assessment_row = _row_assessment(id=str(assessment_id))
+    attempt_row = _row_attempt(assessment_id=str(assessment_id))
+    with (
+        authenticated_as("STUDENT"),
+        patch.object(assessment_service, "get_active_assessment", return_value=assessment_row),
+        patch.object(assessment_service, "create_attempt", return_value=attempt_row),
+    ):
+        response = client.post(
+            _attempts_url(assessment_id), headers={"Authorization": "Bearer token"}
+        )
+    assert response.status_code == 201
+    assert response.json()["assessment_id"] == str(assessment_id)
+
+
+def test_create_attempt_student_id_comes_from_authenticated_user():
+    assessment_id = uuid4()
+    assessment_row = _row_assessment(id=str(assessment_id))
+    with (
+        authenticated_as("STUDENT", user_id="the-real-caller"),
+        patch.object(assessment_service, "get_active_assessment", return_value=assessment_row),
+        patch.object(
+            assessment_service,
+            "create_attempt",
+            return_value=_row_attempt(),
+        ) as mock_create,
+    ):
+        client.post(_attempts_url(assessment_id), headers={"Authorization": "Bearer token"})
+
+    # assessment_service.create_attempt(client, student_id, assessment_id)
+    called_student_id = mock_create.call_args[0][1]
+    assert called_student_id == "the-real-caller"
+
+
+def test_create_attempt_initial_state_is_fresh():
+    assessment_id = uuid4()
+    assessment_row = _row_assessment(id=str(assessment_id))
+    attempt_row = _row_attempt(assessment_id=str(assessment_id))
+    with (
+        authenticated_as("STUDENT"),
+        patch.object(assessment_service, "get_active_assessment", return_value=assessment_row),
+        patch.object(assessment_service, "create_attempt", return_value=attempt_row),
+    ):
+        response = client.post(
+            _attempts_url(assessment_id), headers={"Authorization": "Bearer token"}
+        )
+    body = response.json()
+    assert body["status"] == "IN_PROGRESS"
+    assert body["score"] is None
+    assert body["total_marks"] is None
+    assert body["percentage"] is None
+    assert body["submitted_at"] is None
+
+
+# ------------------------------------------------------------
+# Security: client cannot control server-owned fields
+# ------------------------------------------------------------
+
+
+def test_create_attempt_ignores_client_supplied_body_entirely():
+    """No request body parameter exists on this route at all -- a client
+    trying to inject student_id/status/score/total_marks/percentage/
+    submitted_at, or any arbitrary extra field, has no effect whatsoever.
+    Proves it by sending a maximally hostile payload and confirming only
+    current_user.id/assessment_id ever reach the service layer."""
+    assessment_id = uuid4()
+    assessment_row = _row_assessment(id=str(assessment_id))
+    attempt_row = _row_attempt(assessment_id=str(assessment_id))
+    hostile_body = {
+        "student_id": "someone-elses-id",
+        "status": "COMPLETED",
+        "score": 100,
+        "total_marks": 100,
+        "percentage": 100,
+        "submitted_at": "2026-01-01T00:00:00Z",
+        "created_at": "2020-01-01T00:00:00Z",
+        "updated_at": "2020-01-01T00:00:00Z",
+        "not_even_a_real_field": "whatever",
+    }
+    with (
+        authenticated_as("STUDENT", user_id="student-1"),
+        patch.object(assessment_service, "get_active_assessment", return_value=assessment_row),
+        patch.object(
+            assessment_service, "create_attempt", return_value=attempt_row
+        ) as mock_create,
+    ):
+        response = client.post(
+            _attempts_url(assessment_id),
+            json=hostile_body,
+            headers={"Authorization": "Bearer token"},
+        )
+
+    assert response.status_code == 201
+    # assessment_service.create_attempt(client, student_id, assessment_id) --
+    # exactly 3 positional args, none of them sourced from hostile_body.
+    _call_client, called_student_id, called_assessment_id = mock_create.call_args[0]
+    assert called_student_id == "student-1"
+    assert called_assessment_id == assessment_id
+
+
+def test_create_attempt_uses_user_scoped_client_not_service_role():
+    """The client object passed to both service calls must be exactly what
+    build_user_client() returned -- never get_supabase()."""
+    assessment_id = uuid4()
+    assessment_row = _row_assessment(id=str(assessment_id))
+    attempt_row = _row_attempt(assessment_id=str(assessment_id))
+    sentinel_client = object()
+
+    with (
+        authenticated_as("STUDENT"),
+        patch("app.api.assessments.build_user_client", return_value=sentinel_client),
+        patch.object(
+            assessment_service, "get_active_assessment", return_value=assessment_row
+        ) as mock_get_assessment,
+        patch.object(
+            assessment_service, "create_attempt", return_value=attempt_row
+        ) as mock_create,
+    ):
+        client.post(_attempts_url(assessment_id), headers={"Authorization": "Bearer token"})
+
+    assert mock_get_assessment.call_args[0][0] is sentinel_client
+    assert mock_create.call_args[0][0] is sentinel_client
+
+
+# ------------------------------------------------------------
+# Errors
+# ------------------------------------------------------------
+
+
+def test_create_attempt_unexpected_failure_returns_clean_500():
+    assessment_id = uuid4()
+    assessment_row = _row_assessment(id=str(assessment_id))
+    with (
+        authenticated_as("STUDENT"),
+        patch.object(assessment_service, "get_active_assessment", return_value=assessment_row),
+        patch.object(
+            assessment_service,
+            "create_attempt",
+            side_effect=RuntimeError("connection refused to internal db host 10.0.0.5"),
+        ),
+    ):
+        response = client.post(
+            _attempts_url(assessment_id), headers={"Authorization": "Bearer token"}
+        )
+    assert response.status_code == 500
+    body_text = str(response.json())
+    assert "10.0.0.5" not in body_text
+    assert "connection refused" not in body_text.lower()
+
+
+# ------------------------------------------------------------
+# Duplicate attempt
+# ------------------------------------------------------------
+
+
+def test_create_attempt_duplicate_in_progress_returns_409():
+    assessment_id = uuid4()
+    assessment_row = _row_assessment(id=str(assessment_id))
+    with (
+        authenticated_as("STUDENT"),
+        patch.object(assessment_service, "get_active_assessment", return_value=assessment_row),
+        patch.object(
+            assessment_service,
+            "create_attempt",
+            side_effect=assessment_service.DuplicateInProgressAttemptError(),
+        ),
+    ):
+        response = client.post(
+            _attempts_url(assessment_id), headers={"Authorization": "Bearer token"}
+        )
+    assert response.status_code == 409
