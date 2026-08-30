@@ -34,6 +34,9 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Test
+        run: npm test
+
       - name: Build
         # Dummy, non-secret placeholders only. The app doesn't read these at
         # build time today, but they're set defensively in case a future
