@@ -45,7 +45,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Main",
     items: [
       { label: "Skills & Assessment", href: "/student/skills", icon: Target },
-      { label: "Assessments", href: "/student/assessments", icon: ClipboardCheck },
+      { label: "Assessments", href: "/student/assessment", icon: ClipboardCheck },
       { label: "Skill Gap Analysis", href: "/student/skill-gap", icon: TrendingUp },
       { label: "Learning & Courses", href: "/student/learning", icon: BookOpen },
       { label: "Internships", href: "/student/internships", icon: Briefcase },
