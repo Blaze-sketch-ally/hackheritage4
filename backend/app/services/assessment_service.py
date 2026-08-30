@@ -1,5 +1,6 @@
 """Business logic for the Assessment API -- Phase 1D (read-only),
-Phase 1E (attempt creation), and Phase 1F (answer saving).
+Phase 1E (attempt creation), Phase 1F (answer saving), and Phase 1G
+(submission).
 
 Every function here takes an already user-scoped Supabase client (see
 app.core.security.build_user_client). RLS does the real access-control
@@ -8,6 +9,7 @@ them use the service-role client -- ordinary student operations must never
 bypass RLS.
 """
 
+from datetime import UTC, datetime
 from uuid import UUID
 
 from postgrest.exceptions import APIError
@@ -267,3 +269,47 @@ def save_answer(
             .execute()
         )
     return response.data[0]
+
+
+def get_answered_question_ids(client: Client, attempt_id: UUID) -> set[str]:
+    """The set of question_ids the student has already saved an answer for
+    within this attempt. RLS ("Students can view their own answers")
+    already scopes this to the caller; filtering by attempt_id also means
+    answers from the student's OTHER attempts (e.g. a previous retake)
+    never count towards this one."""
+    response = (
+        client.table("assessment_answers")
+        .select("question_id")
+        .eq("attempt_id", str(attempt_id))
+        .execute()
+    )
+    rows = response.data or []
+    return {row["question_id"] for row in rows}
+
+
+def mark_attempt_submitted(client: Client, attempt_id: UUID) -> dict | None:
+    """Set submitted_at to the current time. Nothing else -- status stays
+    IN_PROGRESS, score/total_marks/percentage stay untouched. Phase 1H
+    (service_role) owns the eventual COMPLETED transition together with
+    real score data, per assessment_attempts_completed_has_score and
+    prevent_self_attempt_scoring, which unconditionally block any
+    non-service_role caller from setting status = 'COMPLETED' -- this
+    function makes no attempt to do so.
+
+    The .is_("submitted_at", None) filter is an atomic guard against a
+    double-submit race: only an attempt that STILL has a null submitted_at
+    at the moment of the UPDATE actually matches and gets written. If two
+    submit requests race, the loser's UPDATE matches zero rows and this
+    function returns None -- callers must treat that as "already
+    submitted," not a generic failure, and must never retry with a
+    fabricated timestamp.
+    """
+    response = (
+        client.table("assessment_attempts")
+        .update({"submitted_at": datetime.now(UTC).isoformat()})
+        .eq("id", str(attempt_id))
+        .is_("submitted_at", None)
+        .execute()
+    )
+    rows = response.data or []
+    return rows[0] if rows else None
