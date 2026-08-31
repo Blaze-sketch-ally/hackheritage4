@@ -27,7 +27,7 @@ from supabase import Client
 
 _ASSESSMENT_COLUMNS = (
     "id, skill_id, title, description, difficulty, duration_minutes, "
-    "question_count, is_active, created_at, updated_at"
+    "question_count, passing_percentage, is_active, created_at, updated_at"
 )
 
 # options embedded via PostgREST's nested-resource syntax (a single query,
@@ -84,42 +84,126 @@ def get_active_assessment(client: Client, assessment_id: UUID) -> dict | None:
     return response.data if response is not None else None
 
 
-def list_visible_questions(client: Client, assessment_id: UUID) -> list[dict]:
-    """Approved, active, OBJECTIVE questions for one assessment, with their
-    options embedded, both levels sorted by display_order.
+def get_assessment_by_id(client: Client, assessment_id: UUID) -> dict | None:
+    """One assessment regardless of is_active -- unlike get_active_assessment,
+    used only for post-attempt enrichment (passing_percentage/skill_id for
+    the score and result responses), where a since-deactivated assessment
+    must not make an already-scored attempt's response unfetchable. Mirrors
+    the same "is_active governs discoverability, not historical facts"
+    principle score_assessment_attempt() itself already applies (see that
+    function's own header comment in the migration)."""
+    response = (
+        client.table("assessments")
+        .select(_ASSESSMENT_COLUMNS)
+        .eq("id", str(assessment_id))
+        .maybe_single()
+        .execute()
+    )
+    return response.data if response is not None else None
 
-    Filters scoring_method = OBJECTIVE: Phase 1 has no scoring path for
-    AI_EVALUATED questions (Phase 1H rejects/defers submission of any
-    attempt containing one), so this read endpoint excludes them rather
-    than showing a student a question the system cannot yet grade -- see
-    the Phase 1D report for the full reasoning. This does not filter out
-    the parent assessment itself, only individual AI_EVALUATED questions
-    within it.
 
-    RLS ("Authenticated users can view approved active questions") already
-    guarantees review_status/is_active/parent-assessment-active; the
-    explicit filters here are defense in depth, matching the pattern in
-    get_active_assessment/list_active_assessments. Options are ordered in
-    Python rather than relying on PostgREST's embedded-resource ordering
-    syntax, to avoid a dependency on behavior that's easy to get subtly
-    wrong across postgrest-py versions.
+def get_skill_verification(client: Client, student_id: str, skill_id: str, proficiency_level: str) -> bool:
+    """Whether the student's own student_skills row for this EXACT
+    (skill_id, proficiency_level) pair is currently verified. False --
+    never an error -- when no such row exists at all (the student never
+    declared this skill at this level): this function only ever reports
+    existing state, never implies a row should exist. RLS ("Students can
+    view their own skills") already scopes this to the caller when called
+    with a user-scoped client."""
+    response = (
+        client.table("student_skills")
+        .select("is_verified")
+        .eq("student_id", student_id)
+        .eq("skill_id", skill_id)
+        .eq("proficiency_level", proficiency_level)
+        .maybe_single()
+        .execute()
+    )
+    row = response.data if response is not None else None
+    return bool(row and row.get("is_verified"))
+
+
+def get_attempt_questions(client: Client, attempt_id: UUID) -> list[dict]:
+    """The FROZEN, per-attempt question set persisted by
+    create_assessment_attempt() (015_assessment_verification.sql) -- never
+    the live question bank. This is the only question data the taking UI
+    (and the submission-completeness check) may read: refreshing the
+    browser, or resuming later, always returns exactly the same questions
+    in exactly the same order, because this reads a permanent historical
+    record, not a live query re-run against current bank content.
+
+    Deliberately does NOT filter by review_status/is_active/scoring_method
+    -- a question already persisted into this attempt stays part of it
+    even if later deactivated (assessment_attempt_questions' own RLS,
+    widened by 015_assessment_verification.sql, already allows the student
+    to keep seeing it). RLS ("Students can view their own attempt's
+    selected questions") scopes the top-level read to the caller's own
+    attempt; the nested question/options embed is independently covered by
+    both the original "approved active" policies and the widened
+    "in their own attempts" ones from the same migration.
+
+    Ordered by assessment_attempt_questions.display_order (the FROZEN exam
+    order for this specific attempt) -- NOT by
+    assessment_questions.display_order, which only reflects the bank's own
+    arbitrary authoring order and is irrelevant here.
     """
     response = (
-        client.table("assessment_questions")
-        .select(_QUESTION_COLUMNS)
-        .eq("assessment_id", str(assessment_id))
-        .eq("review_status", "APPROVED")
-        .eq("is_active", True)
-        .eq("scoring_method", "OBJECTIVE")
+        client.table("assessment_attempt_questions")
+        .select(f"display_order, question:assessment_questions({_QUESTION_COLUMNS})")
+        .eq("attempt_id", str(attempt_id))
         .order("display_order")
         .execute()
     )
-    questions = response.data or []
-    for question in questions:
+    rows = response.data or []
+    questions = []
+    for row in rows:
+        question = row.get("question")
+        if question is None:
+            continue
+        # The frozen exam position overrides the bank's own display_order.
+        question["display_order"] = row["display_order"]
         question["options"] = sorted(
             question.get("options") or [], key=lambda option: option["display_order"]
         )
+        questions.append(question)
     return questions
+
+
+def get_attempt_question_ids(client: Client, attempt_id: UUID) -> set[str]:
+    """The set of question_ids frozen into this attempt -- what submission
+    completeness (Phase 1G) must check against, replacing the live-pool
+    check that existed before per-attempt question freezing."""
+    response = (
+        client.table("assessment_attempt_questions")
+        .select("question_id")
+        .eq("attempt_id", str(attempt_id))
+        .execute()
+    )
+    rows = response.data or []
+    return {row["question_id"] for row in rows}
+
+
+def is_question_in_attempt(client: Client, attempt_id: UUID, question_id: UUID) -> bool:
+    """Whether question_id was frozen into this specific attempt --
+    replaces the old "is this question currently eligible in the live
+    pool" check (get_visible_question) as the eligibility gate for
+    POST /attempts/{id}/answers. Deliberately does not re-check the
+    question's current review_status/is_active/scoring_method: a question
+    legitimately selected into this attempt must remain answerable through
+    it for as long as the attempt itself is IN_PROGRESS, even if it is
+    deactivated at some point during the attempt -- otherwise a routine
+    content change could permanently strand an in-progress attempt with an
+    unanswerable, un-submittable question through no fault of the student.
+    """
+    response = (
+        client.table("assessment_attempt_questions")
+        .select("question_id")
+        .eq("attempt_id", str(attempt_id))
+        .eq("question_id", str(question_id))
+        .maybe_single()
+        .execute()
+    )
+    return response is not None and response.data is not None
 
 
 class DuplicateInProgressAttemptError(Exception):
@@ -130,42 +214,82 @@ class DuplicateInProgressAttemptError(Exception):
     not a generic 500."""
 
 
-def create_attempt(client: Client, student_id: str, assessment_id: UUID) -> dict:
-    """Start a new attempt for the calling student.
+class AssessmentNotConfiguredError(Exception):
+    """Raised when create_assessment_attempt() (015_assessment_verification.sql)
+    finds no blueprint configured for this assessment, or an insufficient
+    approved/active/OBJECTIVE question pool for some blueprint difficulty
+    bucket (SQLSTATE 55000, object_not_in_prerequisite_state). This is a
+    content-configuration problem, not something the student did wrong or
+    something a retry fixes -- callers should turn this into a 503, not a
+    409 or a generic 500."""
 
-    RLS ("Students can start their own attempts") is the real enforcement:
-    its WITH CHECK independently requires auth.uid() = student_id,
-    is_student(), and a fresh IN_PROGRESS/unscored/unsubmitted row,
-    regardless of what this function sends -- the explicit fields below
-    mirror that policy as defense in depth, not the only guard. student_id
-    must always be the authenticated caller's own id (never taken from a
-    request body); this function has no way to accept one from a client at
-    all, since the route never parses one.
 
-    "No second concurrent attempt" is enforced by the DB's own partial
-    unique index, not application logic -- a violation raises postgrest's
-    APIError with code 23505 (unique_violation), which this function
-    translates into DuplicateInProgressAttemptError so the route layer can
-    return a clean 409 instead of a raw DB error. Same pattern already
-    used for this exact error code in frontend/lib/student/skills.ts.
+def get_in_progress_attempt(client: Client, student_id: str, assessment_id: UUID) -> dict | None:
+    """The caller's own IN_PROGRESS attempt at this assessment, if any --
+    lets a student who navigates back to an assessment resume it instead
+    of hitting the 409 from a second POST .../attempts. RLS ("Students can
+    view their own attempts") already scopes this to the caller; the
+    explicit .eq("student_id", ...) is defense in depth, matching every
+    other read in this module. At most one row can ever match, by the same
+    partial unique index that makes concurrent double-starts impossible."""
+    response = (
+        client.table("assessment_attempts")
+        .select(_ATTEMPT_COLUMNS)
+        .eq("student_id", student_id)
+        .eq("assessment_id", str(assessment_id))
+        .eq("status", "IN_PROGRESS")
+        .maybe_single()
+        .execute()
+    )
+    return response.data if response is not None else None
+
+
+def create_attempt(service_client: Client, student_id: str, assessment_id: UUID) -> dict:
+    """Start a new attempt for the calling student AND persist its random
+    question selection, in one atomic transaction.
+
+    MUST be called with the service-role client (app.database.supabase.
+    get_supabase()) -- create_assessment_attempt() is service_role-only
+    (see the REVOKE/GRANT at the end of that function's definition in
+    015_assessment_verification.sql), for the same reason
+    score_assessment_attempt() already is: PostgREST gives no
+    cross-statement transaction to an external client, and "insert the
+    attempt, then separately insert its question selection" as ordinary
+    REST calls would risk an orphaned, question-less attempt if the
+    process died in between.
+
+    MUST NOT be called before the route layer has already verified the
+    assessment exists/is active through the normal RLS-respecting path
+    (get_active_assessment with the user-scoped client) -- see
+    app.api.assessments.create_attempt for that required ordering.
+    student_id must always be the authenticated caller's own id (never
+    taken from a request body); this function has no way to accept one
+    from a client at all, and the RPC itself re-verifies it as a second,
+    defense-in-depth check inside the trusted function.
+
+    "No second concurrent attempt" is still enforced by the DB's own
+    partial unique index, unchanged -- a violation raises postgrest's
+    APIError with code 23505 (unique_violation), translated here into
+    DuplicateInProgressAttemptError exactly as before. A missing blueprint
+    or an insufficient question pool raises SQLSTATE 55000, translated
+    into AssessmentNotConfiguredError.
     """
     try:
-        response = (
-            client.table("assessment_attempts")
-            .insert(
-                {
-                    "student_id": student_id,
-                    "assessment_id": str(assessment_id),
-                    "status": "IN_PROGRESS",
-                }
-            )
-            .execute()
-        )
+        response = service_client.rpc(
+            "create_assessment_attempt",
+            {"p_assessment_id": str(assessment_id), "p_student_id": student_id},
+        ).execute()
     except APIError as exc:
         if exc.code == "23505":
             raise DuplicateInProgressAttemptError() from exc
+        if exc.code == "55000":
+            raise AssessmentNotConfiguredError() from exc
         raise
-    return response.data[0]
+
+    data = response.data
+    if isinstance(data, list):
+        data = data[0] if data else None
+    return data
 
 
 _ATTEMPT_COLUMNS = (
@@ -193,30 +317,6 @@ def get_own_attempt(client: Client, student_id: str, attempt_id: UUID) -> dict |
         .select(_ATTEMPT_COLUMNS)
         .eq("id", str(attempt_id))
         .eq("student_id", student_id)
-        .maybe_single()
-        .execute()
-    )
-    return response.data if response is not None else None
-
-
-def get_visible_question(client: Client, assessment_id: UUID, question_id: UUID) -> dict | None:
-    """Confirms one question both exists and is eligible to be answered:
-    belongs to the given assessment, and is approved/active/OBJECTIVE --
-    the exact same eligibility filters as list_visible_questions (Phase
-    1D), scoped to a single id instead of listing every question. A
-    student may only answer a question that would actually appear on
-    GET .../questions for this assessment; this is what stops answering a
-    question from a different assessment, an unapproved/inactive one, or
-    an AI_EVALUATED one Phase 1 has no scoring path for.
-    """
-    response = (
-        client.table("assessment_questions")
-        .select("id")
-        .eq("id", str(question_id))
-        .eq("assessment_id", str(assessment_id))
-        .eq("review_status", "APPROVED")
-        .eq("is_active", True)
-        .eq("scoring_method", "OBJECTIVE")
         .maybe_single()
         .execute()
     )
@@ -371,7 +471,7 @@ def score_attempt(client: Client, attempt_id: UUID, student_id: str) -> dict:
     assessments.is_active governs whether an assessment is currently
     discoverable/attemptable/visible through the student-facing read
     endpoints (list_active_assessments, get_active_assessment,
-    list_visible_questions) -- it is a content-availability flag, not a
+    get_attempt_questions) -- it is a content-availability flag, not a
     precondition for scoring. Once a student has legitimately submitted
     an attempt (Phase 1G), deactivating the parent assessment afterward
     must not retroactively block that already-submitted attempt from
@@ -420,19 +520,16 @@ def get_attempt_result_rows(client: Client, attempt_id: UUID) -> list[dict]:
     carrying its nested "question" (with options) and "answer_key".
 
     Deliberately queried FROM assessment_answers, not from
-    list_visible_questions()/assessment_questions directly: after Phase
+    get_attempt_questions()/assessment_questions directly: after Phase
     1H's unanswered-question persistence fix (see
-    score_assessment_attempt() in 014_score_assessment_attempt.sql),
+    score_assessment_attempt() in 015_assessment_verification.sql),
     every question that was actually part of an attempt's scored
     population -- answered or not -- has exactly one assessment_answers
     row (selected_option_ids = [] is the internal "no answer was
     submitted" sentinel for that case, never a value a real student
     submission can produce). Querying from assessment_answers therefore
     reconstructs the REAL historical population, immune to any later
-    change in a question's/assessment's review_status or is_active --
-    unlike list_visible_questions(), which reflects only CURRENT
-    eligibility and would silently diverge from what was actually scored
-    if content changes after the fact.
+    change in a question's/assessment's review_status or is_active.
 
     RLS ("Students can view their own answers") scopes the top-level rows
     to the caller's own attempts; the explicit .eq("attempt_id", ...)
@@ -440,30 +537,29 @@ def get_attempt_result_rows(client: Client, attempt_id: UUID) -> list[dict]:
     confirmed attempt ownership and COMPLETED status via get_own_attempt()
     before calling this -- this function does not re-check either.
 
-    The nested "question"/"options" embed is independently subject to
-    "Authenticated users can view approved active questions" (and the
-    matching options policy), which are gated on the question/
-    assessment's CURRENT review_status/is_active, NOT on attempt
-    completion. If a question or its parent assessment is deactivated
-    after this attempt was completed, that embed can come back None for
-    this row even though the assessment_answers row itself remains
-    visible -- a known, narrow limitation (not something this function
-    papers over with service_role). This function does NOT drop or
-    otherwise paper over such a row; it returns it with "question" (and/or
-    "answer_key") set to None so the caller can decide what to do --
-    app.api.attempts.get_attempt_result treats this as a hard failure
-    (500), never a silently incomplete result. The separate answer_key
-    lookup below does not have this particular gap: "Students can view
-    answer keys for their own completed attempts" is gated only on the
-    attempt's own completion.
+    The nested "question"/"options" embed is independently subject to RLS
+    on assessment_questions/assessment_question_options. Since
+    015_assessment_verification.sql, that RLS includes "a question that is
+    part of one of my own attempts" (via assessment_attempt_questions) as
+    an additional, permissive path alongside the original "approved
+    active" one -- so a question/option deactivated after this attempt
+    completed no longer makes this embed come back None (a real, narrow
+    limitation the original 014-era implementation had). This function
+    still does NOT drop or paper over a None embed if one somehow occurs
+    (e.g. a genuinely missing row) -- it returns it as None so the caller
+    can decide what to do; app.api.attempts.get_attempt_result treats that
+    as a hard failure (500), never a silently incomplete result. The
+    separate answer_key lookup below never had this gap at all: "Students
+    can view answer keys for their own completed attempts" is gated only
+    on the attempt's own completion.
 
     Two queries, not N+1: one for all of this attempt's answers (with
     question+options embedded), one for all of those questions' answer
     keys via .in_(...). A single deeply-nested embed
     (assessment_answers -> question -> answer_key) was deliberately
     avoided here in favor of this simpler, already-proven 1-level embed
-    shape (identical to the one Phase 1D's list_visible_questions already
-    uses) plus one extra flat query -- see the Phase 1I report for why.
+    shape (identical to the one get_attempt_questions already uses) plus
+    one extra flat query -- see the Phase 1I report for why.
     """
     answer_response = (
         client.table("assessment_answers")
@@ -498,3 +594,41 @@ def get_attempt_result_rows(client: Client, attempt_id: UUID) -> list[dict]:
         key=lambda row: (row["question"]["display_order"] if row.get("question") else float("inf"))
     )
     return rows
+
+
+# ------------------------------------------------------------
+# Assessment history
+# ------------------------------------------------------------
+
+_HISTORY_ATTEMPT_COLUMNS = (
+    "id, status, started_at, submitted_at, score, total_marks, percentage, "
+    f"assessment:assessments({_ASSESSMENT_COLUMNS})"
+)
+
+
+def list_own_attempts(client: Client, student_id: str) -> list[dict]:
+    """Every attempt the caller has ever made, most recent first, with its
+    assessment embedded -- the read behind the assessment history page.
+    RLS ("Students can view their own attempts") already scopes this to
+    the caller; the explicit .eq("student_id", ...) here is defense in
+    depth, matching every other read in this module.
+
+    The embedded "assessment" can come back None for an attempt whose
+    assessment has since been deactivated ("Students can view active
+    assessments" requires is_active = true, and no widened policy exists
+    for this embed the way 015_assessment_verification.sql widened
+    question/option visibility for a student's own attempts) -- a known,
+    narrow limitation: that row's skill/difficulty/passing_percentage
+    simply aren't shown. This function does not drop such a row or treat
+    it as an error; it is real historical data (the attempt itself always
+    exists) with an unavailable content embed, and callers decide how to
+    render that.
+    """
+    response = (
+        client.table("assessment_attempts")
+        .select(_HISTORY_ATTEMPT_COLUMNS)
+        .eq("student_id", student_id)
+        .order("started_at", desc=True)
+        .execute()
+    )
+    return response.data or []

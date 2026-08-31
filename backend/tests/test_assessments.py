@@ -50,6 +50,7 @@ def _assessment_data(**overrides):
         "difficulty": "Intermediate",
         "duration_minutes": 30,
         "question_count": 10,
+        "passing_percentage": "70.00",
         "is_active": True,
         "created_at": "2026-01-01T00:00:00Z",
         "updated_at": "2026-01-01T00:00:00Z",
@@ -357,6 +358,7 @@ def _row_assessment(**overrides):
         "difficulty": "Intermediate",
         "duration_minutes": 30,
         "question_count": 10,
+        "passing_percentage": "70.00",
         "is_active": True,
         "created_at": "2026-01-01T00:00:00Z",
         "updated_at": "2026-01-01T00:00:00Z",
@@ -423,38 +425,6 @@ def test_list_active_assessments_filters_is_active_and_orders():
     query.order.assert_called_once_with("created_at")
 
 
-def test_list_visible_questions_filters_approved_active_objective():
-    mock_client, query = _chain_returning([_row_question()])
-    assessment_id = uuid4()
-    assessment_service.list_visible_questions(mock_client, assessment_id)
-
-    mock_client.table.assert_called_once_with("assessment_questions")
-    assert query.eq.call_args_list == [
-        (("assessment_id", str(assessment_id)), {}),
-        (("review_status", "APPROVED"), {}),
-        (("is_active", True), {}),
-        (("scoring_method", "OBJECTIVE"), {}),
-    ]
-    query.order.assert_called_once_with("display_order")
-
-
-def test_list_visible_questions_sorts_options_by_display_order():
-    """Options come back from Supabase in whatever order PostgREST/JSON
-    embedding happens to produce -- verify the service sorts them."""
-    scrambled = _row_question(
-        options=[
-            _row_option(display_order=2, option_text="third"),
-            _row_option(display_order=0, option_text="first"),
-            _row_option(display_order=1, option_text="second"),
-        ]
-    )
-    mock_client, _query = _chain_returning([scrambled])
-    questions = assessment_service.list_visible_questions(mock_client, uuid4())
-
-    ordered_texts = [o["option_text"] for o in questions[0]["options"]]
-    assert ordered_texts == ["first", "second", "third"]
-
-
 def test_get_active_assessment_returns_none_when_not_found():
     mock_client = MagicMock()
     mock_client.table.return_value.select.return_value.eq.return_value.eq.return_value.maybe_single.return_value.execute.return_value = None
@@ -474,6 +444,72 @@ def test_get_active_assessment_filters_is_active():
     eq1 = mock_client.table.return_value.select.return_value.eq
     eq2 = eq1.return_value.eq
     eq2.assert_called_once_with("is_active", True)
+
+
+def test_get_assessment_by_id_does_not_filter_is_active():
+    """Unlike get_active_assessment, used only for post-attempt enrichment
+    (passing_percentage/skill_id for the score/result responses) -- a
+    since-deactivated assessment must still be readable so an
+    already-scored attempt's response doesn't become unfetchable."""
+    mock_client = MagicMock()
+    query = mock_client.table.return_value.select.return_value
+    response = MagicMock()
+    response.data = _row_assessment()
+    query.eq.return_value.maybe_single.return_value.execute.return_value = response
+
+    assessment_id = uuid4()
+    assessment_service.get_assessment_by_id(mock_client, assessment_id)
+
+    query.eq.assert_called_once_with("id", str(assessment_id))
+
+
+def test_get_skill_verification_matches_exact_skill_and_level():
+    """The security-critical query: must filter by student_id, skill_id,
+    AND proficiency_level together -- a partial match (right skill, wrong
+    level, or vice versa) must never report verified."""
+    mock_client = MagicMock()
+    query = mock_client.table.return_value.select.return_value
+    query.eq.return_value = query
+    response = MagicMock()
+    response.data = {"is_verified": True}
+    query.maybe_single.return_value.execute.return_value = response
+
+    student_id = "student-1"
+    skill_id = str(uuid4())
+    result = assessment_service.get_skill_verification(mock_client, student_id, skill_id, "Advanced")
+
+    mock_client.table.assert_called_once_with("student_skills")
+    assert query.eq.call_args_list == [
+        (("student_id", student_id), {}),
+        (("skill_id", skill_id), {}),
+        (("proficiency_level", "Advanced"), {}),
+    ]
+    assert result is True
+
+
+def test_get_skill_verification_false_when_no_matching_row():
+    """No student_skills row for this exact (skill_id, proficiency_level)
+    pair -- e.g. the student never declared this skill at this level --
+    reports False, never an error and never a fabricated row."""
+    mock_client = MagicMock()
+    query = mock_client.table.return_value.select.return_value
+    query.eq.return_value = query
+    query.maybe_single.return_value.execute.return_value = None
+
+    result = assessment_service.get_skill_verification(mock_client, "student-1", str(uuid4()), "Advanced")
+    assert result is False
+
+
+def test_get_skill_verification_false_when_row_not_yet_verified():
+    mock_client = MagicMock()
+    query = mock_client.table.return_value.select.return_value
+    query.eq.return_value = query
+    response = MagicMock()
+    response.data = {"is_verified": False}
+    query.maybe_single.return_value.execute.return_value = response
+
+    result = assessment_service.get_skill_verification(mock_client, "student-1", str(uuid4()), "Advanced")
+    assert result is False
 
 
 # ------------------------------------------------------------
@@ -631,182 +667,24 @@ def test_single_assessment_database_error_returns_clean_500():
 
 
 # ------------------------------------------------------------
-# API layer: GET /api/v1/assessments/{assessment_id}/questions
+# NOTE on the removed GET /assessments/{id}/questions endpoint:
+#
+# 015_assessment_verification.sql replaces "the whole live question pool
+# is the exam" with server-side random selection frozen per attempt. That
+# endpoint would have exposed the ENTIRE approved/active question bank for
+# an assessment to any student, at any time -- exactly the "expose the
+# complete question bank" anti-pattern this phase exists to close. It has
+# been removed outright, not just deprecated; the equivalent, correctly-
+# scoped endpoint is GET /attempts/{attempt_id}/questions (see
+# test_attempts.py), which only ever returns the caller's own frozen
+# selection for one specific attempt. The AI_EVALUATED-exclusion property
+# this removed endpoint used to have a mocked regression test for is now
+# enforced entirely inside create_assessment_attempt()'s SQL selection
+# query (scoring_method = 'OBJECTIVE') -- SQL logic this file's own
+# module docstring already explains cannot be meaningfully proven by a
+# mocked Python test; it requires the live-database verification the
+# migration governance docs call for.
 # ------------------------------------------------------------
-
-
-def test_questions_approved_active_returned():
-    assessment_id = uuid4()
-    assessment_row = _row_assessment(id=str(assessment_id))
-    question_row = _row_question(assessment_id=str(assessment_id))
-    with (
-        authenticated_as("STUDENT"),
-        patch.object(assessment_service, "get_active_assessment", return_value=assessment_row),
-        patch.object(assessment_service, "list_visible_questions", return_value=[question_row]),
-    ):
-        response = client.get(
-            f"/api/v1/assessments/{assessment_id}/questions",
-            headers={"Authorization": "Bearer token"},
-        )
-    assert response.status_code == 200
-    body = response.json()
-    assert len(body) == 1
-    assert body[0]["question_text"] == question_row["question_text"]
-
-
-def test_questions_options_returned_and_ordered():
-    assessment_id = uuid4()
-    assessment_row = _row_assessment(id=str(assessment_id))
-    question_row = _row_question(
-        assessment_id=str(assessment_id),
-        options=[
-            _row_option(display_order=0, option_text="first"),
-            _row_option(display_order=1, option_text="second"),
-        ],
-    )
-    with (
-        authenticated_as("STUDENT"),
-        patch.object(assessment_service, "get_active_assessment", return_value=assessment_row),
-        patch.object(assessment_service, "list_visible_questions", return_value=[question_row]),
-    ):
-        response = client.get(
-            f"/api/v1/assessments/{assessment_id}/questions",
-            headers={"Authorization": "Bearer token"},
-        )
-    options = response.json()[0]["options"]
-    assert [o["option_text"] for o in options] == ["first", "second"]
-
-
-def test_questions_inactive_assessment_returns_404_and_skips_question_query():
-    with (
-        authenticated_as("STUDENT"),
-        patch.object(assessment_service, "get_active_assessment", return_value=None),
-        patch.object(assessment_service, "list_visible_questions") as mock_list_questions,
-    ):
-        response = client.get(
-            f"/api/v1/assessments/{uuid4()}/questions",
-            headers={"Authorization": "Bearer token"},
-        )
-    assert response.status_code == 404
-    mock_list_questions.assert_not_called()
-
-
-def test_questions_response_has_no_answer_key_fields():
-    assessment_id = uuid4()
-    assessment_row = _row_assessment(id=str(assessment_id))
-    question_row = _row_question(assessment_id=str(assessment_id))
-    with (
-        authenticated_as("STUDENT"),
-        patch.object(assessment_service, "get_active_assessment", return_value=assessment_row),
-        patch.object(assessment_service, "list_visible_questions", return_value=[question_row]),
-    ):
-        response = client.get(
-            f"/api/v1/assessments/{assessment_id}/questions",
-            headers={"Authorization": "Bearer token"},
-        )
-    body_text = response.text
-    for forbidden in ("correct_option_ids", "correct_answer_text", "explanation"):
-        assert forbidden not in body_text
-
-
-def test_questions_response_has_no_moderation_fields():
-    assessment_id = uuid4()
-    assessment_row = _row_assessment(id=str(assessment_id))
-    question_row = _row_question(assessment_id=str(assessment_id))
-    with (
-        authenticated_as("STUDENT"),
-        patch.object(assessment_service, "get_active_assessment", return_value=assessment_row),
-        patch.object(assessment_service, "list_visible_questions", return_value=[question_row]),
-    ):
-        response = client.get(
-            f"/api/v1/assessments/{assessment_id}/questions",
-            headers={"Authorization": "Bearer token"},
-        )
-    body_text = response.text
-    for forbidden in ("review_status", "generation_source", "generation_model", "generated_at"):
-        assert forbidden not in body_text
-
-
-class _FakeFilterQuery:
-    """A minimal fake standing in for the real Supabase/postgrest query
-    chain that actually APPLIES .eq() filters to an in-memory row set,
-    unlike a MagicMock (which only records that an argument was passed).
-    This is what makes the regression test below prove real exclusion
-    behavior rather than just asserting a mock call happened."""
-
-    def __init__(self, rows):
-        self._rows = rows
-
-    def select(self, *_args, **_kwargs):
-        return self
-
-    def eq(self, column, value):
-        self._rows = [row for row in self._rows if row.get(column) == value]
-        return self
-
-    def order(self, *_args, **_kwargs):
-        return self
-
-    def execute(self):
-        result = MagicMock()
-        result.data = self._rows
-        return result
-
-
-class _FakeFilterClient:
-    def __init__(self, rows):
-        self._rows = rows
-
-    def table(self, _name):
-        return _FakeFilterQuery(self._rows)
-
-
-def test_ai_evaluated_question_excluded_from_questions_endpoint():
-    """Regression test for the Phase 1D decision to filter
-    scoring_method = OBJECTIVE: an AI_EVALUATED question -- even if
-    APPROVED and active, exactly like a real one would need to be to
-    reach this filter at all -- must never be returned by
-    GET /api/v1/assessments/{assessment_id}/questions, because Phase 1 has
-    no scoring path for it yet.
-
-    Runs the REAL list_visible_questions() query-building logic (not a
-    mocked return value) against a fake client that genuinely filters --
-    proving the .eq("scoring_method", "OBJECTIVE") call actually excludes
-    the AI_EVALUATED row, not just that the argument was passed.
-    """
-    assessment_id = uuid4()
-    assessment_row = _row_assessment(id=str(assessment_id))
-
-    objective_question = _row_question(
-        assessment_id=str(assessment_id),
-        question_text="OBJECTIVE question -- must be returned",
-        scoring_method="OBJECTIVE",
-        review_status="APPROVED",
-        is_active=True,
-    )
-    ai_evaluated_question = _row_question(
-        assessment_id=str(assessment_id),
-        question_text="AI_EVALUATED question -- must NOT be returned",
-        scoring_method="AI_EVALUATED",
-        review_status="APPROVED",
-        is_active=True,
-    )
-    fake_client = _FakeFilterClient([objective_question, ai_evaluated_question])
-
-    with (
-        authenticated_as("STUDENT"),
-        patch.object(assessment_service, "get_active_assessment", return_value=assessment_row),
-        patch("app.api.assessments.build_user_client", return_value=fake_client),
-    ):
-        response = client.get(
-            f"/api/v1/assessments/{assessment_id}/questions",
-            headers={"Authorization": "Bearer token"},
-        )
-
-    assert response.status_code == 200
-    question_texts = [q["question_text"] for q in response.json()]
-    assert "OBJECTIVE question -- must be returned" in question_texts
-    assert "AI_EVALUATED question -- must NOT be returned" not in question_texts
 
 
 # ------------------------------------------------------------
@@ -814,14 +692,17 @@ def test_ai_evaluated_question_excluded_from_questions_endpoint():
 # ------------------------------------------------------------
 
 
-def test_service_role_not_referenced_in_assessment_routes():
-    # Checking module *namespace*, not source text: the module's own
-    # docstring explains get_supabase() is deliberately NOT used, which
-    # would false-positive a plain substring search. If get_supabase were
-    # ever imported for real use, it would show up as a module attribute.
+def test_service_role_used_only_for_create_attempt():
+    """Unlike list_assessments/get_assessment, create_attempt DOES import
+    get_supabase() -- create_assessment_attempt() (015_assessment_
+    verification.sql) is service_role-only, for the same reason
+    score_assessment_attempt() already is. Checking module *namespace*
+    (not source text) that get_supabase is actually present, confirming
+    it's wired up rather than just documented."""
     from app.api import assessments as assessments_routes
 
-    assert not hasattr(assessments_routes, "get_supabase")
+    assert hasattr(assessments_routes, "get_supabase")
+    assert hasattr(assessments_routes, "build_user_client")
 
 
 def test_service_role_not_referenced_in_assessment_service():
@@ -836,7 +717,7 @@ def test_response_schemas_carry_no_student_identifying_fields():
         assert "student_id" not in schema.model_fields
 
 
-def test_non_student_forbidden_on_all_three_endpoints():
+def test_non_student_forbidden_on_all_read_endpoints():
     assessment_id = uuid4()
     with authenticated_as("FACULTY"):
         r1 = client.get("/api/v1/assessments", headers={"Authorization": "Bearer token"})
@@ -844,7 +725,7 @@ def test_non_student_forbidden_on_all_three_endpoints():
             f"/api/v1/assessments/{assessment_id}", headers={"Authorization": "Bearer token"}
         )
         r3 = client.get(
-            f"/api/v1/assessments/{assessment_id}/questions",
+            f"/api/v1/assessments/{assessment_id}/attempts/current",
             headers={"Authorization": "Bearer token"},
         )
     assert r1.status_code == 403
@@ -880,40 +761,38 @@ def _attempts_url(assessment_id) -> str:
 
 
 # ------------------------------------------------------------
-# Service layer: insert construction + duplicate translation
+# Service layer: create_assessment_attempt() RPC call + error translation
 # ------------------------------------------------------------
 
 
-def test_service_create_attempt_inserts_fresh_in_progress_row():
-    """Confirms exactly what WE send to Supabase -- student_id/
-    assessment_id/status only, nothing else, status always IN_PROGRESS.
-    Mirrors (as defense in depth) what the RLS WITH CHECK independently
-    requires."""
+def test_service_create_attempt_calls_rpc_with_correct_params():
+    """create_attempt (015_assessment_verification.sql) no longer inserts
+    directly -- it invokes create_assessment_attempt(), the one atomic
+    operation that starts the attempt AND persists its random question
+    selection. Confirms exactly what WE send: assessment_id/student_id
+    only."""
     mock_client = MagicMock()
     response = MagicMock()
-    response.data = [_row_attempt()]
-    mock_client.table.return_value.insert.return_value.execute.return_value = response
+    response.data = _row_attempt()
+    mock_client.rpc.return_value.execute.return_value = response
 
     student_id = "student-1"
     assessment_id = uuid4()
     assessment_service.create_attempt(mock_client, student_id, assessment_id)
 
-    mock_client.table.assert_called_once_with("assessment_attempts")
-    mock_client.table.return_value.insert.assert_called_once_with(
-        {
-            "student_id": student_id,
-            "assessment_id": str(assessment_id),
-            "status": "IN_PROGRESS",
-        }
+    mock_client.rpc.assert_called_once_with(
+        "create_assessment_attempt",
+        {"p_assessment_id": str(assessment_id), "p_student_id": student_id},
     )
 
 
 def test_service_create_attempt_translates_unique_violation_to_duplicate_error():
     """A real 23505 (unique_violation) from the DB's own partial unique
-    index must become DuplicateInProgressAttemptError, not propagate as a
-    raw postgrest APIError."""
+    index -- still enforced unchanged by create_assessment_attempt()'s own
+    INSERT -- must become DuplicateInProgressAttemptError, not propagate
+    as a raw postgrest APIError."""
     mock_client = MagicMock()
-    mock_client.table.return_value.insert.return_value.execute.side_effect = APIError(
+    mock_client.rpc.return_value.execute.side_effect = APIError(
         {"code": "23505", "message": "duplicate key value violates unique constraint"}
     )
 
@@ -921,16 +800,134 @@ def test_service_create_attempt_translates_unique_violation_to_duplicate_error()
         assessment_service.create_attempt(mock_client, "student-1", uuid4())
 
 
-def test_service_create_attempt_reraises_other_api_errors():
-    """Only 23505 is special-cased -- any other database error must
-    propagate normally (the route layer turns it into a generic 500)."""
+def test_service_create_attempt_translates_55000_to_not_configured_error():
+    """A missing blueprint or an insufficient approved question pool for
+    some blueprint difficulty bucket raises SQLSTATE 55000 inside
+    create_assessment_attempt() -- must become AssessmentNotConfiguredError,
+    not propagate as a raw postgrest APIError."""
     mock_client = MagicMock()
-    mock_client.table.return_value.insert.return_value.execute.side_effect = APIError(
+    mock_client.rpc.return_value.execute.side_effect = APIError(
+        {"code": "55000", "message": "Assessment has no blueprint configured."}
+    )
+
+    with pytest.raises(assessment_service.AssessmentNotConfiguredError):
+        assessment_service.create_attempt(mock_client, "student-1", uuid4())
+
+
+def test_service_create_attempt_reraises_other_api_errors():
+    """Only 23505 and 55000 are special-cased -- any other database error
+    must propagate normally (the route layer turns it into a generic
+    500)."""
+    mock_client = MagicMock()
+    mock_client.rpc.return_value.execute.side_effect = APIError(
         {"code": "23503", "message": "foreign key violation"}
     )
 
     with pytest.raises(APIError):
         assessment_service.create_attempt(mock_client, "student-1", uuid4())
+
+
+def test_service_create_attempt_handles_list_shaped_rpc_response():
+    """postgrest-py sometimes returns .data as a single-element list rather
+    than a bare dict for an RPC call -- both shapes must resolve to the
+    same attempt dict, mirroring score_attempt()'s own handling."""
+    mock_client = MagicMock()
+    row = _row_attempt()
+    response = MagicMock()
+    response.data = [row]
+    mock_client.rpc.return_value.execute.return_value = response
+
+    result = assessment_service.create_attempt(mock_client, "student-1", uuid4())
+    assert result == row
+
+
+# ------------------------------------------------------------
+# Service layer: get_in_progress_attempt (resume support)
+# ------------------------------------------------------------
+
+
+def test_service_get_in_progress_attempt_filters_student_assessment_and_status():
+    mock_client = MagicMock()
+    query = mock_client.table.return_value.select.return_value
+    query.eq.return_value = query
+    response = MagicMock()
+    response.data = _row_attempt()
+    query.maybe_single.return_value.execute.return_value = response
+
+    student_id = "student-1"
+    assessment_id = uuid4()
+    assessment_service.get_in_progress_attempt(mock_client, student_id, assessment_id)
+
+    mock_client.table.assert_called_once_with("assessment_attempts")
+    assert query.eq.call_args_list == [
+        (("student_id", student_id), {}),
+        (("assessment_id", str(assessment_id)), {}),
+        (("status", "IN_PROGRESS"), {}),
+    ]
+
+
+def test_service_get_in_progress_attempt_returns_none_when_absent():
+    mock_client = MagicMock()
+    query = mock_client.table.return_value.select.return_value
+    query.eq.return_value = query
+    query.maybe_single.return_value.execute.return_value = None
+
+    result = assessment_service.get_in_progress_attempt(mock_client, "student-1", uuid4())
+    assert result is None
+
+
+# ------------------------------------------------------------
+# API layer: GET /api/v1/assessments/{assessment_id}/attempts/current
+# ------------------------------------------------------------
+
+
+def _current_attempt_url(assessment_id) -> str:
+    return f"/api/v1/assessments/{assessment_id}/attempts/current"
+
+
+def test_current_attempt_missing_token_returns_401():
+    response = client.get(_current_attempt_url(uuid4()))
+    assert response.status_code == 401
+
+
+def test_current_attempt_returns_in_progress_attempt():
+    assessment_id = uuid4()
+    attempt_row = _row_attempt(assessment_id=str(assessment_id))
+    with (
+        authenticated_as("STUDENT"),
+        patch.object(assessment_service, "get_in_progress_attempt", return_value=attempt_row),
+    ):
+        response = client.get(
+            _current_attempt_url(assessment_id), headers={"Authorization": "Bearer token"}
+        )
+    assert response.status_code == 200
+    assert response.json()["assessment_id"] == str(assessment_id)
+
+
+def test_current_attempt_returns_404_when_none_in_progress():
+    with (
+        authenticated_as("STUDENT"),
+        patch.object(assessment_service, "get_in_progress_attempt", return_value=None),
+    ):
+        response = client.get(
+            _current_attempt_url(uuid4()), headers={"Authorization": "Bearer token"}
+        )
+    assert response.status_code == 404
+
+
+def test_current_attempt_uses_user_scoped_client():
+    assessment_id = uuid4()
+    sentinel_client = object()
+    with (
+        authenticated_as("STUDENT"),
+        patch("app.api.assessments.build_user_client", return_value=sentinel_client),
+        patch.object(
+            assessment_service, "get_in_progress_attempt", return_value=None
+        ) as mock_get,
+    ):
+        client.get(_current_attempt_url(assessment_id), headers={"Authorization": "Bearer token"})
+
+    assert mock_get.call_args[0][0] is sentinel_client
 
 
 # ------------------------------------------------------------
@@ -1028,6 +1025,7 @@ def test_create_attempt_student_can_create():
     attempt_row = _row_attempt(assessment_id=str(assessment_id))
     with (
         authenticated_as("STUDENT"),
+        patch("app.api.assessments.get_supabase", return_value=MagicMock()),
         patch.object(assessment_service, "get_active_assessment", return_value=assessment_row),
         patch.object(assessment_service, "create_attempt", return_value=attempt_row),
     ):
@@ -1043,6 +1041,7 @@ def test_create_attempt_student_id_comes_from_authenticated_user():
     assessment_row = _row_assessment(id=str(assessment_id))
     with (
         authenticated_as("STUDENT", user_id="the-real-caller"),
+        patch("app.api.assessments.get_supabase", return_value=MagicMock()),
         patch.object(assessment_service, "get_active_assessment", return_value=assessment_row),
         patch.object(
             assessment_service,
@@ -1052,7 +1051,7 @@ def test_create_attempt_student_id_comes_from_authenticated_user():
     ):
         client.post(_attempts_url(assessment_id), headers={"Authorization": "Bearer token"})
 
-    # assessment_service.create_attempt(client, student_id, assessment_id)
+    # assessment_service.create_attempt(service_client, student_id, assessment_id)
     called_student_id = mock_create.call_args[0][1]
     assert called_student_id == "the-real-caller"
 
@@ -1063,6 +1062,7 @@ def test_create_attempt_initial_state_is_fresh():
     attempt_row = _row_attempt(assessment_id=str(assessment_id))
     with (
         authenticated_as("STUDENT"),
+        patch("app.api.assessments.get_supabase", return_value=MagicMock()),
         patch.object(assessment_service, "get_active_assessment", return_value=assessment_row),
         patch.object(assessment_service, "create_attempt", return_value=attempt_row),
     ):
@@ -1104,6 +1104,7 @@ def test_create_attempt_ignores_client_supplied_body_entirely():
     }
     with (
         authenticated_as("STUDENT", user_id="student-1"),
+        patch("app.api.assessments.get_supabase", return_value=MagicMock()),
         patch.object(assessment_service, "get_active_assessment", return_value=assessment_row),
         patch.object(
             assessment_service, "create_attempt", return_value=attempt_row
@@ -1116,35 +1117,55 @@ def test_create_attempt_ignores_client_supplied_body_entirely():
         )
 
     assert response.status_code == 201
-    # assessment_service.create_attempt(client, student_id, assessment_id) --
-    # exactly 3 positional args, none of them sourced from hostile_body.
+    # assessment_service.create_attempt(service_client, student_id, assessment_id)
+    # -- exactly 3 positional args, none of them sourced from hostile_body.
     _call_client, called_student_id, called_assessment_id = mock_create.call_args[0]
     assert called_student_id == "student-1"
     assert called_assessment_id == assessment_id
 
 
-def test_create_attempt_uses_user_scoped_client_not_service_role():
-    """The client object passed to both service calls must be exactly what
-    build_user_client() returned -- never get_supabase()."""
+def test_create_attempt_uses_user_scoped_client_for_ownership_check():
+    """The FIRST client used (for the assessment existence/active check)
+    must be exactly what build_user_client() returned."""
     assessment_id = uuid4()
     assessment_row = _row_assessment(id=str(assessment_id))
     attempt_row = _row_attempt(assessment_id=str(assessment_id))
-    sentinel_client = object()
+    sentinel_user_client = object()
 
     with (
         authenticated_as("STUDENT"),
-        patch("app.api.assessments.build_user_client", return_value=sentinel_client),
+        patch("app.api.assessments.build_user_client", return_value=sentinel_user_client),
+        patch("app.api.assessments.get_supabase", return_value=MagicMock()),
         patch.object(
             assessment_service, "get_active_assessment", return_value=assessment_row
         ) as mock_get_assessment,
+        patch.object(assessment_service, "create_attempt", return_value=attempt_row),
+    ):
+        client.post(_attempts_url(assessment_id), headers={"Authorization": "Bearer token"})
+
+    assert mock_get_assessment.call_args[0][0] is sentinel_user_client
+
+
+def test_create_attempt_uses_service_role_client_for_creation():
+    """The SECOND client used (the actual create_assessment_attempt() RPC
+    call) must be exactly what get_supabase() returned -- create_attempt
+    is service_role-only, unlike get_active_assessment above it."""
+    assessment_id = uuid4()
+    assessment_row = _row_assessment(id=str(assessment_id))
+    attempt_row = _row_attempt(assessment_id=str(assessment_id))
+    sentinel_service_client = object()
+
+    with (
+        authenticated_as("STUDENT"),
+        patch("app.api.assessments.get_supabase", return_value=sentinel_service_client),
+        patch.object(assessment_service, "get_active_assessment", return_value=assessment_row),
         patch.object(
             assessment_service, "create_attempt", return_value=attempt_row
         ) as mock_create,
     ):
         client.post(_attempts_url(assessment_id), headers={"Authorization": "Bearer token"})
 
-    assert mock_get_assessment.call_args[0][0] is sentinel_client
-    assert mock_create.call_args[0][0] is sentinel_client
+    assert mock_create.call_args[0][0] is sentinel_service_client
 
 
 # ------------------------------------------------------------
@@ -1157,6 +1178,7 @@ def test_create_attempt_unexpected_failure_returns_clean_500():
     assessment_row = _row_assessment(id=str(assessment_id))
     with (
         authenticated_as("STUDENT"),
+        patch("app.api.assessments.get_supabase", return_value=MagicMock()),
         patch.object(assessment_service, "get_active_assessment", return_value=assessment_row),
         patch.object(
             assessment_service,
@@ -1173,6 +1195,28 @@ def test_create_attempt_unexpected_failure_returns_clean_500():
     assert "connection refused" not in body_text.lower()
 
 
+def test_create_attempt_not_configured_returns_503():
+    """A missing blueprint or an insufficient approved question pool is a
+    content-configuration problem, not something the student did wrong --
+    must surface as 503, not a 409 or a generic 500."""
+    assessment_id = uuid4()
+    assessment_row = _row_assessment(id=str(assessment_id))
+    with (
+        authenticated_as("STUDENT"),
+        patch("app.api.assessments.get_supabase", return_value=MagicMock()),
+        patch.object(assessment_service, "get_active_assessment", return_value=assessment_row),
+        patch.object(
+            assessment_service,
+            "create_attempt",
+            side_effect=assessment_service.AssessmentNotConfiguredError(),
+        ),
+    ):
+        response = client.post(
+            _attempts_url(assessment_id), headers={"Authorization": "Bearer token"}
+        )
+    assert response.status_code == 503
+
+
 # ------------------------------------------------------------
 # Duplicate attempt
 # ------------------------------------------------------------
@@ -1183,6 +1227,7 @@ def test_create_attempt_duplicate_in_progress_returns_409():
     assessment_row = _row_assessment(id=str(assessment_id))
     with (
         authenticated_as("STUDENT"),
+        patch("app.api.assessments.get_supabase", return_value=MagicMock()),
         patch.object(assessment_service, "get_active_assessment", return_value=assessment_row),
         patch.object(
             assessment_service,

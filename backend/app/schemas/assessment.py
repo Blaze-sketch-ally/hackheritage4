@@ -79,6 +79,7 @@ class AssessmentResponse(BaseModel):
     difficulty: Difficulty
     duration_minutes: int | None
     question_count: int | None
+    passing_percentage: Decimal
     is_active: bool
     created_at: datetime
     updated_at: datetime
@@ -247,7 +248,18 @@ class SubmitAttemptResponse(BaseModel):
     """The completed attempt. Unlike AssessmentAttemptResponse, the score
     fields are required (not Optional) here: a successful submission is the
     one moment those values are guaranteed non-null, mirroring the DB's own
-    assessment_attempts_completed_has_score constraint at the type level."""
+    assessment_attempts_completed_has_score constraint at the type level.
+
+    passed/skill_verified are both computed server-side, never trusted from
+    a client, and never stored redundantly on assessment_attempts itself --
+    passed is percentage >= the assessment's own passing_percentage (both
+    already authoritative values by the time this response is built);
+    skill_verified reflects the CURRENT is_verified state of the matching
+    (skill_id, proficiency_level) student_skills row after scoring, which
+    the score_assessment_attempt() RPC itself may have just set to true.
+    skill_verified is false whenever no such student_skills row exists at
+    all -- never fabricated, and never implies one was created.
+    """
 
     id: UUID
     student_id: UUID
@@ -258,6 +270,8 @@ class SubmitAttemptResponse(BaseModel):
     score: Decimal
     total_marks: Decimal
     percentage: Decimal
+    passed: bool
+    skill_verified: bool
 
 
 # ============================================================
@@ -275,11 +289,47 @@ class AssessmentResultQuestionResponse(BaseModel):
     answer_key: AssessmentAnswerKeyResponse
 
 
+class AttemptHistoryItemResponse(BaseModel):
+    """One row of the assessment history list -- GET /attempts.
+
+    assessment is None only when that assessment has since been
+    deactivated (see get_own_attempts' own docstring) -- the attempt
+    itself is always real historical data regardless. passed/
+    skill_verified are None in that same case (there is no
+    passing_percentage/skill_id to compare against); otherwise they carry
+    the exact same server-computed meaning as on SubmitAttemptResponse.
+    """
+
+    id: UUID
+    status: AttemptStatus
+    started_at: datetime
+    submitted_at: datetime | None
+    score: Decimal | None
+    total_marks: Decimal | None
+    percentage: Decimal | None
+    passed: bool | None
+    skill_verified: bool | None
+    assessment: AssessmentResponse | None
+
+
+class AttemptHistoryResponse(BaseModel):
+    attempts: list[AttemptHistoryItemResponse]
+
+
 class AssessmentResultResponse(BaseModel):
     """POST-COMPLETION ONLY -- the full result view for one attempt:
     the attempt summary plus, per question, the question/options, the
     student's own answer, and (only because the attempt is COMPLETED) the
-    answer key. Never construct this for an IN_PROGRESS attempt."""
+    answer key. Never construct this for an IN_PROGRESS attempt.
+
+    passed/skill_verified: same server-computed meaning as on
+    SubmitAttemptResponse -- read back here (not just at the moment of
+    scoring) so a student revisiting their result later, or via the
+    history list, sees the same authoritative outcome every time, never a
+    frontend-recomputed one.
+    """
 
     attempt: AssessmentAttemptResponse
+    passed: bool
+    skill_verified: bool
     questions: list[AssessmentResultQuestionResponse]

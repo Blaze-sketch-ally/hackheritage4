@@ -1,4 +1,4 @@
-import { api } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
 import type {
   Assessment,
   AssessmentAnswer,
@@ -6,6 +6,7 @@ import type {
   AssessmentQuestion,
   AssessmentResult,
   AssessmentResultQuestion,
+  AttemptHistoryItem,
   ScoredAttempt,
 } from "@/types/assessment";
 
@@ -29,17 +30,45 @@ export function getAssessment(assessmentId: string): Promise<Assessment> {
   return api.get(`/api/v1/assessments/${assessmentId}`);
 }
 
-export function getAssessmentQuestions(assessmentId: string): Promise<AssessmentQuestion[]> {
-  return api.get(`/api/v1/assessments/${assessmentId}/questions`);
+/** The caller's own IN_PROGRESS attempt at this assessment, or null if
+ * none exists. Backed by GET /assessments/{id}/attempts/current
+ * (015_assessment_verification.sql) -- lets the taking UI offer a real
+ * "Resume Assessment" instead of only discovering one exists via a 409
+ * from createAttempt(). Any error status other than 404 still throws. */
+export async function getCurrentAttempt(assessmentId: string): Promise<AssessmentAttempt | null> {
+  try {
+    return await api.get<AssessmentAttempt>(`/api/v1/assessments/${assessmentId}/attempts/current`);
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return null;
+    throw err;
+  }
 }
 
-/** Starts a new attempt. The backend returns 409 (ApiError.status === 409)
- * if the student already has an IN_PROGRESS attempt for this assessment
- * -- that response carries no attempt id, so callers cannot recover which
- * attempt it is from this call alone. See lib/student/assessment-session.ts
- * for how the frontend handles that without inventing a resume system. */
+/** Starts a new attempt. The backend randomly selects and permanently
+ * freezes this attempt's question set in the same atomic operation
+ * (create_assessment_attempt(), 015_assessment_verification.sql) -- the
+ * frontend never chooses, sees, or influences which questions are picked.
+ * Returns 409 (ApiError.status === 409) if the student already has an
+ * IN_PROGRESS attempt; use getCurrentAttempt() first to resume it instead. */
 export function createAttempt(assessmentId: string): Promise<AssessmentAttempt> {
   return api.post(`/api/v1/assessments/${assessmentId}/attempts`);
+}
+
+/** The calling student's own FROZEN question selection for one attempt --
+ * never the live question bank. The same attempt_id always returns the
+ * same questions in the same order, on first load, on refresh, and on
+ * resume, because this reads a permanent record persisted when the
+ * attempt started, not a live re-query. Never call the removed
+ * assessment-level questions endpoint (it no longer exists) -- this is
+ * the only source of exam questions in the app. */
+export function getAttemptQuestions(attemptId: string): Promise<AssessmentQuestion[]> {
+  return api.get(`/api/v1/attempts/${attemptId}/questions`);
+}
+
+/** The caller's own full assessment history, most recent first. */
+export async function getAttemptHistory(): Promise<AttemptHistoryItem[]> {
+  const { attempts } = await api.get<{ attempts: AttemptHistoryItem[] }>("/api/v1/attempts");
+  return attempts;
 }
 
 export interface SaveAnswerInput {

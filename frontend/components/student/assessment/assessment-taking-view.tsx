@@ -13,8 +13,9 @@ import { ApiError } from "@/lib/api";
 import {
   createAttempt,
   getAssessment,
-  getAssessmentQuestions,
+  getAttemptQuestions,
   getAttemptResult,
+  getCurrentAttempt,
   saveAnswer,
   scoreAttempt,
   submitAttempt,
@@ -50,18 +51,26 @@ function friendlyMessage(err: unknown): string {
 }
 
 /** Owns the whole student-facing lifecycle for one assessment:
- * list -> start attempt -> answer questions -> submit -> trusted scoring
- * -> result. All values shown as authoritative (score, total_marks,
- * percentage, awarded_marks, is_correct) come directly from FastAPI
- * responses -- nothing here recalculates any of them.
+ * list -> start/resume attempt -> answer questions -> submit -> trusted
+ * scoring -> result. All values shown as authoritative (score,
+ * total_marks, percentage, passed, skill_verified, awarded_marks,
+ * is_correct) come directly from FastAPI responses -- nothing here
+ * recalculates any of them, and the question set itself is never
+ * randomized or reordered client-side (015_assessment_verification.sql's
+ * create_assessment_attempt() does that server-side, once, and freezes
+ * it).
  *
- * Per the approved Decision A: there is no backend endpoint to recover an
- * in-progress attempt. attemptId + confirmed answers are mirrored to
- * sessionStorage (lib/student/assessment-session.ts) purely so a
- * same-tab reload during one sitting can restore this component's UI
- * state -- if that storage is gone and the backend reports an
- * already-in-progress attempt, this shows an honest, unrecoverable state
- * rather than fabricating an attempt id or silently starting a new one.
+ * Resume is real: GET /assessments/{id}/attempts/current confirms an
+ * in-progress attempt against the backend (not just this tab's storage),
+ * and GET /attempts/{id}/questions always returns that exact attempt's
+ * frozen question set. sessionStorage (lib/student/assessment-session.ts)
+ * is used only for the narrower, still-unsolved problem of repainting
+ * which answers were already saved on THIS device -- there is no backend
+ * endpoint to list a student's own saved answers for an attempt, so a
+ * resume from a different device shows the right questions but not prior
+ * selections (they are still safely saved server-side and unaffected).
+ * The "already-in-progress, cannot be recovered" state is now reached
+ * only if the backend's own resume lookup also fails right after a 409.
  */
 export function AssessmentTakingView({ assessmentId }: { assessmentId: string }) {
   const [stage, setStage] = useState<Stage>({ name: "loading" });
@@ -81,31 +90,53 @@ export function AssessmentTakingView({ assessmentId }: { assessmentId: string })
   const processingInFlightRef = useRef(false);
   const [processingError, setProcessingError] = useState<ProcessingError | null>(null);
 
-  // ---- Initial load: assessment metadata + questions, then decide
-  // whether a recoverable attempt already exists for this tab/session. ----
+  // ---- Initial load: assessment metadata, then check the backend for a
+  // real in-progress attempt (GET .../attempts/current) -- not just this
+  // tab's sessionStorage -- and resume it by fetching its FROZEN question
+  // set (GET /attempts/{id}/questions). Refreshing, resuming on another
+  // tab, or reopening later all return exactly the same questions in
+  // exactly the same order, because that read is a permanent historical
+  // record, never a live re-query against the question bank. ----
   useEffect(() => {
     let cancelled = false;
 
+    async function resumeInto(attemptId: string) {
+      const questionData = await getAttemptQuestions(attemptId);
+      if (cancelled) return;
+      attemptIdRef.current = attemptId;
+      setQuestions(questionData);
+
+      const stored = loadStoredAttempt(assessmentId);
+      if (stored && stored.attemptId === attemptId) {
+        setAnswers(stored.answers);
+        const confirmed = new Set(Object.keys(stored.answers));
+        setConfirmedIds(confirmed);
+        const states: Record<string, AnswerSaveState> = {};
+        for (const qid of confirmed) states[qid] = "saved";
+        setSaveStates(states);
+      } else {
+        // A real in-progress attempt exists (confirmed by the backend),
+        // but this device/tab has no local record of which answers were
+        // already saved -- the taking UI still works correctly (answers
+        // save/overwrite idempotently), it just can't repaint prior
+        // selections. Re-anchor local storage to this attempt so further
+        // answers on this device are tracked from here on.
+        saveStoredAttempt({ assessmentId, attemptId, answers: {} });
+      }
+      setStage({ name: "taking" });
+    }
+
     async function load() {
       try {
-        const [assessmentData, questionData] = await Promise.all([
-          getAssessment(assessmentId),
-          getAssessmentQuestions(assessmentId),
-        ]);
+        const assessmentData = await getAssessment(assessmentId);
         if (cancelled) return;
         setAssessment(assessmentData);
-        setQuestions(questionData);
 
-        const stored = loadStoredAttempt(assessmentId);
-        if (stored) {
-          attemptIdRef.current = stored.attemptId;
-          setAnswers(stored.answers);
-          const confirmed = new Set(Object.keys(stored.answers));
-          setConfirmedIds(confirmed);
-          const states: Record<string, AnswerSaveState> = {};
-          for (const qid of confirmed) states[qid] = "saved";
-          setSaveStates(states);
-          setStage({ name: "taking" });
+        const current = await getCurrentAttempt(assessmentId);
+        if (cancelled) return;
+
+        if (current) {
+          await resumeInto(current.id);
         } else {
           setStage({ name: "ready-to-start" });
         }
@@ -132,11 +163,29 @@ export function AssessmentTakingView({ assessmentId }: { assessmentId: string })
     setStartError(null);
     try {
       const attempt = await createAttempt(assessmentId);
+      const questionData = await getAttemptQuestions(attempt.id);
       attemptIdRef.current = attempt.id;
+      setQuestions(questionData);
       saveStoredAttempt({ assessmentId, attemptId: attempt.id, answers: {} });
       setStage({ name: "taking" });
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
+        // Lost a race (e.g. a double-click, or another tab already
+        // started one) -- the backend confirms a real in-progress attempt
+        // exists, so resume it properly instead of a dead-end message.
+        try {
+          const current = await getCurrentAttempt(assessmentId);
+          if (current) {
+            const questionData = await getAttemptQuestions(current.id);
+            attemptIdRef.current = current.id;
+            setQuestions(questionData);
+            saveStoredAttempt({ assessmentId, attemptId: current.id, answers: {} });
+            setStage({ name: "taking" });
+            return;
+          }
+        } catch {
+          // Fall through to the honest "cannot be recovered" state below.
+        }
         setStage({ name: "already-in-progress" });
         return;
       }
@@ -261,7 +310,12 @@ export function AssessmentTakingView({ assessmentId }: { assessmentId: string })
           {assessment?.duration_minutes != null && (
             <Badge variant="outline">{assessment.duration_minutes} min</Badge>
           )}
-          <Badge variant="outline">{questions.length} questions</Badge>
+          {assessment?.question_count != null && (
+            <Badge variant="outline">{assessment.question_count} questions</Badge>
+          )}
+          {assessment?.passing_percentage != null && (
+            <Badge variant="outline">Passing score: {assessment.passing_percentage}%</Badge>
+          )}
         </CardContent>
         <CardFooter className="flex-col items-stretch gap-2">
           {startError && (
@@ -383,19 +437,41 @@ export function AssessmentTakingView({ assessmentId }: { assessmentId: string })
 }
 
 function AssessmentResultView({ result }: { result: AssessmentResult }) {
-  const { attempt, questions } = result;
+  const { attempt, passed, skill_verified, questions } = result;
   return (
     <div className="flex flex-col gap-5">
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Assessment complete</CardTitle>
+          <div className="flex items-center justify-between gap-2">
+            <CardTitle className="text-lg">Assessment complete</CardTitle>
+            <Badge
+              variant="outline"
+              className={
+                passed
+                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                  : "border-destructive/30 bg-destructive/10 text-destructive"
+              }
+            >
+              {passed ? "PASSED" : "NOT PASSED"}
+            </Badge>
+          </div>
           <CardDescription>
             Submitted {attempt.submitted_at ? new Date(attempt.submitted_at).toLocaleString() : "—"}
           </CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-wrap gap-4">
+        <CardContent className="flex flex-wrap items-center gap-4">
           <Stat label="Score" value={`${attempt.score ?? "—"} / ${attempt.total_marks ?? "—"}`} />
           <Stat label="Percentage" value={attempt.percentage != null ? `${attempt.percentage}%` : "—"} />
+          <div className="flex items-center gap-1.5 text-sm">
+            {skill_verified ? (
+              <>
+                <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
+                <span className="text-emerald-600 dark:text-emerald-400">Skill Verified</span>
+              </>
+            ) : (
+              <span className="text-muted-foreground">Skill remains unverified</span>
+            )}
+          </div>
         </CardContent>
         <CardFooter>
           <Button

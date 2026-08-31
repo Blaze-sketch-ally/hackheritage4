@@ -4,7 +4,8 @@ import userEvent from "@testing-library/user-event";
 
 const {
   getAssessment,
-  getAssessmentQuestions,
+  getCurrentAttempt,
+  getAttemptQuestions,
   createAttempt,
   saveAnswer,
   submitAttempt,
@@ -12,7 +13,8 @@ const {
   getAttemptResult,
 } = vi.hoisted(() => ({
   getAssessment: vi.fn(),
-  getAssessmentQuestions: vi.fn(),
+  getCurrentAttempt: vi.fn(),
+  getAttemptQuestions: vi.fn(),
   createAttempt: vi.fn(),
   saveAnswer: vi.fn(),
   submitAttempt: vi.fn(),
@@ -27,7 +29,8 @@ vi.mock("@/lib/student/assessment", async () => {
   return {
     ...actual,
     getAssessment,
-    getAssessmentQuestions,
+    getCurrentAttempt,
+    getAttemptQuestions,
     createAttempt,
     saveAnswer,
     submitAttempt,
@@ -50,6 +53,7 @@ const assessment = {
   difficulty: "Beginner",
   duration_minutes: 10,
   question_count: 1,
+  passing_percentage: "70.00",
   is_active: true,
   created_at: "2026-01-01T00:00:00Z",
   updated_at: "2026-01-01T00:00:00Z",
@@ -94,25 +98,61 @@ describe("AssessmentTakingView", () => {
     window.sessionStorage.clear();
   });
 
-  it("shows the start screen, then creates an attempt and moves to taking", async () => {
+  it("shows the start screen (with no in-progress attempt), then creates an attempt and fetches its frozen questions", async () => {
     getAssessment.mockResolvedValue(assessment);
-    getAssessmentQuestions.mockResolvedValue([question]);
+    getCurrentAttempt.mockResolvedValue(null);
     createAttempt.mockResolvedValue(attemptRow());
+    getAttemptQuestions.mockResolvedValue([question]);
 
     render(<AssessmentTakingView assessmentId={ASSESSMENT_ID} />);
 
     expect(await screen.findByText("Python Basics")).toBeInTheDocument();
+    expect(screen.getByText("1 questions")).toBeInTheDocument();
+    expect(screen.getByText("Passing score: 70.00%")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: /start assessment/i }));
 
     expect(createAttempt).toHaveBeenCalledWith(ASSESSMENT_ID);
+    expect(getAttemptQuestions).toHaveBeenCalledWith("attempt-1");
     expect(await screen.findByText("Question 1 of 1")).toBeInTheDocument();
     expect(screen.getByText(question.question_text)).toBeInTheDocument();
   });
 
-  it("shows an honest, unrecoverable message on 409 without fabricating an attempt id", async () => {
+  it("resumes a genuinely in-progress attempt on load, using its frozen question set -- never the live pool", async () => {
     getAssessment.mockResolvedValue(assessment);
-    getAssessmentQuestions.mockResolvedValue([question]);
-    createAttempt.mockRejectedValue(new ApiError(409, "You already have an in-progress attempt for this assessment."));
+    getCurrentAttempt.mockResolvedValue(attemptRow());
+    getAttemptQuestions.mockResolvedValue([question]);
+
+    render(<AssessmentTakingView assessmentId={ASSESSMENT_ID} />);
+
+    expect(await screen.findByText("Question 1 of 1")).toBeInTheDocument();
+    expect(getAttemptQuestions).toHaveBeenCalledWith("attempt-1");
+    // Never fetched or fabricated an attempt -- resume only reads.
+    expect(createAttempt).not.toHaveBeenCalled();
+  });
+
+  it("recovers via getCurrentAttempt on a 409 race instead of a dead-end message", async () => {
+    getAssessment.mockResolvedValue(assessment);
+    getCurrentAttempt.mockResolvedValueOnce(null); // initial load: nothing in progress yet
+    createAttempt.mockRejectedValue(
+      new ApiError(409, "You already have an in-progress attempt for this assessment."),
+    );
+    getCurrentAttempt.mockResolvedValueOnce(attemptRow()); // a race winner already created one
+    getAttemptQuestions.mockResolvedValue([question]);
+
+    render(<AssessmentTakingView assessmentId={ASSESSMENT_ID} />);
+    await userEvent.click(await screen.findByRole("button", { name: /start assessment/i }));
+
+    expect(await screen.findByText("Question 1 of 1")).toBeInTheDocument();
+    expect(createAttempt).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows an honest, unrecoverable message when even the post-409 resume lookup fails", async () => {
+    getAssessment.mockResolvedValue(assessment);
+    getCurrentAttempt.mockResolvedValueOnce(null);
+    createAttempt.mockRejectedValue(
+      new ApiError(409, "You already have an in-progress attempt for this assessment."),
+    );
+    getCurrentAttempt.mockResolvedValueOnce(null);
 
     render(<AssessmentTakingView assessmentId={ASSESSMENT_ID} />);
     await userEvent.click(await screen.findByRole("button", { name: /start assessment/i }));
@@ -125,8 +165,9 @@ describe("AssessmentTakingView", () => {
 
   it("saves an MCQ answer through the API and marks it answered in progress", async () => {
     getAssessment.mockResolvedValue(assessment);
-    getAssessmentQuestions.mockResolvedValue([question]);
+    getCurrentAttempt.mockResolvedValue(null);
     createAttempt.mockResolvedValue(attemptRow());
+    getAttemptQuestions.mockResolvedValue([question]);
     saveAnswer.mockResolvedValue({
       id: "ans1",
       attempt_id: "attempt-1",
@@ -154,10 +195,11 @@ describe("AssessmentTakingView", () => {
     expect(await screen.findByText("1 of 1 answered")).toBeInTheDocument();
   });
 
-  it("full happy path: submit -> score -> result, displaying only backend-provided values", async () => {
+  it("full happy path: submit -> score -> result, showing pass/fail and verification from the backend only", async () => {
     getAssessment.mockResolvedValue(assessment);
-    getAssessmentQuestions.mockResolvedValue([question]);
+    getCurrentAttempt.mockResolvedValue(null);
     createAttempt.mockResolvedValue(attemptRow());
+    getAttemptQuestions.mockResolvedValue([question]);
     saveAnswer.mockResolvedValue({
       id: "ans1",
       attempt_id: "attempt-1",
@@ -177,6 +219,8 @@ describe("AssessmentTakingView", () => {
         score: "10.00",
         total_marks: "10.00",
         percentage: "100.00",
+        passed: true,
+        skill_verified: true,
       }),
     );
     getAttemptResult.mockResolvedValue({
@@ -187,6 +231,8 @@ describe("AssessmentTakingView", () => {
         total_marks: "10.00",
         percentage: "100.00",
       }),
+      passed: true,
+      skill_verified: true,
       questions: [
         {
           question,
@@ -229,13 +275,69 @@ describe("AssessmentTakingView", () => {
     expect(await screen.findByText("Assessment complete")).toBeInTheDocument();
     expect(screen.getByText("10.00 / 10.00")).toBeInTheDocument();
     expect(screen.getByText("100.00%")).toBeInTheDocument();
+    expect(screen.getByText("PASSED")).toBeInTheDocument();
+    expect(screen.getByText("Skill Verified")).toBeInTheDocument();
     expect(screen.getByText("Correct")).toBeInTheDocument();
+  });
+
+  it("shows NOT PASSED and unverified when the backend reports a failing result", async () => {
+    getAssessment.mockResolvedValue(assessment);
+    getCurrentAttempt.mockResolvedValue(null);
+    createAttempt.mockResolvedValue(attemptRow());
+    getAttemptQuestions.mockResolvedValue([question]);
+    saveAnswer.mockResolvedValue({
+      id: "ans1",
+      attempt_id: "attempt-1",
+      question_id: "q1",
+      answer_text: null,
+      selected_option_ids: ["opt-python"],
+      awarded_marks: null,
+      is_correct: null,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z",
+    });
+    submitAttempt.mockResolvedValue(attemptRow({ submitted_at: "2026-01-01T00:05:00Z" }));
+    scoreAttempt.mockResolvedValue(
+      attemptRow({
+        status: "COMPLETED",
+        submitted_at: "2026-01-01T00:05:00Z",
+        score: "0.00",
+        total_marks: "10.00",
+        percentage: "0.00",
+        passed: false,
+        skill_verified: false,
+      }),
+    );
+    getAttemptResult.mockResolvedValue({
+      attempt: attemptRow({
+        status: "COMPLETED",
+        submitted_at: "2026-01-01T00:05:00Z",
+        score: "0.00",
+        total_marks: "10.00",
+        percentage: "0.00",
+      }),
+      passed: false,
+      skill_verified: false,
+      questions: [],
+    });
+
+    render(<AssessmentTakingView assessmentId={ASSESSMENT_ID} />);
+    await userEvent.click(await screen.findByRole("button", { name: /start assessment/i }));
+    await screen.findByText("Question 1 of 1");
+    await userEvent.click(screen.getByRole("radio", { name: ".python" }));
+    await waitFor(() => expect(saveAnswer).toHaveBeenCalled());
+    await userEvent.click(await screen.findByRole("button", { name: /^submit assessment$/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /confirm submit/i }));
+
+    expect(await screen.findByText("NOT PASSED")).toBeInTheDocument();
+    expect(screen.getByText("Skill remains unverified")).toBeInTheDocument();
   });
 
   it("a scoring failure lets the student retry without re-submitting", async () => {
     getAssessment.mockResolvedValue(assessment);
-    getAssessmentQuestions.mockResolvedValue([question]);
+    getCurrentAttempt.mockResolvedValue(null);
     createAttempt.mockResolvedValue(attemptRow());
+    getAttemptQuestions.mockResolvedValue([question]);
     saveAnswer.mockResolvedValue({
       id: "ans1",
       attempt_id: "attempt-1",
@@ -250,10 +352,26 @@ describe("AssessmentTakingView", () => {
     submitAttempt.mockResolvedValue(attemptRow({ submitted_at: "2026-01-01T00:05:00Z" }));
     scoreAttempt.mockRejectedValueOnce(new ApiError(500, "Could not score the attempt."));
     scoreAttempt.mockResolvedValueOnce(
-      attemptRow({ status: "COMPLETED", submitted_at: "2026-01-01T00:05:00Z", score: "10.00", total_marks: "10.00", percentage: "100.00" }),
+      attemptRow({
+        status: "COMPLETED",
+        submitted_at: "2026-01-01T00:05:00Z",
+        score: "10.00",
+        total_marks: "10.00",
+        percentage: "100.00",
+        passed: true,
+        skill_verified: true,
+      }),
     );
     getAttemptResult.mockResolvedValue({
-      attempt: attemptRow({ status: "COMPLETED", submitted_at: "2026-01-01T00:05:00Z", score: "10.00", total_marks: "10.00", percentage: "100.00" }),
+      attempt: attemptRow({
+        status: "COMPLETED",
+        submitted_at: "2026-01-01T00:05:00Z",
+        score: "10.00",
+        total_marks: "10.00",
+        percentage: "100.00",
+      }),
+      passed: true,
+      skill_verified: true,
       questions: [],
     });
 

@@ -35,13 +35,112 @@ from app.schemas.assessment import (
     AssessmentAnswerResponse,
     AssessmentAttemptResponse,
     AssessmentQuestionResponse,
+    AssessmentResponse,
     AssessmentResultQuestionResponse,
     AssessmentResultResponse,
+    AttemptHistoryItemResponse,
+    AttemptHistoryResponse,
     SubmitAttemptResponse,
 )
 from app.services import assessment_service
 
 router = APIRouter(prefix="/attempts", tags=["attempts"])
+
+
+@router.get("", response_model=AttemptHistoryResponse)
+def list_history(
+    current_user: CurrentUser = Depends(require_student),
+) -> AttemptHistoryResponse:
+    """The calling student's own full attempt history, most recent first.
+
+    passed/skill_verified are computed the same way as on
+    SubmitAttemptResponse/AssessmentResultResponse, for every attempt that
+    has a percentage and an available assessment embed (i.e. COMPLETED
+    attempts whose assessment hasn't since been deactivated) -- both are
+    None otherwise, never guessed. get_skill_verification is called at
+    most once per distinct (skill_id, difficulty) pair across the whole
+    list, not once per attempt.
+    """
+    client = build_user_client(current_user.access_token)
+
+    try:
+        rows = assessment_service.list_own_attempts(client, current_user.id)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not load your assessment history.",
+        ) from exc
+
+    verified_cache: dict[tuple[str, str], bool] = {}
+    items = []
+    for row in rows:
+        assessment = row.get("assessment")
+        passed = None
+        skill_verified = None
+        if assessment is not None and row.get("percentage") is not None:
+            passed = float(row["percentage"]) >= float(assessment["passing_percentage"])
+            cache_key = (assessment["skill_id"], assessment["difficulty"])
+            if cache_key not in verified_cache:
+                try:
+                    verified_cache[cache_key] = assessment_service.get_skill_verification(
+                        client, current_user.id, assessment["skill_id"], assessment["difficulty"]
+                    )
+                except Exception as exc:
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail="Could not load your assessment history.",
+                    ) from exc
+            skill_verified = verified_cache[cache_key]
+
+        items.append(
+            AttemptHistoryItemResponse(
+                **{k: v for k, v in row.items() if k != "assessment"},
+                passed=passed,
+                skill_verified=skill_verified,
+                assessment=AssessmentResponse(**assessment) if assessment is not None else None,
+            )
+        )
+
+    return AttemptHistoryResponse(attempts=items)
+
+
+@router.get("/{attempt_id}/questions", response_model=list[AssessmentQuestionResponse])
+def get_questions(
+    attempt_id: UUID,
+    current_user: CurrentUser = Depends(require_student),
+) -> list[AssessmentQuestionResponse]:
+    """The calling student's own FROZEN question selection for this
+    attempt (015_assessment_verification.sql) -- never the live question
+    bank. This is what the taking UI reads, both on first load and on any
+    later refresh/resume: the same attempt_id always returns the same
+    questions in the same order, because this reads a permanent record of
+    what create_assessment_attempt() persisted when the attempt started,
+    not a live re-query.
+    """
+    client = build_user_client(current_user.access_token)
+
+    try:
+        attempt = assessment_service.get_own_attempt(client, current_user.id, attempt_id)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not load the attempt.",
+        ) from exc
+
+    if attempt is None:
+        # Same response whether the attempt never existed or belongs to
+        # someone else -- never reveal which.
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attempt not found.")
+
+    try:
+        questions = assessment_service.get_attempt_questions(client, attempt_id)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not load the attempt's questions.",
+        ) from exc
+
+    return [AssessmentQuestionResponse(**question) for question in questions]
 
 
 @router.post("/{attempt_id}/answers", response_model=AssessmentAnswerResponse)
@@ -55,12 +154,13 @@ def save_answer(
 
     Validation order matches ownership/state before content: the attempt
     must exist and belong to the caller, then be IN_PROGRESS, then the
-    question must exist, belong to the attempt's own assessment, and be
-    eligible (approved/active/OBJECTIVE) -- only then is the answer
-    itself written. AssessmentAnswerRequest's own extra="forbid" already
-    makes awarded_marks/is_correct/attempt ownership impossible for a
-    client to submit; this function never reads a student_id from the
-    request at all, only current_user.id.
+    question must be part of THIS attempt's own frozen selection
+    (assessment_attempt_questions, not the live question bank -- see
+    is_question_in_attempt) -- only then is the answer itself written.
+    AssessmentAnswerRequest's own extra="forbid" already makes
+    awarded_marks/is_correct/attempt ownership impossible for a client to
+    submit; this function never reads a student_id from the request at
+    all, only current_user.id.
     """
     client = build_user_client(current_user.access_token)
 
@@ -84,19 +184,16 @@ def save_answer(
         )
 
     try:
-        question = assessment_service.get_visible_question(
-            client, UUID(attempt["assessment_id"]), body.question_id
-        )
+        in_attempt = assessment_service.is_question_in_attempt(client, attempt_id, body.question_id)
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Could not load the question.",
         ) from exc
 
-    if question is None:
-        # Same response whether the question doesn't exist, belongs to a
-        # different assessment, or isn't currently eligible -- never
-        # reveal which.
+    if not in_attempt:
+        # Same response whether the question doesn't exist or simply
+        # wasn't selected into this attempt -- never reveal which.
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found.")
 
     try:
@@ -163,11 +260,7 @@ def submit_attempt(
         )
 
     try:
-        assessment_id = UUID(attempt["assessment_id"])
-        eligible_question_ids = {
-            question["id"]
-            for question in assessment_service.list_visible_questions(client, assessment_id)
-        }
+        frozen_question_ids = assessment_service.get_attempt_question_ids(client, attempt_id)
         answered_question_ids = assessment_service.get_answered_question_ids(client, attempt_id)
     except Exception as exc:
         raise HTTPException(
@@ -175,11 +268,14 @@ def submit_attempt(
             detail="Could not verify submission eligibility.",
         ) from exc
 
-    # Vacuously satisfied when eligible_question_ids is empty -- an
-    # assessment with zero currently-eligible questions has nothing to
-    # require an answer for, matching how Phase 1D already treats a
-    # zero-question assessment as a normal (not exceptional) state.
-    if not eligible_question_ids.issubset(answered_question_ids):
+    # Checked against THIS attempt's own frozen selection
+    # (assessment_attempt_questions), never the live question bank -- the
+    # live bank can have far more questions than any one attempt actually
+    # drew, and requiring all of them answered would make submission
+    # impossible. Vacuously satisfied when frozen_question_ids is empty,
+    # matching how Phase 1D already treats a zero-question assessment as a
+    # normal (not exceptional) state.
+    if not frozen_question_ids.issubset(answered_question_ids):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="All assessment questions must be answered before submission.",
@@ -271,7 +367,37 @@ def score_attempt(
             detail="Could not score the attempt.",
         ) from exc
 
-    return SubmitAttemptResponse(**row)
+    # passed/skill_verified are read back, not recomputed here: the RPC
+    # above already did both the scoring AND (inside the same transaction)
+    # any resulting student_skills verification write. Read via
+    # service_client (already in scope for the RPC call above), not
+    # build_user_client -- matches this route's own established pattern of
+    # never letting a since-deactivated assessment make an already-scored
+    # attempt's response unfetchable through RLS's is_active filter.
+    try:
+        assessment = assessment_service.get_assessment_by_id(service_client, UUID(row["assessment_id"]))
+        skill_verified = (
+            assessment_service.get_skill_verification(
+                service_client, current_user.id, assessment["skill_id"], assessment["difficulty"]
+            )
+            if assessment
+            else False
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not determine the assessment result.",
+        ) from exc
+
+    if assessment is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not determine the assessment result.",
+        )
+
+    passed = float(row["percentage"]) >= float(assessment["passing_percentage"])
+
+    return SubmitAttemptResponse(**row, passed=passed, skill_verified=skill_verified)
 
 
 @router.get("/{attempt_id}/result", response_model=AssessmentResultResponse)
@@ -292,9 +418,9 @@ def get_attempt_result(
     clean 409 rather than a confusing empty/partial result.
 
     The question population is NOT re-derived from current eligibility
-    (list_visible_questions() is never called here) -- see
-    assessment_service.get_attempt_result_rows for why that would silently
-    diverge from what was actually scored. score/total_marks/percentage
+    (get_attempt_questions()/the live question bank is never queried here)
+    -- see assessment_service.get_attempt_result_rows for why that would
+    silently diverge from what was actually scored. score/total_marks/percentage
     are read as-is from the attempt row; awarded_marks/is_correct are read
     as-is from each answer row. Nothing here recalculates anything, and
     this route never invokes score_attempt() or the scoring RPC.
@@ -339,6 +465,35 @@ def get_attempt_result(
             detail="Could not load the result.",
         ) from exc
 
+    # passed/skill_verified, read back rather than recomputed -- same
+    # meaning as on SubmitAttemptResponse. Uses the user-scoped client,
+    # matching this route's own stated design (never get_supabase() here);
+    # a None assessment (e.g. deactivated after completion) is treated as
+    # the same class of hard failure as a None question/answer_key embed
+    # below -- never a silently incomplete result.
+    try:
+        assessment = assessment_service.get_assessment_by_id(client, UUID(attempt["assessment_id"]))
+        skill_verified = (
+            assessment_service.get_skill_verification(
+                client, current_user.id, assessment["skill_id"], assessment["difficulty"]
+            )
+            if assessment
+            else False
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not construct the result.",
+        ) from exc
+
+    if assessment is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not construct the result.",
+        )
+
+    passed = float(attempt["percentage"]) >= float(assessment["passing_percentage"])
+
     try:
         questions = []
         for row in rows:
@@ -378,5 +533,7 @@ def get_attempt_result(
 
     return AssessmentResultResponse(
         attempt=AssessmentAttemptResponse(**attempt),
+        passed=passed,
+        skill_verified=skill_verified,
         questions=questions,
     )

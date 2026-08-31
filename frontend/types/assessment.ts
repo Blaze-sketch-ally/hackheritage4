@@ -29,6 +29,10 @@ export interface Assessment {
   difficulty: Difficulty;
   duration_minutes: number | null;
   question_count: number | null;
+  /** Decimal serialized as a string, e.g. "70.00" -- never parse this into
+   * a JS number to make a pass/fail decision client-side; the backend
+   * already returns `passed` wherever that decision matters. */
+  passing_percentage: string;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -102,6 +106,15 @@ export interface ScoredAttempt {
   score: string;
   total_marks: string;
   percentage: string;
+  /** Server-computed: percentage >= the assessment's own passing_percentage.
+   * Never derive this client-side from the two raw values above. */
+  passed: boolean;
+  /** Server-computed: the CURRENT is_verified state of the matching
+   * (skill_id, proficiency_level) student_skills row, read back after
+   * scoring. False whenever no such row exists (the student never
+   * declared this exact skill at this exact level) -- never implies one
+   * was created. */
+  skill_verified: boolean;
 }
 
 /** Mirrors `AssessmentAnswerKeyResponse`. Only ever appears inside an
@@ -129,5 +142,26 @@ export interface AssessmentResultQuestion {
  * backend itself never constructs this for a non-COMPLETED attempt. */
 export interface AssessmentResult {
   attempt: AssessmentAttempt;
+  /** Same server-computed meaning as ScoredAttempt.passed/skill_verified --
+   * read back here so revisiting a result later (or the history list)
+   * shows the same authoritative outcome every time. */
+  passed: boolean;
+  skill_verified: boolean;
   questions: AssessmentResultQuestion[];
+}
+
+/** Mirrors `AttemptHistoryItemResponse`. assessment/passed/skill_verified
+ * are all null together only when the attempt's assessment has since been
+ * deactivated -- the attempt itself is still real historical data. */
+export interface AttemptHistoryItem {
+  id: string;
+  status: AttemptStatus;
+  started_at: string;
+  submitted_at: string | null;
+  score: string | null;
+  total_marks: string | null;
+  percentage: string | null;
+  passed: boolean | null;
+  skill_verified: boolean | null;
+  assessment: Assessment | null;
 }
