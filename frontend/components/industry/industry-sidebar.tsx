@@ -37,6 +37,10 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Hiring",
     items: [
+      // Real, fully-built feature (Phase 1M) -- the canonical management
+      // hub (all types). Internships/Jobs below filter the exact same
+      // opportunity system, not a second implementation.
+      { label: "My Opportunities", href: "/industry/opportunities", icon: Briefcase },
       { label: "Internships", href: "/industry/internships", icon: Briefcase },
       { label: "Jobs", href: "/industry/jobs", icon: Briefcase },
       { label: "Applicants", href: "/industry/applicants", icon: Users },

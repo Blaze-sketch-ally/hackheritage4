@@ -8,6 +8,7 @@ import {
   Briefcase,
   Building2,
   CalendarDays,
+  ClipboardCheck,
   FileText,
   FolderKanban,
   Handshake,
@@ -43,8 +44,22 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Main",
     items: [
-      { label: "Skills & Assessment", href: "/student/skills", icon: Target },
+      { label: "Skills", href: "/student/skills", icon: Target },
+      // Real, fully-built feature (question bank, randomized attempts,
+      // scoring, results) with no prior entry point anywhere in the
+      // student UI -- previously only reachable by typing the URL
+      // directly. Placed between Skills and Skill Gap Analysis to match
+      // the documented pipeline order (assessment results are what skill
+      // gap analysis is actually computed from -- see
+      // docs/architecture/assessment-lifecycle.md's "Skill Evidence
+      // Boundary" section).
+      { label: "Assessments", href: "/student/assessment", icon: ClipboardCheck },
       { label: "Skill Gap Analysis", href: "/student/skill-gap", icon: TrendingUp },
+      // Real, fully-built feature (Phase 1M) -- the canonical browse hub
+      // (all types, with the Jobs/Internships toggle built in).
+      // /student/jobs and /student/internships below filter the exact
+      // same opportunity system, not a second implementation.
+      { label: "Opportunities", href: "/student/opportunities", icon: Briefcase },
       { label: "Learning & Courses", href: "/student/learning", icon: BookOpen },
       { label: "Internships", href: "/student/internships", icon: Briefcase },
       { label: "Jobs & Placements", href: "/student/jobs", icon: Building2 },

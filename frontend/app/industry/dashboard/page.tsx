@@ -59,14 +59,17 @@ export default async function IndustryDashboardPage() {
             Track postings, applicants, and your hiring pipeline.
           </p>
         </div>
-        <Button render={<Link href="/industry/internships/create" />} nativeButton={false}>
+        <Button render={<Link href="/industry/opportunities/new" />} nativeButton={false}>
           Post an Opportunity
         </Button>
       </div>
 
       <div className="rounded-lg border border-dashed border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-muted-foreground">
-        The numbers below are demo data — real postings, applications, and matching land in a later
-        phase. The navigation and layout are fully real.
+        The numbers below are demo data — real postings, applicants, and matching are live under{" "}
+        <Link href="/industry/opportunities" className="underline underline-offset-2">
+          My Opportunities
+        </Link>
+        .
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -91,7 +94,7 @@ export default async function IndustryDashboardPage() {
             <CardHeader>
               <CardTitle>Recent Postings</CardTitle>
               <CardAction>
-                <Button variant="ghost" size="sm" render={<Link href="/industry/internships" />} nativeButton={false}>
+                <Button variant="ghost" size="sm" render={<Link href="/industry/opportunities" />} nativeButton={false}>
                   View All
                 </Button>
               </CardAction>

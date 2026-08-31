@@ -168,7 +168,35 @@ class LiveFixtures:
         the exact assessment/user ids this instance created. Best-effort:
         a failure to delete one already-disposable QA user must not mask
         the test's own assertion failures, so errors are reported, not
-        raised, but never silently swallowed either."""
+        raised, but never silently swallowed either.
+
+        Phase 1M: applications.opportunity_id is ON DELETE RESTRICT (a
+        historical record must never silently vanish just because its
+        opportunity's owner account is deleted), so an industry user
+        created by this fixture can't rely on cascade alone if a QA
+        student's application to their opportunity still exists --
+        deleting the industry user first would leave the opportunity
+        (and its requirements) stranded. Delete both explicitly, scoped
+        to exactly the user ids this instance created (never a bare
+        '__QA_' LIKE match), before deleting any user."""
+        if self.user_ids:
+            self.admin.table("applications").delete().in_("student_id", self.user_ids).execute()
+            owned_opportunities = (
+                self.admin.table("opportunities")
+                .select("id")
+                .in_("industry_id", self.user_ids)
+                .execute()
+                .data
+            )
+            owned_opportunity_ids = [row["id"] for row in owned_opportunities]
+            if owned_opportunity_ids:
+                self.admin.table("applications").delete().in_(
+                    "opportunity_id", owned_opportunity_ids
+                ).execute()
+                self.admin.table("opportunity_skill_requirements").delete().in_(
+                    "opportunity_id", owned_opportunity_ids
+                ).execute()
+                self.admin.table("opportunities").delete().in_("id", owned_opportunity_ids).execute()
         for assessment_id in self.assessment_ids:
             self.admin.table("assessment_attempts").delete().eq("assessment_id", assessment_id).execute()
         for assessment_id in self.assessment_ids:

@@ -301,8 +301,134 @@ matching feature can reuse the identical algorithm against a different
 requirements source without duplicating it — see that module's own
 docstring.
 
+## Opportunity Matching Boundary (Phase 1M)
+
+Phase 1M (opportunities / jobs / internships / applications) is the
+"future opportunity-matching feature" the section above anticipated —
+it reuses `app.services.skill_alignment_service.compute_alignment()`
+**unmodified**, against a second requirements source
+(`opportunity_skill_requirements` instead of
+`career_role_skill_requirements`), and the same
+`get_student_skill_scores()` evidence read Phase 1L established. No
+matching logic is duplicated; no new algorithm exists.
+
+**Unified domain, not two:** jobs and internships are one table,
+`opportunities`, distinguished only by `opportunity_type` (`JOB` |
+`INTERNSHIP`). There is no separate business logic, schema, or service
+per type anywhere in the backend — the frontend's Jobs/Internships pages
+are thin, type-locked views over the same list/detail/apply components.
+
+**Configuration vs. historical record**, extended one level further than
+Phase 1L:
+
+| Concept | Role | Owning table |
+|---|---|---|
+| An opportunity posting | Current configuration (industry-owned, DRAFT/PUBLISHED/CLOSED) | `opportunities` |
+| Its skill requirements | Current configuration — **mutable only while DRAFT**; frozen the moment the posting is first PUBLISHED | `opportunity_skill_requirements` |
+| A student's application | A historical event — the fact that a student applied, and what happened next | `applications` |
+| A match score (student ⇄ opportunity) | Always a **current derived view**, computed fresh on every read from live requirements + live assessment evidence — **never stored, never snapshotted onto the application** | not a table — `opportunity_service`/`application_service` compute it on demand |
+
+That last row is a deliberate, explicit choice: an application does not
+freeze the match score at apply-time. If a student completes a new
+assessment after applying, the score a reviewer sees updates
+automatically — matching is a *live judgment aid*, not part of the
+historical record. The historical record is only ever: did this student
+apply, and what is the application's current status.
+
+**Requirement immutability enforcement:** the RLS policy on
+`opportunity_skill_requirements` permits INSERT/UPDATE/DELETE only while
+the parent `opportunities.status = 'DRAFT'`. This is what makes "match is
+always derived, no snapshot needed" actually true — once published, the
+comparison basis for every existing/future applicant is guaranteed
+stable, without needing to copy it anywhere.
+
+**RLS ownership pattern**, the same join-through-ownership-chain
+established in `020_student_view_own_attempt_questions.sql` and reused by
+Phase 1L, applied twice more here: `opportunity_skill_requirements`'
+SELECT policy joins through `opportunity_id`; `applications`' industry
+SELECT/UPDATE policies join through `opportunity_id` to prove the
+opportunity belongs to the caller. A third, narrower instance was added
+directly to `profiles`: an industry account may `SELECT` the profile of a
+student **only** if a real `applications` row proves that student
+applied to one of that industry's opportunities — the first case in this
+project of one role reading another named individual's profile, gated
+entirely by a real relationship rather than role membership alone.
+
+**Applicant match scores cross a service-role boundary, narrowly:**
+`opportunity_service.list_opportunity_applicants()` first proves
+ownership using the caller's own RLS-scoped client (an unowned
+opportunity's applicant query returns empty before any privileged read
+happens), then uses a service-role client only to read each
+already-proven-legitimate applicant's own assessment evidence and compute
+their score — the same class of narrow, justified trust as Phase 1K's
+`create_attempt`/`score_attempt`. Only the computed aggregate score
+crosses back out; raw assessment answers/evidence are never exposed to
+an industry account.
+
+## Portfolio Boundary — Phase 1N
+
+Phase 1N (the digital portfolio) adds a **fourth** kind of evidence,
+alongside the three the chain above already distinguishes:
+
+| Concept | Role | Owning table |
+|---|---|---|
+| `student_skills` (003_skills.sql) | Self-reported, unverified | `student_skills` |
+| Assessment evidence | Objectively derived, system-scored | `assessment_attempts`/`assessments` |
+| Career role / opportunity requirements | Current configuration | `career_role_skill_requirements` / `opportunity_skill_requirements` |
+| **Portfolio (Phase 1N)** | **Student-presented work/context — authored by the student, never scored** | `portfolio_projects` / `portfolio_certifications` |
+
+Portfolio content is deliberately inert with respect to every other
+system in the chain: a project's `technologies` array is never resolved
+to a `skill_id` and never written into `student_skills`; portfolio rows
+are never read by `assessment_service`, `skill_alignment_service`, or
+either matching path (`opportunity_service.get_student_match` /
+`application_service.list_opportunity_applicants` /
+`get_applicant_detail`). **Portfolio does not influence matching** — a
+student's `overall_score` against an opportunity, and the status of an
+existing `applications` row, are both provably unchanged by adding or
+removing a portfolio project (verified live, not just asserted — see
+`tests/integration/test_portfolio_live.py`'s
+`test_portfolio_changes_never_affect_match_or_application`). Portfolio
+is context a reviewer sees *alongside* the match, never an input to it.
+
+**Authorization chain**, the third instance of the join-through-
+ownership-chain pattern this document already tracks (Phase 1M's
+applicant-profile policy was the first):
+
+```
+industry (auth.uid()) → owns opportunity → student applied
+  (applications.student_id) → industry may SELECT that student's
+  portfolio_projects/portfolio_certifications rows
+```
+
+**No service-role access anywhere in this domain** — a deliberate
+contrast with Phase 1M's applicant match-score path (which genuinely
+needs `service_role` because RLS correctly has no cross-student
+`assessment_attempts` visibility policy for any role). Portfolio
+visibility is instead granted directly by RLS to a legitimate industry
+applicant-reviewer, because there is no equivalent sensitivity concern —
+so `GET /applications/{id}/portfolio` proves ownership via
+`application_service.get_application()`'s own RLS-scoped read, then
+re-reads the target student's portfolio through that *same*
+caller-scoped client; the portfolio table's own SELECT policy is what
+actually authorizes that second read, independently.
+
+**Reassignment protection needs no bespoke trigger.** Every other
+cross-role-owned table in this project (`applications`, `opportunities`)
+needed an explicit immutability trigger because the party permitted to
+write isn't always the row's own identity column. Portfolio rows are
+different: the owner (`auth.uid() = student_id`) is the same identity
+permitted to write, so RLS's own symmetric `USING`/`WITH CHECK` on
+`UPDATE` blocks `student_id` reassignment for free — the new row fails
+`WITH CHECK` the moment `student_id` no longer equals the caller's own
+`auth.uid()`. See
+`025_portfolio_projects_and_certifications.sql`'s own header comment.
+
 ## What is explicitly *not* documented here
 
 Assessment CRUD (creating a new assessment itself is `service_role`-only,
-no API exists), admin-role workflows, and industry/institution flows are
-all out of scope for this document — none of them exist yet.
+no API exists), admin-role workflows, and institution flows are all out
+of scope for this document — none of them exist yet. Industry flows are
+now partially in scope as of Phase 1M (opportunity posting, requirements,
+applicant review — see above); everything else industry-facing (offer
+letters, interview scheduling, analytics) remains out of scope.

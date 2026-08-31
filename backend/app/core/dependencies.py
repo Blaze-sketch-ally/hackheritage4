@@ -84,3 +84,18 @@ def require_faculty(current_user: CurrentUser = Depends(get_current_user)) -> Cu
             detail="This action requires the FACULTY role.",
         )
     return current_user
+
+
+def require_industry(current_user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
+    """Role guard: only INDUSTRY accounts may proceed. Phase 1M's
+    opportunity CRUD/publish/close and applicant-management routes use
+    this the same way require_student/require_faculty are already used --
+    an app-layer check that complements, not replaces, the RLS/trigger
+    enforcement in 024_opportunities_and_applications.sql (e.g.
+    is_industry(auth.uid()) inside every relevant policy)."""
+    if current_user.role != "INDUSTRY":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This action requires the INDUSTRY role.",
+        )
+    return current_user

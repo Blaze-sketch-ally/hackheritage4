@@ -1,2 +1,4 @@
--- Seed data: demo internship postings for local development.
--- Populated once the 004_internships migration schema exists.
+-- Superseded by Phase 1M: internships are no longer a separate domain --
+-- see 024_opportunities_and_applications.sql's unified `opportunities`
+-- table (opportunity_type = 'INTERNSHIP') and
+-- database/seed/opportunities.sql for the actual seed data.

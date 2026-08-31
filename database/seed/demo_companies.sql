@@ -1,2 +1,4 @@
--- Seed data: demo industry/company accounts for local development.
--- Populated once the relevant schema exists.
+-- Superseded by Phase 1M: see database/seed/provision_demo_industry_accounts.py
+-- (account provisioning -- requires a script, not pure SQL; see that
+-- file's own docstring for why) and database/seed/opportunities.sql
+-- (the actual opportunity postings, owned by those accounts).

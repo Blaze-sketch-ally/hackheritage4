@@ -1,2 +1,4 @@
--- Seed data: demo job postings for local development.
--- Populated once the 005_jobs migration schema exists.
+-- Superseded by Phase 1M: jobs are no longer a separate domain -- see
+-- 024_opportunities_and_applications.sql's unified `opportunities` table
+-- (opportunity_type = 'JOB') and database/seed/opportunities.sql for the
+-- actual seed data.
