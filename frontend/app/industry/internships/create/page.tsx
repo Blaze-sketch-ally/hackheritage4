@@ -1,7 +1,9 @@
-export default function Page() {
+import { InternshipCreateView } from "@/components/industry/internships/internship-create-view";
+
+export default function CreateInternshipPage() {
   return (
-    <div className="p-8">
-      <h1 className="text-xl font-semibold">Industry Internships Create – Coming Soon</h1>
+    <div className="mx-auto max-w-3xl">
+      <InternshipCreateView />
     </div>
   );
 }

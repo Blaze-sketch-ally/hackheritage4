@@ -1,7 +1,16 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import assessments, attempts, skill_gap
+from app.api import (
+    applications,
+    assessments,
+    attempts,
+    industry,
+    internships,
+    jobs,
+    skill_gap,
+    skills,
+)
 from app.core.config import settings
 
 app = FastAPI(title="AIC Portal API")
@@ -14,8 +23,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(applications.router, prefix="/api/v1")
 app.include_router(assessments.router, prefix="/api/v1")
 app.include_router(attempts.router, prefix="/api/v1")
+app.include_router(industry.router, prefix="/api/v1")
+app.include_router(internships.router, prefix="/api/v1")
+app.include_router(jobs.router, prefix="/api/v1")
+app.include_router(skills.router, prefix="/api/v1")
 app.include_router(skill_gap.router, prefix="/api/v1")
 
 

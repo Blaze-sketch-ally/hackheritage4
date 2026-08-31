@@ -1,7 +1,17 @@
-export default function Page() {
+import { RecruitmentApplications } from "@/components/industry/recruitment/recruitment-applications";
+
+export default function IndustrySelectedPage() {
   return (
-    <div className="p-8">
-      <h1 className="text-xl font-semibold">Industry Selected – Coming Soon</h1>
+    <div className="mx-auto max-w-4xl">
+      <RecruitmentApplications
+        heading="Selected"
+        description="Candidates you've selected from your internships and jobs."
+        emptyTitle="No selected candidates yet"
+        emptyDescription="Candidates you mark as selected after interviews will appear here."
+        lockedStatuses={["SELECTED"]}
+        showTypeFilter
+        layout="cards"
+      />
     </div>
   );
 }

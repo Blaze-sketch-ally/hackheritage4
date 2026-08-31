@@ -30,6 +30,11 @@ def authenticated_as(role: str | None, user_id: str = "student-1"):
     user with the given app role successfully authenticated -- no live
     Supabase project, real token, or backend/.env required.
 
+    `role` is any value profiles.role can hold ("STUDENT", "INDUSTRY",
+    "FACULTY", "INSTITUTION", "ADMIN") or None for a user who hasn't
+    finished onboarding; the role guards (require_student / require_industry
+    / ...) then accept or 403 the request accordingly.
+
     build_user_client has two separate name bindings that both need
     patching: app.core.dependencies imports it for the profile-role lookup
     inside get_current_user(), and each route module (e.g.
@@ -41,6 +46,7 @@ def authenticated_as(role: str | None, user_id: str = "student-1"):
     a local dev machine), and raises SupabaseException("supabase_url is
     required") anywhere it doesn't (CI). Add further `app.api.<module>`
     patches here as new route modules import build_user_client.
+
     """
     client = mock_client_with_role(role)
     with (
@@ -49,8 +55,13 @@ def authenticated_as(role: str | None, user_id: str = "student-1"):
             return_value=mock_supabase_user(user_id),
         ),
         patch("app.core.dependencies.build_user_client", return_value=client),
+        patch("app.api.applications.build_user_client", return_value=client),
         patch("app.api.assessments.build_user_client", return_value=client),
         patch("app.api.attempts.build_user_client", return_value=client),
+        patch("app.api.industry.build_user_client", return_value=client),
+        patch("app.api.internships.build_user_client", return_value=client),
+        patch("app.api.jobs.build_user_client", return_value=client),
+        patch("app.api.skills.build_user_client", return_value=client),
         patch("app.api.skill_gap.build_user_client", return_value=client),
     ):
         yield

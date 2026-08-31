@@ -1,7 +1,13 @@
-export default function Page() {
+import { IndustryProfileView } from "@/components/industry/profile/industry-profile-view";
+
+// The industry layout (app/industry/layout.tsx) already guarantees an
+// authenticated INDUSTRY user reaches this point. The company profile
+// itself is loaded client-side through the FastAPI bridge
+// (lib/industry/profile.ts), the same pattern as /student/skill-gap.
+export default function IndustryProfilePage() {
   return (
-    <div className="p-8">
-      <h1 className="text-xl font-semibold">Industry Profile – Coming Soon</h1>
+    <div className="mx-auto max-w-3xl">
+      <IndustryProfileView />
     </div>
   );
 }

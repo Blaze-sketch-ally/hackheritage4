@@ -69,3 +69,19 @@ def require_student(current_user: CurrentUser = Depends(get_current_user)) -> Cu
             detail="This action requires the STUDENT role.",
         )
     return current_user
+
+
+def require_industry(current_user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
+    """Role guard: only INDUSTRY accounts may proceed.
+
+    Same shape as require_student -- builds on get_current_user() (which
+    already verified the Supabase token and resolved profiles.role via an
+    RLS-scoped read), and only adds the role check. A NULL role (user
+    hasn't finished onboarding) fails this too, since it isn't "INDUSTRY".
+    """
+    if current_user.role != "INDUSTRY":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This action requires the INDUSTRY role.",
+        )
+    return current_user

@@ -1,7 +1,9 @@
-export default function Page() {
+import { JobCreateView } from "@/components/industry/jobs/job-create-view";
+
+export default function CreateJobPage() {
   return (
-    <div className="p-8">
-      <h1 className="text-xl font-semibold">Industry Jobs Create – Coming Soon</h1>
+    <div className="mx-auto max-w-3xl">
+      <JobCreateView />
     </div>
   );
 }
