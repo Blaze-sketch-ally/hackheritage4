@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ClipboardCheck, GraduationCap, Search } from "lucide-react";
 import { ConfirmationDialog } from "@/components/common/confirmation-dialog";
@@ -14,6 +14,8 @@ import { SkillCard } from "@/components/student/skill-card";
 import { SkillSummary } from "@/components/student/skills/skill-summary";
 import { SkillsToolbar } from "@/components/student/skills/skills-toolbar";
 import { createClient } from "@/lib/supabase/client";
+import { listAssessments } from "@/lib/student/assessment";
+import type { Assessment } from "@/types/assessment";
 import {
   addStudentSkill,
   deleteStudentSkill,
@@ -24,6 +26,17 @@ import {
   type SkillCategory,
   type StudentSkill,
 } from "@/lib/student/skills";
+
+/** One assessment per (skill, difficulty) is the expected shape (see
+ * assessments_skill_id_title_lower_idx in 004_assessments.sql, which
+ * allows multiple titles per skill+difficulty in principle but the
+ * product model is one) -- keyed by skill_id so a student's declared
+ * proficiency_level (which uses the exact same 'Beginner'/'Intermediate'/
+ * 'Advanced'/'Expert' scale as assessments.difficulty) can look up its
+ * exact-match assessment directly. */
+function keyFor(skillId: string, difficulty: string): string {
+  return `${skillId}:${difficulty}`;
+}
 
 export function StudentSkillsView({
   studentId,
@@ -39,6 +52,28 @@ export function StudentSkillsView({
   const [studentSkills, setStudentSkills] = useState(initialStudentSkills);
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
+
+  // Matching assessment per (skill_id, difficulty) -- fetched once,
+  // client-side (the FastAPI bridge is browser-only, see lib/api.ts), the
+  // same pattern AssessmentListView already uses. A failure here degrades
+  // gracefully to "Assessment not available yet." on every card rather
+  // than blocking the skills page itself.
+  const [assessmentsByKey, setAssessmentsByKey] = useState<Map<string, Assessment>>(new Map());
+
+  useEffect(() => {
+    let cancelled = false;
+    listAssessments()
+      .then(({ assessments }) => {
+        if (cancelled) return;
+        setAssessmentsByKey(new Map(assessments.map((a) => [keyFor(a.skill_id, a.difficulty), a])));
+      })
+      .catch((err) => {
+        console.error("Could not load assessments for skill matching:", err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const [addOpen, setAddOpen] = useState(false);
   const [addSubmitting, setAddSubmitting] = useState(false);
@@ -204,6 +239,7 @@ export function StudentSkillsView({
             <SkillCard
               key={studentSkill.id}
               studentSkill={studentSkill}
+              matchingAssessment={assessmentsByKey.get(keyFor(studentSkill.skill_id, studentSkill.proficiency_level))}
               onEdit={() => setEditingSkill(studentSkill)}
               onDelete={() => setDeletingSkill(studentSkill)}
             />
