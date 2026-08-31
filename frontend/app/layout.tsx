@@ -14,8 +14,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "AIC Portal",
-  description: "Academia-Industry Collaboration Portal",
+  title: "AIC Portal — Prove Your Skills, Not Just Claim Them",
+  description:
+    "Academia-Industry Collaboration Portal: objective skill assessments, explainable job matching, and a recruitment pipeline students and employers can actually trust.",
 };
 
 export default function RootLayout({

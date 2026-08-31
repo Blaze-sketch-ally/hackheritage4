@@ -84,3 +84,36 @@
     @apply bg-background text-foreground;
   }
 }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@keyframes landing-blob {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(4%, -6%) scale(1.08); }
+  66% { transform: translate(-3%, 4%) scale(0.95); }
+}
+
+@keyframes landing-grid-pan {
+  from { background-position: 0 0; }
+  to { background-position: 64px 64px; }
+}
+
+@keyframes landing-progress {
+  from { width: 0%; }
+  to { width: 100%; }
+}
+
+.animate-landing-blob {
+  animation: landing-blob 16s ease-in-out infinite;
+}
+
+.animate-landing-grid {
+  animation: landing-grid-pan 12s linear infinite;
+}
