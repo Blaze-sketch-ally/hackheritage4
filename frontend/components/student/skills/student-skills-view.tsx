@@ -1,11 +1,14 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { GraduationCap, Search } from "lucide-react";
+import Link from "next/link";
+import { ClipboardCheck, GraduationCap, Search } from "lucide-react";
 import { ConfirmationDialog } from "@/components/common/confirmation-dialog";
 import { EmptyState } from "@/components/common/empty-state";
 import { FormSuccess } from "@/components/auth/form-success";
 import { AddSkillDialog } from "@/components/student/skills/add-skill-dialog";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import { EditSkillDialog } from "@/components/student/skills/edit-skill-dialog";
 import { SkillCard } from "@/components/student/skill-card";
 import { SkillSummary } from "@/components/student/skills/skill-summary";
@@ -147,6 +150,30 @@ export function StudentSkillsView({
         <h1 className="text-xl font-semibold">My Skills</h1>
         <p className="text-sm text-muted-foreground">Build and manage your professional skill profile.</p>
       </div>
+
+      <Card className="border-indigo-500/30 bg-indigo-500/5">
+        <CardContent className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+          <div className="flex items-start gap-3">
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
+              <ClipboardCheck className="size-4.5" aria-hidden="true" />
+            </span>
+            <div>
+              <p className="text-sm font-medium">Want a verified skill score?</p>
+              <p className="text-sm text-muted-foreground">
+                The skills below are self-reported. Take an assessment to get an objective score for a
+                skill — assessment results power your Skill Gap Analysis too.
+              </p>
+            </div>
+          </div>
+          <Button
+            className="w-full shrink-0 sm:w-auto"
+            render={<Link href="/student/assessment" />}
+            nativeButton={false}
+          >
+            Take an Assessment
+          </Button>
+        </CardContent>
+      </Card>
 
       <FormSuccess message={successMessage} />
 

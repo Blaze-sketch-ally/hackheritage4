@@ -14,12 +14,18 @@ export function SkillOverview({ radar, studentSkills }: { radar: SkillRadarPoint
       <CardHeader>
         <CardTitle>Skill Overview</CardTitle>
         <CardDescription>
-          Chart is demo data — real assessment scoring lands in a later phase. The list reflects your actual skills.
+          Chart is demo data. The list reflects your actual self-reported skills — take an assessment
+          for an objective, verified score.
         </CardDescription>
         <CardAction>
-          <Button variant="ghost" size="sm" render={<Link href="/student/skills" />} nativeButton={false}>
-            View All
-          </Button>
+          <div className="flex gap-1.5">
+            <Button size="sm" render={<Link href="/student/assessment" />} nativeButton={false}>
+              Take an Assessment
+            </Button>
+            <Button variant="ghost" size="sm" render={<Link href="/student/skills" />} nativeButton={false}>
+              View All
+            </Button>
+          </div>
         </CardAction>
       </CardHeader>
       <CardContent className="grid gap-6 lg:grid-cols-2">
