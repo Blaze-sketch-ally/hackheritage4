@@ -25,6 +25,7 @@ service-role escalation is needed for either.
 """
 
 from datetime import UTC, datetime
+from decimal import Decimal
 from uuid import UUID
 
 from postgrest.exceptions import APIError
@@ -488,6 +489,76 @@ def score_attempt(client: Client, attempt_id: UUID, student_id: str) -> dict:
     if isinstance(data, list):
         data = data[0] if data else None
     return data
+
+
+# ------------------------------------------------------------
+# Phase 1L: derived skill evidence (read-only)
+# ------------------------------------------------------------
+
+
+def get_student_skill_scores(client: Client, student_id: str) -> dict[str, Decimal]:
+    """Phase 1L: the calling student's current skill evidence, derived
+    entirely from their own COMPLETED assessment_attempts -- read-only,
+    adds no new table, computes nothing this module doesn't already have
+    the data for. This is the ONLY place Phase 1L reads assessment
+    history from; it does not touch student_skills (see the header
+    comment on 022_career_roles_skill_gap.sql for why that table is a
+    different concept -- self-reported, not assessed -- and deliberately
+    left alone), and it does not modify assessment_attempts, scoring, or
+    anything else Phase 1K owns.
+
+    For each skill covered by at least one of the student's COMPLETED
+    attempts, returns the BEST percentage achieved across all such
+    attempts, keyed by skill_id -- mirroring this project's existing
+    "duplicate attempts for the same target -> take the best one" pattern
+    (there is no other precedent to follow here, since this is Phase 1L's
+    first aggregation across multiple attempts, but "best, not most
+    recent or average" is the natural reading of "skill evidence" and is
+    documented here as the explicit rule). A skill the student has never
+    completed an assessment for is simply ABSENT from the returned dict --
+    callers (skill_alignment_service.compute_alignment) must treat a
+    missing key as "not yet assessed," never silently default it to a
+    score of 0 in a way that's indistinguishable from an assessed-and-
+    failed 0.
+
+    IN_PROGRESS/ABANDONED attempts never contribute -- only
+    status = 'COMPLETED' rows are read, so an attempt that was started but
+    never finished (or was abandoned) contributes nothing, matching the
+    same "only a COMPLETED attempt is authoritative" rule
+    get_attempt_result_rows() already follows.
+
+    RLS ("Students can view their own attempts") already scopes this to
+    the caller; the explicit .eq("student_id", ...) here is defense in
+    depth, matching the pattern used throughout this module. The nested
+    "assessment" embed is independently subject to assessments' own
+    "Authenticated users can view active assessments" policy
+    (is_active = true) -- if the parent assessment was deactivated after
+    the student completed it, that embed can come back None for that row.
+    Unlike get_attempt_result_rows() (where a None embed on a
+    completion-critical read is treated as a hard failure), this function
+    simply excludes that row from the aggregate: a skill-gap summary
+    silently reflecting one fewer contributing attempt is a narrow,
+    acceptable limitation for a derived analysis view, not a correctness
+    bug the way silently dropping a question from a submission-
+    completeness or scoring check would be.
+    """
+    response = (
+        client.table("assessment_attempts")
+        .select("percentage, assessment:assessments(skill_id)")
+        .eq("student_id", student_id)
+        .eq("status", "COMPLETED")
+        .execute()
+    )
+    best_by_skill: dict[str, Decimal] = {}
+    for row in response.data or []:
+        assessment = row.get("assessment")
+        if not assessment or row.get("percentage") is None:
+            continue
+        skill_id = assessment["skill_id"]
+        percentage = Decimal(str(row["percentage"]))
+        if skill_id not in best_by_skill or percentage > best_by_skill[skill_id]:
+            best_by_skill[skill_id] = percentage
+    return best_by_skill
 
 
 # ------------------------------------------------------------

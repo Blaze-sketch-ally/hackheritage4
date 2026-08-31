@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { FacultyShell } from "@/components/faculty/faculty-shell";
 import { createClient } from "@/lib/supabase/server";
 import { getPostLoginRedirectPath } from "@/lib/auth";
 import { fetchProfile } from "@/lib/profile";
@@ -23,5 +24,5 @@ export default async function FacultyLayout({ children }: { children: React.Reac
   if (!profile || !profile.role) redirect("/onboarding");
   if (profile.role !== "FACULTY") redirect(getPostLoginRedirectPath(profile.role));
 
-  return <div className="min-h-screen">{children}</div>;
+  return <FacultyShell profile={profile}>{children}</FacultyShell>;
 }

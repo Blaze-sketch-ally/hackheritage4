@@ -115,6 +115,15 @@ inferred from reading the code:
   `prevent_unauthorized_question_review` trigger.
 - `assessment_attempt_questions` has no write policy for any role — the
   only way a row is ever created is inside `create_assessment_attempt()`.
+- A completed attempt's `assessment_id`, `started_at`, and `submitted_at`
+  are immutable, and an existing answer's `attempt_id`/`question_id` can
+  never be reassigned — added in
+  `023_role_and_attempt_integrity_hardening.sql` after a full-project
+  audit found these were unguarded (reassignment/rewrite was never a
+  legitimate operation, just previously unblocked). The existing
+  submission flow (`mark_attempt_submitted()`, which legitimately sets
+  `submitted_at` once while still `IN_PROGRESS`) is unaffected — the new
+  check only locks a row once `status = 'COMPLETED'`.
 
 ## Future extension points
 
@@ -182,6 +191,13 @@ other way around.
   would mean reordering or renumbering historical files, which the
   migration-governance rule above exists specifically to prevent without
   a deliberate, separate decision to do so.
+  **Update (post-Phase-1L architecture audit):** the same forward-reference
+  problem also applies to `public.is_student(uuid)` — `003_skills.sql`'s
+  `student_skills` policies and `004_assessments.sql`'s `assessment_attempts`/
+  `assessment_question_answers` policies all call it, but it isn't *defined*
+  until `012_student_profiles.sql` either. A second, independent instance of
+  the same class of gap, not a new one — same status (pre-existing, not
+  blocking, not fixed here for the same reason).
 - No `psql`, Supabase CLI, or direct Postgres connection string exists
   anywhere in this repository or its `.env` files, as of Phase 1K — every
   migration is applied by hand through the Supabase Dashboard SQL Editor.
@@ -251,6 +267,39 @@ answer these first:
       explicitly approved — never silently?
 - [ ] Does a regression test exist for it — mocked, and (if it touches
       RLS/RPC) in `tests/integration/`?
+
+## Skill Evidence Boundary (Phase 1L)
+
+Phase 1L (skill-gap analysis / career roles) is a **read-only analysis
+layer over assessment history** — it extends this chain, it does not
+change it. Three concepts, three different roles:
+
+| Concept | Role | Owning table |
+|---|---|---|
+| Career role requirements | Current configuration | `career_role_skill_requirements` (service_role-seeded, like `assessments`/`skills`) |
+| A student's assessed skill evidence | Derived from historical fact, computed fresh on every read | **No new table** — `app.services.assessment_service.get_student_skill_scores()` reads directly from `assessment_attempts`/`assessments` |
+| `student_skills` (003_skills.sql) | A *different* concept: self-reported, unverified proficiency a student typed in themselves | Deliberately untouched by Phase 1L, in either direction |
+
+**Hard architectural decision, made explicitly, not by default:** Phase
+1L does not create a `student_skill_levels` table, and does not sync
+into the pre-existing `student_skills` table either — even though
+004_assessments.sql's own closing comment once described a hypothetical
+future sync from completed attempts into `student_skills`. That sync was
+never built, and building it now would mean writing to (or immediately
+after) the trusted scoring path — exactly the kind of change to Phase
+1K's existing scoring model Phase 1L is scoped not to make. Instead, skill
+evidence is computed on demand: the best `percentage` across a student's
+own `COMPLETED` `assessment_attempts`, joined through
+`assessments.skill_id`, keyed by skill. Skill evidence uses the same 0–100
+scale as `assessment_attempts.percentage` — a career role's
+`required_level` is directly comparable to it without any translation.
+
+The deterministic comparison itself (`app.services.
+skill_alignment_service.compute_alignment()`) is written generic over its
+inputs, not career-role-specific, precisely so a future opportunity-
+matching feature can reuse the identical algorithm against a different
+requirements source without duplicating it — see that module's own
+docstring.
 
 ## What is explicitly *not* documented here
 

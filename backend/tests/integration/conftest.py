@@ -67,6 +67,7 @@ class LiveFixtures:
         self._anon_key = os.environ["SUPABASE_ANON_KEY"]
         self.user_ids: list[str] = []
         self.assessment_ids: list[str] = []
+        self.career_role_ids: list[str] = []
 
     def create_user(self, local: str, role: str) -> tuple[str, str]:
         email = f"__qa_{self.run_id}_{local}@example.com"
@@ -87,10 +88,22 @@ class LiveFixtures:
         resp = anon.auth.sign_in_with_password({"email": email, "password": self.password})
         return resp.session.access_token
 
-    def create_assessment(self, title_suffix: str = "") -> str:
-        skill_id = (
-            self.admin.table("skills").select("id").eq("is_active", True).limit(1).execute().data[0]["id"]
-        )
+    def create_assessment(self, title_suffix: str = "", skill_id: str | None = None) -> str:
+        """skill_id: pass an explicit one when a test needs to know which
+        skill this assessment counts toward (e.g. Phase 1L's skill-gap
+        tests, which build a matching career_role_skill_requirements row
+        for the same skill_id) -- defaults to picking the first active
+        catalog skill, unchanged from before Phase 1L, for callers that
+        don't care which skill is used."""
+        if skill_id is None:
+            skill_id = (
+                self.admin.table("skills")
+                .select("id")
+                .eq("is_active", True)
+                .limit(1)
+                .execute()
+                .data[0]["id"]
+            )
         row = self.admin.table("assessments").insert(
             {
                 "skill_id": skill_id,
@@ -101,6 +114,31 @@ class LiveFixtures:
         ).execute().data[0]
         self.assessment_ids.append(row["id"])
         return row["id"]
+
+    def create_career_role_with_requirement(
+        self, skill_id: str, required_level: float = 60.0, weight: float = 1.0, title_suffix: str = ""
+    ) -> str:
+        """Phase 1L: career_roles/career_role_skill_requirements are
+        service_role-writable-only reference data (see
+        022_career_roles_skill_gap.sql) -- this uses the same admin
+        (service-role) client every other fixture method here already
+        uses, tags the role's title with this run's unique id (never a
+        bare '__QA_' prefix -- see this file's own module docstring), and
+        is cleaned up by exact id in cleanup() below, same as every other
+        fixture this class creates."""
+        role = self.admin.table("career_roles").insert(
+            {"title": f"__QA_{self.run_id}{title_suffix}", "category": "Test"}
+        ).execute().data[0]
+        self.career_role_ids.append(role["id"])
+        self.admin.table("career_role_skill_requirements").insert(
+            {
+                "career_role_id": role["id"],
+                "skill_id": skill_id,
+                "required_level": required_level,
+                "weight": weight,
+            }
+        ).execute()
+        return role["id"]
 
     def api(self, token: str, method: str, path: str, **kwargs) -> httpx.Response:
         headers = kwargs.pop("headers", {})
@@ -135,6 +173,17 @@ class LiveFixtures:
             self.admin.table("assessment_attempts").delete().eq("assessment_id", assessment_id).execute()
         for assessment_id in self.assessment_ids:
             self.admin.table("assessments").delete().eq("id", assessment_id).execute()
+        # career_role_skill_requirements.career_role_id is ON DELETE CASCADE
+        # (022_career_roles_skill_gap.sql) -- deleting the role alone would
+        # already remove its requirements, but both are deleted explicitly
+        # by exact id anyway, matching every other fixture's cleanup style
+        # in this file rather than relying on cascade behavior silently.
+        for career_role_id in self.career_role_ids:
+            self.admin.table("career_role_skill_requirements").delete().eq(
+                "career_role_id", career_role_id
+            ).execute()
+        for career_role_id in self.career_role_ids:
+            self.admin.table("career_roles").delete().eq("id", career_role_id).execute()
         for user_id in self.user_ids:
             try:
                 self.admin.auth.admin.delete_user(user_id)

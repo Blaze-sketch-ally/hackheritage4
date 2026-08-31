@@ -1,8 +1,11 @@
 # AIC Portal — Backend
 
-FastAPI backend for the Academia-Industry Collaboration Portal. Currently a
-scaffold: `GET /` and `GET /health` are the only live endpoints — see
-`app/api/` for route modules awaiting implementation as features are built.
+FastAPI backend for the Academia-Industry Collaboration Portal. Beyond the
+scaffold's `GET /` and `GET /health`, four routers are registered and fully
+implemented (see `app/main.py`): `assessments`, `attempts`, `questions`
+(the Phase 1K question bank + peer-review workflow), and `career_roles`
+(the Phase 1L skill-gap analysis engine). Every other file under `app/api/`
+is an unregistered stub router awaiting a future phase.
 
 ## Stack
 
@@ -72,8 +75,12 @@ See `.env.example`. Names only — never commit real values.
 - `app/core/` — settings, security, shared dependencies, exceptions
 - `app/utils/` — small stateless helpers
 - `tests/` — pytest suite, one file per resource; most are placeholders
-  populated alongside their feature — `test_health.py` is the one real
-  suite today, covering `GET /` and `GET /health`
+  populated alongside their feature. Real, substantial suites exist for
+  `test_assessments.py`, `test_attempts.py`, `test_questions.py`,
+  `test_career_roles.py`, `test_skill_alignment_service.py`, and
+  `test_auth.py` (all mocked, no live Supabase project required).
+  `tests/integration/` is a separate, opt-in live-Supabase suite — see
+  its own `README.md` — never run by a plain `pytest`.
 
 ## Testing
 
@@ -99,6 +106,8 @@ every push/PR.
 
 - `SUPABASE_SERVICE_ROLE_KEY` must never be exposed to the frontend.
 - Do not commit `.venv/` or `.env` — both are gitignored.
-- Authentication and business-logic endpoints are not implemented yet on
-  this backend — the equivalent auth flows currently run directly against
-  Supabase from the frontend (see `frontend/lib/auth.ts`).
+- Authentication itself is not implemented on this backend — auth flows run
+  directly against Supabase from the frontend (see `frontend/lib/auth.ts`).
+  Business-logic endpoints (assessments, question bank, career roles) are
+  implemented here and are the intended pattern for future domains — see
+  `docs/architecture/frontend-backend-integration.md`.

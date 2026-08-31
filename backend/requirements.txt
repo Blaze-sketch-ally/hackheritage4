@@ -4,5 +4,7 @@ pydantic
 pydantic-settings
 python-dotenv
 supabase
+postgrest
+supabase-auth
 httpx
 pytest

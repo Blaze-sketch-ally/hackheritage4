@@ -4,13 +4,19 @@ import type { ApplicationStage } from "@/lib/mock/student-dashboard";
 
 const STAGE_ACCENTS = ["bg-indigo-500", "bg-blue-500", "bg-violet-500", "bg-amber-500", "bg-emerald-500"];
 
-export function ApplicationTracker({ stages }: { stages: ApplicationStage[] }) {
+export function ApplicationTracker({
+  stages,
+  title = "Application Tracker",
+}: {
+  stages: ApplicationStage[];
+  title?: string;
+}) {
   const max = Math.max(...stages.map((s) => s.count), 1);
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Application Tracker</CardTitle>
+        <CardTitle>{title}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
         {stages.map((stage, i) => (
