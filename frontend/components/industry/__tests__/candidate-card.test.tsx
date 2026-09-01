@@ -55,7 +55,7 @@ describe("CandidateCard", () => {
     expect(screen.getByText(/Applicant 11112222/)).toBeInTheDocument();
     expect(screen.getByText(/Job · Backend Engineer/)).toBeInTheDocument();
     expect(screen.getByText("Shortlisted")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "View" })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: "View" })).toHaveAttribute(
       "href",
       "/industry/applicants/app-1",
     );
@@ -74,7 +74,7 @@ describe("CandidateCard", () => {
       <CandidateCard application={application()} pending={false} onPick={vi.fn()} showActions={false} />,
     );
     expect(screen.queryByRole("button", { name: "Schedule interview" })).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "View" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "View" })).toBeInTheDocument();
   });
 
   it("does not render fabricated student data — only the applicant reference", () => {

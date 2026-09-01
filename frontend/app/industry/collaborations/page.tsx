@@ -1,7 +1,12 @@
-export default function Page() {
+import { CollaborationsListView } from "@/components/industry/collaborations/collaborations-list-view";
+
+// The industry layout already guarantees an authenticated INDUSTRY user.
+// Data is loaded client-side through the FastAPI bridge
+// (lib/industry/collaborations.ts).
+export default function IndustryCollaborationsPage() {
   return (
-    <div className="p-8">
-      <h1 className="text-xl font-semibold">Industry Collaborations – Coming Soon</h1>
+    <div className="mx-auto max-w-4xl">
+      <CollaborationsListView />
     </div>
   );
 }

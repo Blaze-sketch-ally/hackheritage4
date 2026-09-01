@@ -85,3 +85,54 @@ def require_industry(current_user: CurrentUser = Depends(get_current_user)) -> C
             detail="This action requires the INDUSTRY role.",
         )
     return current_user
+
+
+def require_faculty(current_user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
+    """Role guard: only FACULTY accounts may proceed. Same shape as
+    require_student/require_industry."""
+    if current_user.role != "FACULTY":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This action requires the FACULTY role.",
+        )
+    return current_user
+
+
+def require_institution(current_user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
+    """Role guard: only INSTITUTION accounts may proceed. Same shape as
+    require_student/require_industry."""
+    if current_user.role != "INSTITUTION":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This action requires the INSTITUTION role.",
+        )
+    return current_user
+
+
+def require_collaboration_party(
+    current_user: CurrentUser = Depends(get_current_user),
+) -> CurrentUser:
+    """Role guard for the shared collaboration-detail endpoint: any of
+    the three roles that can legitimately be a party to a collaboration
+    (INDUSTRY as initiator, FACULTY/INSTITUTION as recipient). The route
+    itself still decides which side of the relationship applies based on
+    current_user.role."""
+    if current_user.role not in {"INDUSTRY", "FACULTY", "INSTITUTION"}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This action requires the INDUSTRY, FACULTY, or INSTITUTION role.",
+        )
+    return current_user
+
+
+def require_collaboration_recipient(
+    current_user: CurrentUser = Depends(get_current_user),
+) -> CurrentUser:
+    """Role guard for recipient-only collaboration endpoints (incoming
+    list, accept, reject): FACULTY or INSTITUTION only."""
+    if current_user.role not in {"FACULTY", "INSTITUTION"}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This action requires the FACULTY or INSTITUTION role.",
+        )
+    return current_user

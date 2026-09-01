@@ -230,6 +230,6 @@ describe("RecruitmentApplications", () => {
     await screen.findByText(/Backend Intern/);
 
     expect(screen.queryByRole("button", { name: "Reject" })).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "View" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "View" })).toBeInTheDocument();
   });
 });

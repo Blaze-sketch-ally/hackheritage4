@@ -1,7 +1,12 @@
-export default function Page() {
+import { TrainingsListView } from "@/components/industry/training/trainings-list-view";
+
+// The industry layout already guarantees an authenticated INDUSTRY user.
+// Data is loaded client-side through the FastAPI bridge
+// (lib/industry/training.ts).
+export default function IndustryTrainingPage() {
   return (
-    <div className="p-8">
-      <h1 className="text-xl font-semibold">Industry Training – Coming Soon</h1>
+    <div className="mx-auto max-w-4xl">
+      <TrainingsListView />
     </div>
   );
 }
