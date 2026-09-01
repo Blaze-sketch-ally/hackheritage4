@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import (
+    analytics,
     applications,
     assessments,
     attempts,
@@ -12,6 +13,7 @@ from app.api import (
     industry_trainings,
     industry_workshops,
     internships,
+    interviews,
     jobs,
     skill_gap,
     skills,
@@ -28,6 +30,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(analytics.router, prefix="/api/v1")
 app.include_router(applications.router, prefix="/api/v1")
 app.include_router(assessments.router, prefix="/api/v1")
 app.include_router(attempts.router, prefix="/api/v1")
@@ -38,6 +41,7 @@ app.include_router(industry_projects.router, prefix="/api/v1")
 app.include_router(industry_trainings.router, prefix="/api/v1")
 app.include_router(industry_workshops.router, prefix="/api/v1")
 app.include_router(internships.router, prefix="/api/v1")
+app.include_router(interviews.router, prefix="/api/v1")
 app.include_router(jobs.router, prefix="/api/v1")
 app.include_router(skills.router, prefix="/api/v1")
 app.include_router(skill_gap.router, prefix="/api/v1")
