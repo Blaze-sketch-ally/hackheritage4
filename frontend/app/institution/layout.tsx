@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { InstitutionShell } from "@/components/institution/institution-shell";
 import { createClient } from "@/lib/supabase/server";
 import { getPostLoginRedirectPath } from "@/lib/auth";
 import { fetchProfile } from "@/lib/profile";
@@ -8,10 +9,9 @@ import { fetchProfile } from "@/lib/profile";
 // layout adds the missing role check server-side: only role === "INSTITUTION"
 // may see anything under /institution/*. A signed-in STUDENT/FACULTY/
 // INDUSTRY/ADMIN user is redirected to their own dashboard, not shown a
-// client-side gate. Mirrors app/student/layout.tsx and app/industry/layout.tsx
-// -- deliberately no shell/sidebar here (none exists for Institution yet,
-// and Phase 10E's scope doesn't call for building one), just the auth/role
-// gate the new /institution/collaborations page needs.
+// client-side gate. Mirrors app/student/layout.tsx and app/industry/layout.tsx,
+// including the authenticated shell (sidebar + header) -- the header is what
+// exposes the Sign out action, matching how Student/Industry expose logout.
 export default async function InstitutionLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
@@ -27,5 +27,5 @@ export default async function InstitutionLayout({
   if (!profile || !profile.role) redirect("/onboarding");
   if (profile.role !== "INSTITUTION") redirect(getPostLoginRedirectPath(profile.role));
 
-  return <div className="min-h-screen">{children}</div>;
+  return <InstitutionShell profile={profile}>{children}</InstitutionShell>;
 }
