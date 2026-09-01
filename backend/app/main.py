@@ -6,6 +6,12 @@ from app.api import (
     assessments,
     attempts,
     career_roles,
+    industry,
+    industry_collaborations,
+    industry_mentorship_opportunities,
+    industry_projects,
+    industry_trainings,
+    industry_workshops,
     opportunities,
     portfolio,
     questions,
@@ -29,6 +35,12 @@ app.include_router(career_roles.router, prefix="/api/v1")
 app.include_router(opportunities.router, prefix="/api/v1")
 app.include_router(applications.router, prefix="/api/v1")
 app.include_router(portfolio.router, prefix="/api/v1")
+app.include_router(industry.router, prefix="/api/v1")
+app.include_router(industry_projects.router, prefix="/api/v1")
+app.include_router(industry_trainings.router, prefix="/api/v1")
+app.include_router(industry_workshops.router, prefix="/api/v1")
+app.include_router(industry_mentorship_opportunities.router, prefix="/api/v1")
+app.include_router(industry_collaborations.router, prefix="/api/v1")
 
 
 @app.get("/")
