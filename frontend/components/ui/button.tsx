@@ -1,3 +1,4 @@
+import * as React from "react"
 import { Button as ButtonPrimitive } from "@base-ui/react/button"
 import { cva, type VariantProps } from "class-variance-authority"
 
@@ -44,12 +45,29 @@ function Button({
   className,
   variant = "default",
   size = "default",
+  render,
+  nativeButton,
   ...props
 }: ButtonPrimitive.Props & VariantProps<typeof buttonVariants>) {
+  // Base UI's Button assumes `nativeButton` is `true` — i.e. that a `render`
+  // prop still resolves to a real `<button>`. When callers pass an element
+  // that is not a `<button>` (most commonly `render={<Link .../>}`, which
+  // renders an `<a>`), Base UI logs a dev-only console.error and applies the
+  // wrong semantics. Default `nativeButton` to `false` for that case so the
+  // primitive adds `role="button"`/`tabindex` instead. An explicit
+  // `nativeButton` prop always wins, and plain `<Button>` (no `render`) and
+  // `render={<button .../>}` are unaffected. The function form of `render`
+  // can't be inspected here — pass `nativeButton` explicitly for that.
+  const resolvedNativeButton =
+    nativeButton ??
+    (React.isValidElement(render) && render.type !== "button" ? false : undefined)
+
   return (
     <ButtonPrimitive
       data-slot="button"
       className={cn(buttonVariants({ variant, size, className }))}
+      render={render}
+      nativeButton={resolvedNativeButton}
       {...props}
     />
   )
