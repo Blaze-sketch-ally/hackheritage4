@@ -56,5 +56,7 @@ def authenticated_as(role: str | None, user_id: str = "student-1"):
         patch("app.api.opportunities.build_user_client", return_value=client),
         patch("app.api.applications.build_user_client", return_value=client),
         patch("app.api.portfolio.build_user_client", return_value=client),
+        patch("app.api.assessments.get_supabase", return_value=client),
+        patch("app.api.opportunities.get_supabase", return_value=client),
     ):
         yield
