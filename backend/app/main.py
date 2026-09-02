@@ -17,6 +17,7 @@ from app.api import (
     jobs,
     skill_gap,
     skills,
+    student_opportunities,
 )
 from app.core.config import settings
 
@@ -45,6 +46,7 @@ app.include_router(interviews.router, prefix="/api/v1")
 app.include_router(jobs.router, prefix="/api/v1")
 app.include_router(skills.router, prefix="/api/v1")
 app.include_router(skill_gap.router, prefix="/api/v1")
+app.include_router(student_opportunities.router, prefix="/api/v1")
 
 
 @app.get("/")
