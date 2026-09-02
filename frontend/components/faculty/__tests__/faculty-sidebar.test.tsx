@@ -13,10 +13,12 @@ describe("FacultySidebar", () => {
 
     for (const [name, href] of [
       ["Dashboard", "/faculty/dashboard"],
+      ["Overview", "/faculty/assessment-studio"],
       ["Question Bank", "/faculty/questions"],
       ["Assessment Blueprints", "/faculty/blueprint"],
       ["Opportunities", "/faculty/opportunities"],
       ["Applications", "/faculty/applications"],
+      ["Mentorship", "/faculty/mentorship"],
       ["Profile", "/faculty/profile"],
       ["Settings", "/faculty/settings"],
     ] as const) {

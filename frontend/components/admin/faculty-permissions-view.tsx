@@ -13,6 +13,13 @@ import {
   listFacultyAssessmentPermissions,
   setAssessmentPermissionStatus,
 } from "@/lib/admin/faculty-permissions";
+import {
+  grantMentorCapability,
+  listFacultyMentorPermissions,
+  setMentorPermissionStatus,
+  type FacultyMentorPermissionAdmin,
+  type MentorPermissionStatus,
+} from "@/lib/admin/mentor-permissions";
 import type { FacultyWithPermissions, PermissionStatus } from "@/types/faculty-permission";
 
 /**
@@ -29,6 +36,7 @@ type LoadState =
 
 export function FacultyPermissionsView() {
   const [state, setState] = useState<LoadState>({ status: "loading" });
+  const [mentorPermissions, setMentorPermissions] = useState<Map<string, FacultyMentorPermissionAdmin>>(new Map());
   const [reloadKey, setReloadKey] = useState(0);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -38,9 +46,15 @@ export function FacultyPermissionsView() {
 
     async function load() {
       try {
-        const { faculty } = await listFacultyAssessmentPermissions();
+        const [{ faculty }, { faculty: mentorFaculty }] = await Promise.all([
+          listFacultyAssessmentPermissions(),
+          listFacultyMentorPermissions(),
+        ]);
         if (cancelled) return;
         setState({ status: "ready", faculty });
+        setMentorPermissions(
+          new Map(mentorFaculty.filter((f) => f.permission !== null).map((f) => [f.faculty_id, f.permission!])),
+        );
       } catch (err) {
         if (cancelled) return;
         setState({
@@ -62,8 +76,14 @@ export function FacultyPermissionsView() {
   }
 
   async function refresh() {
-    const { faculty } = await listFacultyAssessmentPermissions();
+    const [{ faculty }, { faculty: mentorFaculty }] = await Promise.all([
+      listFacultyAssessmentPermissions(),
+      listFacultyMentorPermissions(),
+    ]);
     setState({ status: "ready", faculty });
+    setMentorPermissions(
+      new Map(mentorFaculty.filter((f) => f.permission !== null).map((f) => [f.faculty_id, f.permission!])),
+    );
   }
 
   async function handleGrant(facultyId: string, capability: AssessmentCapability) {
@@ -88,6 +108,33 @@ export function FacultyPermissionsView() {
       await refresh();
     } catch (err) {
       setActionError(err instanceof ApiError ? err.message : "Could not update the permission status.");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function handleGrantMentor(facultyId: string) {
+    const key = `${facultyId}:mentor:grant`;
+    setBusyKey(key);
+    setActionError(null);
+    try {
+      await grantMentorCapability(facultyId);
+      await refresh();
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : "Could not grant the mentor capability.");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function handleMentorStatusChange(permissionId: string, status: MentorPermissionStatus) {
+    setBusyKey(permissionId);
+    setActionError(null);
+    try {
+      await setMentorPermissionStatus(permissionId, status);
+      await refresh();
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : "Could not update the mentor permission status.");
     } finally {
       setBusyKey(null);
     }
@@ -214,6 +261,13 @@ export function FacultyPermissionsView() {
                       })}
                     </TableBody>
                   </Table>
+                  <MentorCapabilityRow
+                    facultyId={member.faculty_id}
+                    permission={mentorPermissions.get(member.faculty_id) ?? null}
+                    busyKey={busyKey}
+                    onGrant={handleGrantMentor}
+                    onStatusChange={handleMentorStatusChange}
+                  />
                 </CardContent>
               </Card>
             );
@@ -232,4 +286,77 @@ function StatusBadge({ status }: { status: PermissionStatus | null }) {
   if (status === "SUSPENDED") return <Badge variant="outline">Suspended</Badge>;
   if (status === "REVOKED") return <Badge variant="destructive">Revoked</Badge>;
   return <Badge variant="secondary">Expired</Badge>;
+}
+
+/**
+ * Phase F4.2 -- the separate faculty_mentor capability. Deliberately its
+ * own small row, not merged into the ASSESSMENT_CAPABILITIES table above
+ * -- assessment and mentorship are two independent trust axes with no
+ * shared status enum (mentor has no EXPIRED state) or shared metadata
+ * (no expires_at).
+ */
+function MentorCapabilityRow({
+  facultyId,
+  permission,
+  busyKey,
+  onGrant,
+  onStatusChange,
+}: {
+  facultyId: string;
+  permission: FacultyMentorPermissionAdmin | null;
+  busyKey: string | null;
+  onGrant: (facultyId: string) => void;
+  onStatusChange: (permissionId: string, status: MentorPermissionStatus) => void;
+}) {
+  const rowBusyKey = permission ? permission.permission_id : `${facultyId}:mentor:grant`;
+  const busy = busyKey === rowBusyKey;
+
+  return (
+    <div className="flex items-center justify-between rounded-lg border border-border/60 px-3 py-2">
+      <div className="flex items-center gap-2">
+        <span className="font-mono text-xs">faculty_mentor</span>
+        <MentorStatusBadge status={permission?.status ?? null} />
+      </div>
+      <div className="flex gap-1.5">
+        {!permission || permission.status !== "GRANTED" ? (
+          <Button size="sm" variant="outline" disabled={busy} onClick={() => onGrant(facultyId)}>
+            Grant
+          </Button>
+        ) : (
+          <>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busy}
+              onClick={() => onStatusChange(permission.permission_id, "SUSPENDED")}
+            >
+              Suspend
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busy}
+              onClick={() => onStatusChange(permission.permission_id, "REVOKED")}
+            >
+              Revoke
+            </Button>
+          </>
+        )}
+        {permission && permission.status === "SUSPENDED" && (
+          <Button size="sm" disabled={busy} onClick={() => onStatusChange(permission.permission_id, "GRANTED")}>
+            Reinstate
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function MentorStatusBadge({ status }: { status: MentorPermissionStatus | null }) {
+  if (status === null) return <Badge variant="secondary">Not granted</Badge>;
+  if (status === "GRANTED") {
+    return <Badge className="bg-emerald-600 text-white hover:bg-emerald-600/90 dark:bg-emerald-500">Granted</Badge>;
+  }
+  if (status === "SUSPENDED") return <Badge variant="outline">Suspended</Badge>;
+  return <Badge variant="destructive">Revoked</Badge>;
 }

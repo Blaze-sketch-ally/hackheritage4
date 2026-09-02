@@ -8,6 +8,7 @@ import {
   listOwnFacultyOpportunities,
   publishFacultyOpportunity,
   reviewFacultyOpportunityEoi,
+  updateEngagementStatus,
   updateFacultyOpportunity,
 } from "@/lib/institution/faculty-opportunities";
 
@@ -22,6 +23,7 @@ export function InstitutionFacultyOpportunitiesView() {
         closeOpportunity: closeFacultyOpportunity,
         listEois: listFacultyOpportunityEois,
         reviewEoi: reviewFacultyOpportunityEoi,
+        updateEngagementStatus,
       }}
     />
   );

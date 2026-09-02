@@ -20,6 +20,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.schemas.faculty_engagement import FacultyEngagementResponse
+
 OpportunitySource = Literal["INDUSTRY", "INSTITUTION"]
 EoiStatus = Literal["DRAFT", "SUBMITTED", "UNDER_REVIEW", "ACCEPTED", "REJECTED", "WITHDRAWN"]
 
@@ -49,6 +51,10 @@ class FacultyOpportunityExpressionResponse(BaseModel):
     reviewer_note: str | None = None
     created_at: str | None = None
     updated_at: str | None = None
+    # Populated only by the accept action (Phase F4.1) -- an EOI that
+    # isn't ACCEPTED never has an engagement, and this is never
+    # client-settable; it reflects whatever accept_via_rpc() attached.
+    engagement: FacultyEngagementResponse | None = None
 
 
 class FacultyOpportunityExpressionListResponse(BaseModel):

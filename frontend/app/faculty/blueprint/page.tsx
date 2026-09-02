@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { BlueprintEditor } from "@/components/faculty/blueprint-editor";
 import { createClient } from "@/lib/supabase/server";
@@ -13,6 +14,9 @@ export default async function FacultyBlueprintPage() {
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-6">
       <div>
+        <Link href="/faculty/assessment-studio" className="text-xs text-muted-foreground hover:underline">
+          ← Assessment Studio
+        </Link>
         <h1 className="text-xl font-semibold">Assessment blueprints</h1>
         <p className="text-sm text-muted-foreground">
           Configure how many questions of each difficulty a student&apos;s attempt randomly draws.

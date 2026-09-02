@@ -150,7 +150,27 @@ def list_eois_for_own_opportunities(client: Client, institution_id: str) -> list
         .order("updated_at", desc=True)
         .execute()
     )
-    return [{**row, "opportunity_title": titles.get(row["opportunity_id"])} for row in response.data or []]
+    eoi_rows = list(response.data or [])
+
+    engagements = (
+        client.table("faculty_engagements")
+        .select(_ENGAGEMENT_SELECT)
+        .eq("organization_id", institution_id)
+        .eq("source_kind", "INSTITUTION_EOI")
+        .execute()
+        .data
+        or []
+    )
+    engagements_by_eoi = {e["institution_eoi_id"]: e for e in engagements}
+
+    return [
+        {
+            **row,
+            "opportunity_title": titles.get(row["opportunity_id"]),
+            "engagement": engagements_by_eoi.get(row["id"]),
+        }
+        for row in eoi_rows
+    ]
 
 
 class EoiInvalidStatusTransitionError(Exception):
@@ -170,6 +190,12 @@ _REVIEW_TRANSITIONS = {
 def review_eoi(
     client: Client, institution_id: str, eoi_id: str, new_status: str, reviewer_note: str | None
 ) -> dict | None:
+    """See industry_faculty_opportunity_service.review_eoi's own
+    docstring -- ACCEPTED is routed through accept_via_rpc() (Phase F4.1)
+    rather than a plain UPDATE, for the same atomicity reasoning."""
+    if new_status == "ACCEPTED":
+        return accept_via_rpc(client, eoi_id)
+
     existing = (
         client.table("faculty_institution_opportunity_expressions")
         .select(_EOI_SELECT)
@@ -201,5 +227,94 @@ def review_eoi(
         .eq("id", eoi_id)
         .maybe_single()
         .execute()
+    )
+    return response.data if response is not None else None
+
+
+# ---- Acceptance -> Engagement (Phase F4.1) ----
+
+_ENGAGEMENT_SELECT = (
+    "id, source_kind, industry_eoi_id, institution_eoi_id, faculty_id, organization_id, "
+    "status, start_date, end_date, notes, created_at, updated_at"
+)
+
+
+def accept_via_rpc(client: Client, eoi_id: str) -> dict | None:
+    """See industry_faculty_opportunity_service.accept_via_rpc's own
+    docstring -- structural twin, calls
+    accept_faculty_institution_expression() instead."""
+    response = client.rpc("accept_faculty_institution_expression", {"target_eoi_id": eoi_id}).execute()
+    engagement = response.data
+    if isinstance(engagement, list):
+        engagement = engagement[0] if engagement else None
+    if engagement is None:
+        return None
+
+    eoi_response = (
+        client.table("faculty_institution_opportunity_expressions")
+        .select(_EOI_SELECT)
+        .eq("id", eoi_id)
+        .maybe_single()
+        .execute()
+    )
+    eoi_row = eoi_response.data if eoi_response is not None else None
+    if eoi_row is None:
+        return None
+    return {**eoi_row, "engagement": engagement}
+
+
+def list_own_engagements(client: Client, institution_id: str) -> list[dict]:
+    response = (
+        client.table("faculty_engagements")
+        .select(_ENGAGEMENT_SELECT)
+        .eq("organization_id", institution_id)
+        .eq("source_kind", "INSTITUTION_EOI")
+        .order("updated_at", desc=True)
+        .execute()
+    )
+    return list(response.data or [])
+
+
+class EngagementInvalidStatusTransitionError(Exception):
+    def __init__(self, current: str, target: str) -> None:
+        self.current = current
+        self.target = target
+        super().__init__(f"Cannot move an engagement from {current} to {target}.")
+
+
+_ENGAGEMENT_TRANSITIONS = {
+    "ACTIVE": frozenset({"PLANNED"}),
+    "COMPLETED": frozenset({"ACTIVE"}),
+    "CANCELLED": frozenset({"PLANNED", "ACTIVE"}),
+}
+
+
+def update_engagement_status(
+    client: Client, institution_id: str, engagement_id: str, new_status: str, fields: dict
+) -> dict | None:
+    existing = (
+        client.table("faculty_engagements")
+        .select(_ENGAGEMENT_SELECT)
+        .eq("id", engagement_id)
+        .eq("organization_id", institution_id)
+        .eq("source_kind", "INSTITUTION_EOI")
+        .maybe_single()
+        .execute()
+    )
+    row = existing.data if existing is not None else None
+    if row is None:
+        return None
+
+    allowed_from = _ENGAGEMENT_TRANSITIONS.get(new_status)
+    if allowed_from is not None and row["status"] not in allowed_from:
+        raise EngagementInvalidStatusTransitionError(row["status"], new_status)
+
+    payload = {k: v for k, v in fields.items() if k in {"notes", "start_date", "end_date"}}
+    payload["status"] = new_status
+
+    client.table("faculty_engagements").update(payload).eq("id", engagement_id).execute()
+
+    response = (
+        client.table("faculty_engagements").select(_ENGAGEMENT_SELECT).eq("id", engagement_id).maybe_single().execute()
     )
     return response.data if response is not None else None

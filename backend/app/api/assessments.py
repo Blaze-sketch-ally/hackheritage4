@@ -1,9 +1,10 @@
 """API routes for assessments. Endpoints implemented feature-by-feature.
 
 Phase 1D: read-only endpoints. Phase 1E: attempt creation. Phase 1K:
-assessment blueprints (how questions get selected). Every route requires
-require_student() or require_faculty() (each of which itself requires
-get_current_user()) and reads/writes through build_user_client
+assessment blueprints (how questions get selected). Phase F5A: blueprint
+writes gated on require_assessment_author (see that route's own
+docstring). Every other route requires require_student()/require_faculty()/
+get_current_user() and reads/writes through build_user_client
 (access_token) for everything except create_attempt, which switched in
 Phase 1K to the service-role client -- see that route's own docstring and
 app.services.assessment_service.create_attempt for why. See
@@ -15,7 +16,12 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.core.dependencies import CurrentUser, get_current_user, require_faculty, require_student
+from app.core.dependencies import (
+    CurrentUser,
+    get_current_user,
+    require_assessment_author,
+    require_student,
+)
 from app.core.security import build_user_client
 from app.database.supabase import get_supabase
 from app.schemas.assessment import (
@@ -200,12 +206,16 @@ def get_blueprint(
 def replace_blueprint(
     assessment_id: UUID,
     body: BlueprintUpsertRequest,
-    current_user: CurrentUser = Depends(require_faculty),
+    current_user: CurrentUser = Depends(require_assessment_author),
 ) -> BlueprintResponse:
-    """Replace an assessment's entire blueprint. RLS ("Faculty can
-    create/update/delete blueprint rules") is the real enforcement that
-    only FACULTY may write here -- assessments have no owner/creator
-    column in this schema, so blueprint configuration is a shared FACULTY
+    """Replace an assessment's entire blueprint. Gated on
+    assessment_author (Phase F5A, 041_assessment_capability_
+    authorization.sql) -- blueprint configuration is assessment-authoring
+    work (deciding which/how-many questions get selected), the same class
+    of activity as authoring a question, not peer review. RLS ("Faculty
+    authors can create/update/delete blueprint rules") is the real
+    enforcement -- assessments have no owner/creator column in this
+    schema, so blueprint configuration remains a shared FACULTY-author
     capability, not scoped to an individual setter, matching how
     assessments themselves have always been managed."""
     client = build_user_client(current_user.access_token)

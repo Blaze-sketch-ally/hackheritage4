@@ -10,11 +10,13 @@ import {
   GraduationCap,
   Handshake,
   LayoutDashboard,
+  LayoutGrid,
   Layers,
   type LucideIcon,
   Presentation,
   Settings,
   User,
+  Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -43,11 +45,18 @@ interface NavGroup {
 // recipient-side flow (see faculty-applications-view.tsx) -- "Collaborations"
 // below stays Soon rather than becoming a second entry point to the same
 // data under a different label.
+//
+// Phase F5A: the "Assessment" group is renamed "Assessment Studio" and
+// gains an "Overview" landing link (assessment-studio-overview.tsx) --
+// Question Bank and Blueprints are unchanged, real pages; nothing about
+// them moved or was rebuilt, this only gives the group an identifiable
+// front door alongside the two existing tools.
 const NAV_GROUPS: NavGroup[] = [
   { items: [{ label: "Dashboard", href: "/faculty/dashboard", icon: LayoutDashboard }] },
   {
-    label: "Assessment",
+    label: "Assessment Studio",
     items: [
+      { label: "Overview", href: "/faculty/assessment-studio", icon: LayoutGrid },
       { label: "Question Bank", href: "/faculty/questions", icon: Layers },
       { label: "Assessment Blueprints", href: "/faculty/blueprint", icon: FileText },
     ],
@@ -67,6 +76,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Other",
     items: [
       { label: "Applications", href: "/faculty/applications", icon: FileText },
+      { label: "Mentorship", href: "/faculty/mentorship", icon: Users },
       { label: "Calendar", icon: CalendarDays },
       { label: "Internships", icon: BookOpen },
     ],

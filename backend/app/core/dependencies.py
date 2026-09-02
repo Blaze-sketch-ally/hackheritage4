@@ -7,7 +7,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.core.security import InvalidTokenError, build_user_client, verify_access_token
 from app.schemas.faculty_permissions import AssessmentCapability
-from app.services import faculty_permission_service
+from app.services import faculty_mentor_permission_service, faculty_permission_service
 
 # auto_error=False so a missing header falls through to our own check below
 # instead of HTTPBearer's default 403 -- "not authenticated" should be 401.
@@ -130,6 +130,40 @@ require_assessment_reviewer = require_assessment_capability(AssessmentCapability
 require_assessment_evaluator = require_assessment_capability(AssessmentCapability.EVALUATOR)
 require_assessment_moderator = require_assessment_capability(AssessmentCapability.MODERATOR)
 require_assessment_lead = require_assessment_capability(AssessmentCapability.LEAD)
+
+
+def get_mentor_capability(current_user: CurrentUser = Depends(require_faculty)) -> bool:
+    """Resolve whether the current Faculty caller holds the
+    faculty_mentor capability (Phase F4.2,
+    039_faculty_mentor_permissions.sql). Deliberately independent of
+    get_faculty_capabilities()/AssessmentCapability -- mentorship and
+    assessment authority are two separate trust axes with no shared
+    table or helper."""
+    try:
+        client = build_user_client(current_user.access_token)
+        return faculty_mentor_permission_service.get_my_mentor_capability(client)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not resolve the Faculty mentor capability.",
+        ) from exc
+
+
+def require_mentor_capability(
+    current_user: CurrentUser = Depends(require_faculty),
+    can_mentor: bool = Depends(get_mentor_capability),
+) -> CurrentUser:
+    """Faculty-side mentorship routes that mutate state (request, accept/
+    decline/withdraw/activate/complete/end, view a mentee's data bundle,
+    manage private notes) require this. This is an app-layer complement
+    to RLS, not a replacement -- every one of those RLS policies
+    independently re-checks has_mentor_capability(auth.uid()) itself."""
+    if not can_mentor:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This action requires the faculty_mentor capability.",
+        )
+    return current_user
 
 
 def require_admin(current_user: CurrentUser = Depends(get_current_user)) -> CurrentUser:

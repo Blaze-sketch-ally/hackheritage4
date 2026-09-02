@@ -215,10 +215,12 @@ def test_accepted_and_rejected_eois_are_terminal(current_status, target_status):
 
 
 def test_review_eoi_service_rejects_transitions_out_of_terminal_states():
+    """Target=ACCEPTED excluded here as of Phase F4.1 -- see the industry
+    test file's identical test for why (routed through accept_via_rpc())."""
     from unittest.mock import MagicMock
 
     for current_status in ("ACCEPTED", "REJECTED"):
-        for target_status in ("UNDER_REVIEW", "ACCEPTED", "REJECTED"):
+        for target_status in ("UNDER_REVIEW", "REJECTED"):
             mock_client = MagicMock()
             mock_client.table.return_value.select.return_value.eq.return_value.maybe_single.return_value.execute.return_value.data = {
                 **_EOI_ROW,
@@ -303,9 +305,12 @@ def test_institution_eoi_listing_never_queries_the_industry_table():
     mock_client.table.return_value.select.return_value.in_.return_value.order.return_value.execute.return_value.data = []
     service.list_eois_for_own_opportunities(mock_client, "institution-1")
     queried_tables = {call.args[0] for call in mock_client.table.call_args_list if call.args}
+    # faculty_engagements is now legitimately queried too (Phase F4.1
+    # engagement enrichment), always scoped to source_kind='INSTITUTION_EOI'.
     assert queried_tables <= {
         "institution_faculty_opportunities",
         "faculty_institution_opportunity_expressions",
+        "faculty_engagements",
     }
     assert "industry_faculty_opportunities" not in queried_tables
     assert "faculty_industry_opportunity_expressions" not in queried_tables
@@ -326,3 +331,231 @@ def test_invalid_eoi_review_transition_is_409():
             headers={"Authorization": "Bearer token"},
         )
     assert response.status_code == 409
+
+
+# ============================================================
+# Phase F4.1 -- Acceptance -> Engagement
+# ============================================================
+
+_ENGAGEMENT_ROW = {
+    "id": "eng-1",
+    "source_kind": "INSTITUTION_EOI",
+    "industry_eoi_id": None,
+    "institution_eoi_id": "eoi-1",
+    "faculty_id": "faculty-1",
+    "organization_id": "institution-1",
+    "status": "PLANNED",
+    "start_date": None,
+    "end_date": None,
+    "notes": None,
+    "created_at": "2026-01-01T00:00:00Z",
+    "updated_at": "2026-01-01T00:00:00Z",
+}
+
+
+def test_accepting_an_eoi_routes_through_the_rpc_not_a_plain_update():
+    with (
+        authenticated_as("INSTITUTION", user_id="institution-1"),
+        patch.object(
+            service, "accept_via_rpc", return_value={**_EOI_ROW, "status": "ACCEPTED", "engagement": _ENGAGEMENT_ROW}
+        ) as accept_via_rpc,
+    ):
+        response = client.patch(
+            "/api/v1/institution/faculty-opportunities/eoi/eoi-1/review",
+            json={"status": "ACCEPTED"},
+            headers={"Authorization": "Bearer token"},
+        )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "ACCEPTED"
+    assert body["engagement"]["status"] == "PLANNED"
+    accept_via_rpc.assert_called_once_with(accept_via_rpc.call_args.args[0], "eoi-1")
+
+
+def test_institution_can_accept_its_own_eoi_service_level():
+    mock_client = MagicMock()
+    mock_client.rpc.return_value.execute.return_value.data = _ENGAGEMENT_ROW
+    mock_client.table.return_value.select.return_value.eq.return_value.maybe_single.return_value.execute.return_value.data = {
+        **_EOI_ROW,
+        "status": "ACCEPTED",
+    }
+
+    result = service.accept_via_rpc(mock_client, "eoi-1")
+
+    mock_client.rpc.assert_called_once_with(
+        "accept_faculty_institution_expression", {"target_eoi_id": "eoi-1"}
+    )
+    assert result["status"] == "ACCEPTED"
+    assert result["engagement"]["id"] == "eng-1"
+
+
+@pytest.mark.parametrize(
+    ("pg_code", "expected_status"),
+    [
+        ("P0002", 404),
+        ("55000", 409),
+        ("23505", 409),
+        ("42501", 403),
+    ],
+)
+def test_accept_rpc_errors_map_to_the_correct_http_status(pg_code, expected_status):
+    from postgrest.exceptions import APIError
+
+    with (
+        authenticated_as("INSTITUTION", user_id="institution-1"),
+        patch.object(
+            service,
+            "accept_via_rpc",
+            side_effect=APIError({"code": pg_code, "message": "boom"}),
+        ),
+    ):
+        response = client.patch(
+            "/api/v1/institution/faculty-opportunities/eoi/eoi-1/review",
+            json={"status": "ACCEPTED"},
+            headers={"Authorization": "Bearer token"},
+        )
+    assert response.status_code == expected_status
+
+
+def test_another_institution_cannot_accept_the_eoi():
+    from postgrest.exceptions import APIError
+
+    with (
+        authenticated_as("INSTITUTION", user_id="institution-2"),
+        patch.object(
+            service,
+            "accept_via_rpc",
+            side_effect=APIError({"code": "42501", "message": "Not authorized to accept this expression of interest."}),
+        ),
+    ):
+        response = client.patch(
+            "/api/v1/institution/faculty-opportunities/eoi/eoi-1/review",
+            json={"status": "ACCEPTED"},
+            headers={"Authorization": "Bearer token"},
+        )
+    assert response.status_code == 403
+
+
+# ---- Engagement listing/lifecycle ----
+
+
+@pytest.mark.parametrize("role", ["STUDENT", "FACULTY", "INDUSTRY", "ADMIN", None])
+def test_non_institution_cannot_list_engagements(role):
+    with authenticated_as(role):
+        response = client.get(
+            "/api/v1/institution/faculty-opportunities/engagements", headers={"Authorization": "Bearer token"}
+        )
+    assert response.status_code == 403
+
+
+@pytest.mark.parametrize("role", ["STUDENT", "FACULTY", "INDUSTRY", "ADMIN", None])
+def test_non_institution_cannot_update_engagement_status(role):
+    with authenticated_as(role):
+        response = client.patch(
+            "/api/v1/institution/faculty-opportunities/engagements/eng-1/status",
+            json={"status": "ACTIVE"},
+            headers={"Authorization": "Bearer token"},
+        )
+    assert response.status_code == 403
+
+
+def test_institution_can_list_own_engagements():
+    with (
+        authenticated_as("INSTITUTION", user_id="institution-1"),
+        patch.object(service, "list_own_engagements", return_value=[_ENGAGEMENT_ROW]) as list_engagements,
+    ):
+        response = client.get(
+            "/api/v1/institution/faculty-opportunities/engagements", headers={"Authorization": "Bearer token"}
+        )
+    assert response.status_code == 200
+    assert response.json()["engagements"][0]["status"] == "PLANNED"
+    list_engagements.assert_called_once_with(list_engagements.call_args.args[0], "institution-1")
+
+
+def test_institution_can_activate_own_engagement():
+    activated = {**_ENGAGEMENT_ROW, "status": "ACTIVE"}
+    with (
+        authenticated_as("INSTITUTION", user_id="institution-1"),
+        patch.object(service, "update_engagement_status", return_value=activated) as update,
+    ):
+        response = client.patch(
+            "/api/v1/institution/faculty-opportunities/engagements/eng-1/status",
+            json={"status": "ACTIVE"},
+            headers={"Authorization": "Bearer token"},
+        )
+    assert response.status_code == 200
+    assert response.json()["status"] == "ACTIVE"
+    assert update.call_args.args[1] == "institution-1"
+
+
+def test_another_institutions_engagement_is_404_not_leaked():
+    with (
+        authenticated_as("INSTITUTION", user_id="institution-2"),
+        patch.object(service, "update_engagement_status", return_value=None) as update,
+    ):
+        response = client.patch(
+            "/api/v1/institution/faculty-opportunities/engagements/eng-1/status",
+            json={"status": "ACTIVE"},
+            headers={"Authorization": "Bearer token"},
+        )
+    assert response.status_code == 404
+    assert update.call_args.args[1] == "institution-2"
+
+
+@pytest.mark.parametrize(
+    ("current_status", "target_status"),
+    [
+        ("PLANNED", "COMPLETED"),
+        ("COMPLETED", "ACTIVE"),
+        ("COMPLETED", "CANCELLED"),
+        ("CANCELLED", "ACTIVE"),
+        ("CANCELLED", "COMPLETED"),
+    ],
+)
+def test_invalid_engagement_transitions_are_rejected(current_status, target_status):
+    with (
+        authenticated_as("INSTITUTION", user_id="institution-1"),
+        patch.object(
+            service,
+            "update_engagement_status",
+            side_effect=service.EngagementInvalidStatusTransitionError(current_status, target_status),
+        ),
+    ):
+        response = client.patch(
+            "/api/v1/institution/faculty-opportunities/engagements/eng-1/status",
+            json={"status": target_status if target_status in ("ACTIVE", "COMPLETED", "CANCELLED") else "ACTIVE"},
+            headers={"Authorization": "Bearer token"},
+        )
+    assert response.status_code == 409
+
+
+@pytest.mark.parametrize(("current_status", "target_status"), [("PLANNED", "ACTIVE"), ("PLANNED", "CANCELLED"), ("ACTIVE", "COMPLETED"), ("ACTIVE", "CANCELLED")])
+def test_valid_engagement_transitions_service_level(current_status, target_status):
+    mock_client = MagicMock()
+    mock_client.table.return_value.select.return_value.eq.return_value.eq.return_value.eq.return_value.maybe_single.return_value.execute.return_value.data = {
+        **_ENGAGEMENT_ROW,
+        "status": current_status,
+    }
+    mock_client.table.return_value.select.return_value.eq.return_value.maybe_single.return_value.execute.return_value.data = {
+        **_ENGAGEMENT_ROW,
+        "status": target_status,
+    }
+
+    result = service.update_engagement_status(mock_client, "institution-1", "eng-1", target_status, {})
+    assert result["status"] == target_status
+
+
+def test_engagement_queries_never_touch_the_industry_engagement_scope():
+    """Structural isolation: Institution's own-engagement queries are
+    always scoped to source_kind='INSTITUTION_EOI' -- Institution can
+    never see an Industry-sourced engagement."""
+    mock_client = MagicMock()
+    mock_client.table.return_value.select.return_value.eq.return_value.eq.return_value.order.return_value.execute.return_value.data = (
+        []
+    )
+    service.list_own_engagements(mock_client, "institution-1")
+
+    eq_calls = mock_client.table.return_value.select.return_value.eq.call_args_list
+    assert ("organization_id", "institution-1") in [c.args for c in eq_calls]
+    second_eq_calls = mock_client.table.return_value.select.return_value.eq.return_value.eq.call_args_list
+    assert ("source_kind", "INSTITUTION_EOI") in [c.args for c in second_eq_calls]

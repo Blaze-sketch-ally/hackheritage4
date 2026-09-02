@@ -364,8 +364,10 @@ def test_duplicate_expression_of_interest_raises_the_real_unique_violation():
 
 
 def test_list_own_expressions_is_scoped_to_the_caller_faculty_id():
-    """Faculty A cannot see Faculty B's EOIs: the service always filters
-    by the caller's own faculty_id on both source tables."""
+    """Faculty A cannot see Faculty B's EOIs (or Faculty B's engagements):
+    the service always filters by the caller's own faculty_id on both
+    EOI source tables AND on faculty_engagements (Phase F4.1's
+    engagement-enrichment query)."""
     from app.services import faculty_opportunity_expression_service
 
     mock_client = MagicMock()
@@ -377,7 +379,9 @@ def test_list_own_expressions_is_scoped_to_the_caller_faculty_id():
 
     eq_calls = mock_client.table.return_value.select.return_value.eq.call_args_list
     assert all(call.args == ("faculty_id", "faculty-A") for call in eq_calls)
-    assert len(eq_calls) == 2  # once per source table (industry + institution)
+    # 2 EOI source tables (industry + institution) + 1 faculty_engagements
+    # enrichment query, all scoped to the same faculty_id.
+    assert len(eq_calls) == 3
 
 
 def test_withdraw_of_someone_elses_or_nonexistent_eoi_is_404():

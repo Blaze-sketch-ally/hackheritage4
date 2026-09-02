@@ -28,6 +28,25 @@ function expression(overrides = {}) {
     reviewer_note: null,
     created_at: "2026-02-01T00:00:00Z",
     updated_at: "2026-02-01T00:00:00Z",
+    engagement: null,
+    ...overrides,
+  };
+}
+
+function engagement(overrides = {}) {
+  return {
+    id: "eng-1",
+    source_kind: "INDUSTRY_EOI",
+    industry_eoi_id: "eoi-1",
+    institution_eoi_id: null,
+    faculty_id: "faculty-1",
+    organization_id: "industry-1",
+    status: "PLANNED",
+    start_date: null,
+    end_date: null,
+    notes: null,
+    created_at: "2026-02-02T00:00:00Z",
+    updated_at: "2026-02-02T00:00:00Z",
     ...overrides,
   };
 }
@@ -71,6 +90,24 @@ describe("FacultyEoiView", () => {
     listMyExpressions.mockResolvedValue({ expressions: [] });
     render(<FacultyEoiView />);
     expect(await screen.findByText(/haven't expressed interest/i)).toBeInTheDocument();
+  });
+
+  it("shows the resulting engagement's status for an accepted EOI (Phase F4.1)", async () => {
+    listMyExpressions.mockResolvedValue({
+      expressions: [expression({ status: "ACCEPTED", engagement: engagement() })],
+    });
+    render(<FacultyEoiView />);
+
+    await screen.findByText("Data Science Research Collaboration");
+    expect(screen.getByText(/engagement:\s*planned/i)).toBeInTheDocument();
+  });
+
+  it("shows nothing extra for an EOI with no engagement yet", async () => {
+    listMyExpressions.mockResolvedValue({ expressions: [expression()] });
+    render(<FacultyEoiView />);
+
+    await screen.findByText("Data Science Research Collaboration");
+    expect(screen.queryByText(/engagement:/i)).not.toBeInTheDocument();
   });
 
   it("shows a retryable error state on load failure", async () => {

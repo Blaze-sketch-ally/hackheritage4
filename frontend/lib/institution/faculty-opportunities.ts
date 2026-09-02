@@ -5,6 +5,7 @@ import type {
   FacultyOpportunityPostingListResponse,
 } from "@/types/faculty-opportunity-posting";
 import type { FacultyOpportunityExpression, FacultyOpportunityExpressionListResponse } from "@/types/faculty-opportunity-expression";
+import type { EngagementStatus, FacultyEngagement, FacultyEngagementListResponse } from "@/types/faculty-engagement";
 
 /**
  * Thin wrappers over backend/app/api/institution_faculty_opportunities.py
@@ -48,5 +49,20 @@ export function reviewFacultyOpportunityEoi(
   return api.patch(`/api/v1/institution/faculty-opportunities/eoi/${eoiId}/review`, {
     status,
     reviewer_note: reviewerNote || null,
+  });
+}
+
+// ---- Engagements (Phase F4.1) ----
+
+export function listFacultyOpportunityEngagements(): Promise<FacultyEngagementListResponse> {
+  return api.get("/api/v1/institution/faculty-opportunities/engagements");
+}
+
+export function updateEngagementStatus(
+  engagementId: string,
+  targetStatus: Extract<EngagementStatus, "ACTIVE" | "COMPLETED" | "CANCELLED">,
+): Promise<FacultyEngagement> {
+  return api.patch(`/api/v1/institution/faculty-opportunities/engagements/${engagementId}/status`, {
+    status: targetStatus,
   });
 }

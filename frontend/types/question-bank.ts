@@ -39,6 +39,11 @@ export interface QuestionCreateInput {
   difficulty: Difficulty;
   points: string;
   display_order?: number;
+  /** Phase F6.1-F6.3: optional additive metadata -- omitting either is
+   * always valid; the database is authoritative for
+   * estimated_time_minutes > 0, not duplicated here. */
+  learning_objective?: string | null;
+  estimated_time_minutes?: number | null;
   options: QuestionOptionInput[];
   answer_key?: QuestionAnswerKeyInput | null;
 }
@@ -54,6 +59,12 @@ export interface QuestionUpdateInput {
   difficulty?: Difficulty;
   points?: string;
   display_order?: number;
+  /** Phase F6.1-F6.3: same optional additive metadata as
+   * QuestionCreateInput. Omitting either leaves it unchanged; sending
+   * `null` explicitly clears it (exclude_unset at the backend route
+   * layer is what makes that distinction, not a sentinel here). */
+  learning_objective?: string | null;
+  estimated_time_minutes?: number | null;
   is_active?: boolean;
   /** Only "PENDING" is accepted (a resubmission after rejection) -- the
    * backend rejects anything else with a 422. Approve/reject a question
@@ -74,6 +85,11 @@ export interface QuestionBank {
   difficulty: Difficulty;
   points: string;
   display_order: number;
+  /** Phase F6.1-F6.3: assessment_questions.learning_objective/
+   * estimated_time_minutes (043_question_authoring_metadata.sql) --
+   * always present on the response, nullable. */
+  learning_objective: string | null;
+  estimated_time_minutes: number | null;
   review_status: ReviewStatus;
   is_active: boolean;
   created_by: string | null;

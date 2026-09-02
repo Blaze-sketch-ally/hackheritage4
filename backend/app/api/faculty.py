@@ -8,13 +8,18 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.core.dependencies import CurrentUser, require_faculty
 from app.core.security import build_user_client
+from app.schemas.faculty_mentor_permission import MyMentorCapabilityResponse
 from app.schemas.faculty_permissions import MyFacultyCapabilitiesResponse
 from app.schemas.faculty_profile import (
     FacultyProfileResponse,
     FacultyProfileUpdate,
     compute_completeness,
 )
-from app.services import faculty_permission_service, faculty_profile_service
+from app.services import (
+    faculty_mentor_permission_service,
+    faculty_permission_service,
+    faculty_profile_service,
+)
 
 router = APIRouter(prefix="/faculty", tags=["faculty"])
 
@@ -33,6 +38,23 @@ def get_my_assessment_capabilities(
             detail="Could not load Faculty assessment capabilities.",
         ) from exc
     return MyFacultyCapabilitiesResponse(role="FACULTY", capabilities=sorted(capabilities, key=lambda item: item.value))
+
+
+@router.get("/me/mentor-capability", response_model=MyMentorCapabilityResponse)
+def get_my_mentor_capability(
+    current_user: CurrentUser = Depends(require_faculty),
+) -> MyMentorCapabilityResponse:
+    """Return only whether the caller currently holds faculty_mentor
+    (Phase F4.2) -- independent of assessment capabilities."""
+    try:
+        client = build_user_client(current_user.access_token)
+        can_mentor = faculty_mentor_permission_service.get_my_mentor_capability(client)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not load the Faculty mentor capability.",
+        ) from exc
+    return MyMentorCapabilityResponse(role="FACULTY", can_mentor=can_mentor)
 
 
 @router.get("/profile", response_model=FacultyProfileResponse)

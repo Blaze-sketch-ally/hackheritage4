@@ -21,6 +21,13 @@ const DIFFICULTY_ITEMS: Record<Difficulty, string> = {
   Expert: "Expert",
 };
 
+/** Only these three types have a working end-to-end scoring path
+ * (score_assessment_attempt() and the review_question() approval-readiness
+ * guard, 043_question_authoring_metadata.sql, both only implement these
+ * three) -- CODE/SUBJECTIVE are valid `question_type` CHECK-constraint
+ * values with no scoring engine behind them, so they are deliberately not
+ * offered here rather than silently accepted and later blocked at
+ * approval time. */
 const QUESTION_TYPES: QuestionType[] = ["MCQ", "MULTIPLE_SELECT", "SHORT_ANSWER"];
 const QUESTION_TYPE_ITEMS: Record<QuestionType, string> = {
   MCQ: "Multiple choice (one correct answer)",
@@ -54,6 +61,8 @@ export function QuestionCreateForm() {
   const [questionType, setQuestionType] = useState<QuestionType>("MCQ");
   const [difficulty, setDifficulty] = useState<Difficulty>("Beginner");
   const [points, setPoints] = useState("1");
+  const [learningObjective, setLearningObjective] = useState("");
+  const [estimatedTimeMinutes, setEstimatedTimeMinutes] = useState("");
   const [options, setOptions] = useState<OptionDraft[]>([newOption(0), newOption(1)]);
   const [correctIds, setCorrectIds] = useState<Set<string>>(new Set());
   const [shortAnswerText, setShortAnswerText] = useState("");
@@ -131,6 +140,11 @@ export function QuestionCreateForm() {
       setSubmitError("Provide the correct answer text.");
       return;
     }
+    const trimmedTime = estimatedTimeMinutes.trim();
+    if (trimmedTime !== "" && (!/^\d+$/.test(trimmedTime) || Number(trimmedTime) <= 0)) {
+      setSubmitError("Estimated time must be a positive whole number of minutes.");
+      return;
+    }
 
     setSubmitting(true);
     try {
@@ -141,6 +155,8 @@ export function QuestionCreateForm() {
         scoring_method: "OBJECTIVE",
         difficulty,
         points,
+        learning_objective: learningObjective.trim() || null,
+        estimated_time_minutes: trimmedTime === "" ? null : Number(trimmedTime),
         options: isChoiceType ? options.filter((o) => o.option_text.trim() !== "") : [],
         answer_key: isChoiceType
           ? { correct_option_ids: Array.from(correctIds) }
@@ -155,7 +171,15 @@ export function QuestionCreateForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit}>
+    // noValidate: every field's validation in this form is custom JS
+    // (submitError, shown consistently below the fields) -- without it,
+    // the browser's own native constraint validation (e.g. the
+    // estimated-time input's min="1"/step="1") would silently block
+    // submission and pre-empt handleSubmit before it ever runs, so the
+    // custom "Estimated time must be a positive whole number of
+    // minutes." message would never actually show for exactly the
+    // values it exists to catch.
+    <form onSubmit={handleSubmit} noValidate>
       <Card>
         <CardHeader>
           <CardTitle className="text-lg">New question</CardTitle>
@@ -218,6 +242,10 @@ export function QuestionCreateForm() {
                   ))}
                 </SelectContent>
               </Select>
+              <p className="text-xs text-muted-foreground">
+                Code and subjective questions aren&apos;t available here yet -- there&apos;s no automatic scoring
+                for them.
+              </p>
             </div>
 
             <div className="space-y-1.5">
@@ -254,9 +282,39 @@ export function QuestionCreateForm() {
             </div>
           </div>
 
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="q-objective">Learning objective (optional)</Label>
+              <textarea
+                id="q-objective"
+                value={learningObjective}
+                onChange={(e) => setLearningObjective(e.target.value)}
+                rows={2}
+                placeholder="What should a student be able to do after this question?"
+                className="w-full rounded-lg border border-input bg-transparent px-2.5 py-1.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="q-time">Estimated time (minutes, optional)</Label>
+              <Input
+                id="q-time"
+                type="number"
+                min="1"
+                step="1"
+                value={estimatedTimeMinutes}
+                onChange={(e) => setEstimatedTimeMinutes(e.target.value)}
+              />
+            </div>
+          </div>
+
           {isChoiceType ? (
             <div className="space-y-2">
               <Label>Options (check the correct {questionType === "MCQ" ? "one" : "ones"})</Label>
+              <p className="text-xs text-muted-foreground">
+                {questionType === "MCQ"
+                  ? "Exactly one option must be marked correct."
+                  : "Mark one or more options as correct."}
+              </p>
               {options.map((option) => (
                 <div key={option.id} className="flex items-center gap-2">
                   <input

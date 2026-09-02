@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { QuestionBankView } from "@/components/faculty/question-bank-view";
 import { createClient } from "@/lib/supabase/server";
@@ -15,6 +16,9 @@ export default async function FacultyQuestionsPage() {
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-6">
       <div>
+        <Link href="/faculty/assessment-studio" className="text-xs text-muted-foreground hover:underline">
+          ← Assessment Studio
+        </Link>
         <h1 className="text-xl font-semibold">Question bank</h1>
         <p className="text-sm text-muted-foreground">
           Author questions and review submissions from other setters.

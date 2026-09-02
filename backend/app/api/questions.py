@@ -1,25 +1,34 @@
-"""API routes for the Question Bank + review workflow (Phase 1K).
+"""API routes for the Question Bank + review workflow (Phase 1K,
+capability-gated since Phase F5A).
 
-Every route requires require_faculty() (which itself requires
-get_current_user()) and reads/writes exclusively through
-build_user_client(access_token) -- never get_supabase(). RLS plus the
-prevent_unauthorized_question_review trigger (see
-database/migrations/015_question_bank_random_assessment.sql) are the
-entire enforcement mechanism for who may create/edit/approve/reject what;
-this router's own checks are defense in depth, not the real boundary,
-matching every other router in this codebase.
+GET routes require only require_faculty() -- RLS (041_assessment_
+capability_authorization.sql) does the real visibility filtering (own
+questions, or any question if the caller holds assessment_reviewer), so
+there is nothing additional for the route layer to gate on a plain read.
+create_question/update_question require require_assessment_author();
+approve_question/reject_question require require_assessment_reviewer().
+Every route reads/writes exclusively through build_user_client
+(access_token) -- never get_supabase(). RLS plus the
+prevent_unauthorized_question_review trigger (015) remain the entire
+enforcement mechanism for WHICH mutation is legal once a caller is in
+the door; this router's own checks (role + capability) are defense in
+depth, not the real boundary, matching every other router in this
+codebase.
 
 Approved product decisions this router implements (see the Phase 1K
-report, not re-derived here):
-  - Peer faculty review: any FACULTY account other than a question's own
-    setter may approve/reject it. No dedicated "submit for review" route
-    exists -- a question is PENDING (and thus reviewable by any other
-    faculty member) from the moment it's created; review_status has no
-    DRAFT state.
+report and the Phase F5A readiness audit, not re-derived here):
+  - Peer faculty review: any FACULTY account holding assessment_reviewer,
+    other than a question's own setter, may approve/reject it. No
+    dedicated "submit for review" route exists -- a question is PENDING
+    (and thus reviewable) from the moment it's created; review_status has
+    no DRAFT state.
   - Approved questions are content-immutable (is_active remains
     togglable). A REJECTED question's own setter may keep revising it and
     it becomes reviewable again the moment they set review_status back to
     PENDING via PATCH.
+  - assessment_author/assessment_reviewer are two of F2's five dormant
+    capabilities, activated here for the first time; assessment_evaluator/
+    moderator/lead remain completely unreferenced -- they belong to F8/F10.
 """
 
 from uuid import UUID
@@ -27,7 +36,12 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from postgrest.exceptions import APIError
 
-from app.core.dependencies import CurrentUser, require_faculty
+from app.core.dependencies import (
+    CurrentUser,
+    require_assessment_author,
+    require_assessment_reviewer,
+    require_faculty,
+)
 from app.core.security import build_user_client
 from app.schemas.question_bank import (
     QuestionBankResponse,
@@ -51,10 +65,11 @@ def list_questions(
     assessment_id: UUID | None = None,
     current_user: CurrentUser = Depends(require_faculty),
 ) -> list[QuestionBankResponse]:
-    """The full shared question bank -- any FACULTY caller may see any
-    question regardless of creator or review_status (018's own SELECT
-    policy); this endpoint's own visibility is unconditional. Optionally
-    scoped to one assessment via a query parameter."""
+    """The shared question bank, as filtered by RLS (041): the caller's
+    own questions always, plus every question if the caller holds
+    assessment_reviewer. A plain FACULTY account with neither capability
+    sees nothing here. Optionally scoped to one assessment via a query
+    parameter."""
     client = build_user_client(current_user.access_token)
     try:
         rows = question_bank_service.list_my_questions(client, assessment_id)
@@ -87,7 +102,7 @@ def get_question(
 @router.post("", response_model=QuestionBankResponse, status_code=status.HTTP_201_CREATED)
 def create_question(
     body: QuestionCreateRequest,
-    current_user: CurrentUser = Depends(require_faculty),
+    current_user: CurrentUser = Depends(require_assessment_author),
 ) -> QuestionBankResponse:
     """Create a new question, its options, and (optionally) its answer
     key -- three RLS-scoped inserts, not one atomic transaction. If a
@@ -143,7 +158,7 @@ def create_question(
 def update_question(
     question_id: UUID,
     body: QuestionUpdateRequest,
-    current_user: CurrentUser = Depends(require_faculty),
+    current_user: CurrentUser = Depends(require_assessment_author),
 ) -> QuestionBankResponse:
     """Edit a question's own content, and optionally replace its options/
     answer key. Only ever succeeds while the caller is the question's own
@@ -226,6 +241,16 @@ def _review(question_id: UUID, decision: str, current_user: CurrentUser) -> Ques
             status_code=status.HTTP_409_CONFLICT,
             detail="This question is no longer pending review.",
         ) from exc
+    except question_bank_service.QuestionNotApprovableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "This question cannot be approved yet: it is not a complete, "
+                "scoreable question (missing or invalid answer key, an "
+                "unsupported question type/scoring combination, or too few "
+                "options)."
+            ),
+        ) from exc
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -242,7 +267,7 @@ def _review(question_id: UUID, decision: str, current_user: CurrentUser) -> Ques
 @router.post("/{question_id}/approve", response_model=QuestionBankResponse)
 def approve_question(
     question_id: UUID,
-    current_user: CurrentUser = Depends(require_faculty),
+    current_user: CurrentUser = Depends(require_assessment_reviewer),
 ) -> QuestionBankResponse:
     """Approve a PENDING question submitted by a DIFFERENT faculty member.
     review_question() rejects this outright (403) if the caller is the
@@ -254,7 +279,7 @@ def approve_question(
 @router.post("/{question_id}/reject", response_model=QuestionBankResponse)
 def reject_question(
     question_id: UUID,
-    current_user: CurrentUser = Depends(require_faculty),
+    current_user: CurrentUser = Depends(require_assessment_reviewer),
 ) -> QuestionBankResponse:
     """Reject a PENDING question submitted by a DIFFERENT faculty member.
     Its own setter may revise it and set review_status back to PENDING

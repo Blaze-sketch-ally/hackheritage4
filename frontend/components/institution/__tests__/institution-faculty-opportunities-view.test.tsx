@@ -14,6 +14,7 @@ vi.mock("@/lib/institution/faculty-opportunities", () => ({
   closeFacultyOpportunity: vi.fn(),
   listFacultyOpportunityEois,
   reviewFacultyOpportunityEoi: vi.fn(),
+  updateEngagementStatus: vi.fn(),
 }));
 
 import { InstitutionFacultyOpportunitiesView } from "@/components/institution/institution-faculty-opportunities-view";

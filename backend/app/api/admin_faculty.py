@@ -20,6 +20,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.core.dependencies import CurrentUser, require_admin
 from app.core.security import build_user_client
+from app.schemas.faculty_mentor_permission import (
+    AdminFacultyMentorPermissionListResponse,
+    AdminSetMentorPermissionStatusRequest,
+    FacultyMentorPermissionAdminResponse,
+    FacultyWithMentorPermissionResponse,
+)
 from app.schemas.faculty_permissions import (
     AdminFacultyListResponse,
     AdminGrantCapabilityRequest,
@@ -27,7 +33,7 @@ from app.schemas.faculty_permissions import (
     FacultyPermissionAdminResponse,
     FacultyWithPermissionsResponse,
 )
-from app.services import faculty_permission_service
+from app.services import faculty_mentor_permission_service, faculty_permission_service
 
 router = APIRouter(prefix="/admin/faculty", tags=["admin-faculty"])
 
@@ -135,3 +141,90 @@ def set_faculty_assessment_permission_status(
     except Exception as exc:
         raise _server_error("update the assessment permission status") from exc
     return FacultyPermissionAdminResponse(**row)
+
+
+# ---- Mentor capability management (Phase F4.2,
+# 039_faculty_mentor_permissions.sql) -- separate trust axis from
+# assessment capabilities above; same admin-only, RPC-backed shape. ----
+
+
+@router.get("/mentor-permissions", response_model=AdminFacultyMentorPermissionListResponse)
+def list_faculty_mentor_permissions(
+    current_user: CurrentUser = Depends(require_admin),
+) -> AdminFacultyMentorPermissionListResponse:
+    """Every Faculty member and their current mentor-capability grant."""
+    try:
+        client = build_user_client(current_user.access_token)
+        faculty = faculty_mentor_permission_service.admin_list_faculty_with_mentor_permission(client)
+    except faculty_mentor_permission_service.AdminAuthorizationError as exc:
+        raise _forbidden(exc) from exc
+    except Exception as exc:
+        raise _server_error("load Faculty mentor permissions") from exc
+    return AdminFacultyMentorPermissionListResponse(faculty=faculty)
+
+
+@router.get("/{faculty_id}/mentor-permission", response_model=FacultyWithMentorPermissionResponse)
+def get_faculty_mentor_permission(
+    faculty_id: str,
+    current_user: CurrentUser = Depends(require_admin),
+) -> FacultyWithMentorPermissionResponse:
+    """One Faculty member's current mentor-capability grant."""
+    try:
+        client = build_user_client(current_user.access_token)
+        faculty = faculty_mentor_permission_service.admin_list_faculty_with_mentor_permission(client)
+    except faculty_mentor_permission_service.AdminAuthorizationError as exc:
+        raise _forbidden(exc) from exc
+    except Exception as exc:
+        raise _server_error("load Faculty mentor permissions") from exc
+
+    match = next((entry for entry in faculty if entry["faculty_id"] == faculty_id), None)
+    if match is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No FACULTY account found with that id.",
+        )
+    return FacultyWithMentorPermissionResponse(**match)
+
+
+@router.post("/{faculty_id}/mentor-permission", response_model=FacultyMentorPermissionAdminResponse)
+def grant_faculty_mentor_capability(
+    faculty_id: str,
+    current_user: CurrentUser = Depends(require_admin),
+) -> FacultyMentorPermissionAdminResponse:
+    """Grant (or re-grant) the faculty_mentor capability to one Faculty
+    member. No request body -- there is exactly one capability."""
+    try:
+        client = build_user_client(current_user.access_token)
+        row = faculty_mentor_permission_service.admin_grant_mentor_capability(client, faculty_id)
+    except faculty_mentor_permission_service.PermissionNotFoundError as exc:
+        raise _not_found(exc) from exc
+    except faculty_mentor_permission_service.AdminAuthorizationError as exc:
+        raise _forbidden(exc) from exc
+    except Exception as exc:
+        raise _server_error("grant the mentor capability") from exc
+    return FacultyMentorPermissionAdminResponse(**row)
+
+
+@router.patch(
+    "/mentor-permissions/{permission_id}/status",
+    response_model=FacultyMentorPermissionAdminResponse,
+)
+def set_faculty_mentor_permission_status(
+    permission_id: str,
+    body: AdminSetMentorPermissionStatusRequest,
+    current_user: CurrentUser = Depends(require_admin),
+) -> FacultyMentorPermissionAdminResponse:
+    """Change one Faculty member's mentor-capability status (GRANTED/
+    SUSPENDED/REVOKED)."""
+    try:
+        client = build_user_client(current_user.access_token)
+        row = faculty_mentor_permission_service.admin_set_mentor_permission_status(
+            client, permission_id, body.status.value
+        )
+    except faculty_mentor_permission_service.PermissionNotFoundError as exc:
+        raise _not_found(exc) from exc
+    except faculty_mentor_permission_service.AdminAuthorizationError as exc:
+        raise _forbidden(exc) from exc
+    except Exception as exc:
+        raise _server_error("update the mentor permission status") from exc
+    return FacultyMentorPermissionAdminResponse(**row)

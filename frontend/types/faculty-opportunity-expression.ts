@@ -1,4 +1,5 @@
 import type { OpportunitySource } from "@/types/faculty-opportunity";
+import type { FacultyEngagement } from "@/types/faculty-engagement";
 
 /** Mirrors backend/app/schemas/faculty_opportunity_expression.py exactly.
  * Deliberately NOT called "application" -- see the approved F3.4
@@ -35,6 +36,8 @@ export interface FacultyOpportunityExpression {
   reviewer_note: string | null;
   created_at: string | null;
   updated_at: string | null;
+  /** Populated only once this EOI is ACCEPTED (Phase F4.1). */
+  engagement: FacultyEngagement | null;
 }
 
 export interface FacultyOpportunityExpressionListResponse {

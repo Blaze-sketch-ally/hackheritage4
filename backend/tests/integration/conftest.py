@@ -88,6 +88,26 @@ class LiveFixtures:
         resp = anon.auth.sign_in_with_password({"email": email, "password": self.password})
         return resp.session.access_token
 
+    def grant_assessment_capabilities(self, faculty_id: str, *capabilities: str) -> None:
+        """Phase F5A: 041_assessment_capability_authorization.sql gates
+        the question-bank/review/blueprint surface on
+        assessment_author/assessment_reviewer -- most live tests that
+        create a FACULTY user to author/review questions or manage a
+        blueprint now need to hold the matching capability first,
+        exactly as a real deployment's compatibility backfill
+        (042_faculty_assessment_capability_compatibility_backfill.sql)
+        would have already granted for a pre-existing Faculty account.
+        Uses the service-role admin client directly (bypassing RLS,
+        which has no user-facing write policy on this table at all --
+        see 027's own header) rather than the admin_grant_* RPC, since
+        no ADMIN user exists in most of these tests' setups and creating
+        one purely to grant a capability would be unnecessary ceremony
+        for a test fixture."""
+        for capability in capabilities:
+            self.admin.table("faculty_assessment_permissions").insert(
+                {"faculty_id": faculty_id, "capability": capability, "status": "GRANTED"}
+            ).execute()
+
     def create_assessment(self, title_suffix: str = "", skill_id: str | None = None) -> str:
         """skill_id: pass an explicit one when a test needs to know which
         skill this assessment counts toward (e.g. Phase 1L's skill-gap

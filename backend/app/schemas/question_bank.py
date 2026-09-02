@@ -78,11 +78,52 @@ class QuestionAnswerKeyInput(BaseModel):
     explanation: str | None = None
 
 
+def _unknown_correct_option_ids(
+    options: list[QuestionOptionInput] | None, answer_key: QuestionAnswerKeyInput | None
+) -> list[str]:
+    """Phase F6.3: the one answer-key/option coherence check that is safe
+    to enforce purely from a single request's own payload, with no
+    dependency on prior database state -- see QuestionCreateRequest/
+    QuestionUpdateRequest's own validator docstrings for why this is
+    deliberately the ONLY cross-field check added at this layer (type-
+    specific completeness, e.g. "MCQ needs exactly one correct option," is
+    enforced at approval time instead -- database/migrations/
+    043_question_authoring_metadata.sql -- not here).
+
+    Only fires when BOTH options and an answer key with
+    correct_option_ids are present in the SAME payload; if either is
+    absent (e.g. a PATCH touching only the answer key, leaving
+    previously-submitted options untouched), there is nothing in this
+    payload to validate against, so this returns no findings -- exactly
+    the partial-draft-safe behavior the F6 brief requires.
+
+    An option with no client-generated id can never be a valid
+    correct_option_ids target in the same request (QuestionOptionInput's
+    own docstring: ids are client-generated up front specifically so they
+    can be cross-referenced within one payload) -- such options are
+    correctly excluded from the comparison set below.
+    """
+    if not options or answer_key is None or answer_key.correct_option_ids is None:
+        return []
+    submitted_ids = {option.id for option in options if option.id is not None}
+    return [str(cid) for cid in answer_key.correct_option_ids if cid not in submitted_ids]
+
+
 class QuestionCreateRequest(BaseModel):
     """What a faculty setter submits to add a new question to the shared
     bank. review_status is never accepted here -- every question starts
     PENDING (015's own INSERT policy independently enforces this), and
-    created_by is always the caller's own id, never taken from the body."""
+    created_by is always the caller's own id, never taken from the body.
+
+    learning_objective/estimated_time_minutes (Phase F6.1-F6.3): optional,
+    additive metadata -- mirrors assessment_questions.learning_objective/
+    estimated_time_minutes exactly (database/migrations/
+    043_question_authoring_metadata.sql). Omitting either is always valid;
+    the database itself is the authoritative layer for
+    estimated_time_minutes > 0 (same convention this schema already uses
+    for `points`, which also has no Pydantic-level positive-value check),
+    not duplicated here.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -93,8 +134,20 @@ class QuestionCreateRequest(BaseModel):
     difficulty: Difficulty
     points: Decimal
     display_order: int = 0
+    learning_objective: str | None = None
+    estimated_time_minutes: int | None = None
     options: list[QuestionOptionInput] = []
     answer_key: QuestionAnswerKeyInput | None = None
+
+    @model_validator(mode="after")
+    def _correct_option_ids_reference_submitted_options(self) -> "QuestionCreateRequest":
+        unknown = _unknown_correct_option_ids(self.options, self.answer_key)
+        if unknown:
+            raise ValueError(
+                "answer_key.correct_option_ids references an id not present in the "
+                "submitted options: " + ", ".join(unknown)
+            )
+        return self
 
 
 class QuestionUpdateRequest(BaseModel):
@@ -121,7 +174,13 @@ class QuestionUpdateRequest(BaseModel):
     question_bank_service.replace_options/upsert_answer_key used by
     create_question) -- not a per-option patch. Omit them entirely to
     leave options/the answer key untouched while editing only the
-    question's own fields."""
+    question's own fields.
+
+    learning_objective/estimated_time_minutes (Phase F6.1-F6.3): same
+    optional additive metadata as QuestionCreateRequest. Omitted (the
+    default, None) means "leave unchanged," exactly like every other
+    field here -- exclude_unset at the route layer is what makes that
+    distinction, not a sentinel value in this schema."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -131,6 +190,8 @@ class QuestionUpdateRequest(BaseModel):
     difficulty: Difficulty | None = None
     points: Decimal | None = None
     display_order: int | None = None
+    learning_objective: str | None = None
+    estimated_time_minutes: int | None = None
     is_active: bool | None = None
     review_status: ReviewStatus | None = None
     options: list[QuestionOptionInput] | None = None
@@ -142,6 +203,21 @@ class QuestionUpdateRequest(BaseModel):
             raise ValueError(
                 "review_status may only be set to PENDING here (a resubmission) -- "
                 "approve/reject a question via POST .../approve or .../reject."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _correct_option_ids_reference_submitted_options(self) -> "QuestionUpdateRequest":
+        # Only meaningful when THIS payload supplies both a full options
+        # replacement and an answer key -- see _unknown_correct_option_ids'
+        # own docstring. "options": null / "answer_key": null explicitly
+        # (clearing them) short-circuit here exactly like "omitted" does,
+        # since self.options / self.answer_key are already None either way.
+        unknown = _unknown_correct_option_ids(self.options, self.answer_key)
+        if unknown:
+            raise ValueError(
+                "answer_key.correct_option_ids references an id not present in the "
+                "submitted options: " + ", ".join(unknown)
             )
         return self
 
@@ -160,6 +236,8 @@ class QuestionBankResponse(BaseModel):
     difficulty: Difficulty
     points: Decimal
     display_order: int
+    learning_objective: str | None
+    estimated_time_minutes: int | None
     review_status: ReviewStatus
     is_active: bool
     created_by: UUID | None

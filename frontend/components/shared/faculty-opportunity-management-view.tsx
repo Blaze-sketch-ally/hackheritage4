@@ -19,6 +19,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError } from "@/lib/api";
 import { EOI_STATUS_LABELS, type FacultyOpportunityExpression } from "@/types/faculty-opportunity-expression";
+import { ENGAGEMENT_STATUS_LABELS, type EngagementStatus, type FacultyEngagement } from "@/types/faculty-engagement";
 import type {
   FacultyOpportunityPosting,
   FacultyOpportunityPostingInput,
@@ -53,6 +54,10 @@ export interface FacultyOpportunityManagementApi {
     status: "UNDER_REVIEW" | "ACCEPTED" | "REJECTED",
     reviewerNote?: string,
   ) => Promise<FacultyOpportunityExpression>;
+  updateEngagementStatus: (
+    engagementId: string,
+    status: Extract<EngagementStatus, "ACTIVE" | "COMPLETED" | "CANCELLED">,
+  ) => Promise<FacultyEngagement>;
 }
 
 type OpportunityState =
@@ -365,10 +370,32 @@ function EoisPanel({ api: managementApi }: { api: FacultyOpportunityManagementAp
     setBusyId(eoiId);
     setActionError(null);
     try {
+      // For "ACCEPTED" this is the one and only authoritative acceptance
+      // operation (Phase F4.1) -- it atomically transitions the EOI and
+      // creates the resulting Engagement server-side. There is no
+      // separate "Create Engagement" action anywhere in this UI, which
+      // is what makes a duplicate Engagement structurally impossible
+      // from the frontend's side.
       await managementApi.reviewEoi(eoiId, status);
       setReloadKey((k) => k + 1);
     } catch (err) {
       setActionError(err instanceof ApiError ? err.message : "Could not update this expression of interest.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function handleEngagementTransition(
+    engagementId: string,
+    status: Extract<EngagementStatus, "ACTIVE" | "COMPLETED" | "CANCELLED">,
+  ) {
+    setBusyId(engagementId);
+    setActionError(null);
+    try {
+      await managementApi.updateEngagementStatus(engagementId, status);
+      setReloadKey((k) => k + 1);
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : "Could not update this engagement.");
     } finally {
       setBusyId(null);
     }
@@ -437,7 +464,7 @@ function EoisPanel({ api: managementApi }: { api: FacultyOpportunityManagementAp
                   {e.status === "UNDER_REVIEW" && (
                     <>
                       <Button size="sm" disabled={busy} onClick={() => void handleReview(e.id, "ACCEPTED")}>
-                        <Check className="size-3.5" /> Accept
+                        <Check className="size-3.5" /> Accept &amp; Create Engagement
                       </Button>
                       <Button size="sm" variant="outline" disabled={busy} onClick={() => void handleReview(e.id, "REJECTED")}>
                         <X className="size-3.5" /> Reject
@@ -446,6 +473,54 @@ function EoisPanel({ api: managementApi }: { api: FacultyOpportunityManagementAp
                   )}
                 </div>
               </div>
+              {e.engagement && (
+                <div className="flex items-center justify-between rounded-lg border border-border/60 px-3 py-2">
+                  <p className="text-sm">
+                    Engagement:{" "}
+                    <span className="font-medium">{ENGAGEMENT_STATUS_LABELS[e.engagement.status]}</span>
+                  </p>
+                  <div className="flex gap-1.5">
+                    {e.engagement.status === "PLANNED" && (
+                      <>
+                        <Button
+                          size="sm"
+                          disabled={busy}
+                          onClick={() => void handleEngagementTransition(e.engagement!.id, "ACTIVE")}
+                        >
+                          Activate
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={busy}
+                          onClick={() => void handleEngagementTransition(e.engagement!.id, "CANCELLED")}
+                        >
+                          Cancel
+                        </Button>
+                      </>
+                    )}
+                    {e.engagement.status === "ACTIVE" && (
+                      <>
+                        <Button
+                          size="sm"
+                          disabled={busy}
+                          onClick={() => void handleEngagementTransition(e.engagement!.id, "COMPLETED")}
+                        >
+                          Complete
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={busy}
+                          onClick={() => void handleEngagementTransition(e.engagement!.id, "CANCELLED")}
+                        >
+                          Cancel
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         );

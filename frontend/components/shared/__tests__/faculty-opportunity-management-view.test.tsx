@@ -40,6 +40,25 @@ function eoi(overrides = {}) {
     reviewer_note: null,
     created_at: "2026-01-02T00:00:00Z",
     updated_at: "2026-01-02T00:00:00Z",
+    engagement: null,
+    ...overrides,
+  };
+}
+
+function engagement(overrides = {}) {
+  return {
+    id: "eng-1",
+    source_kind: "INDUSTRY_EOI",
+    industry_eoi_id: "eoi-1",
+    institution_eoi_id: null,
+    faculty_id: "faculty-1",
+    organization_id: "owner-1",
+    status: "PLANNED",
+    start_date: null,
+    end_date: null,
+    notes: null,
+    created_at: "2026-01-03T00:00:00Z",
+    updated_at: "2026-01-03T00:00:00Z",
     ...overrides,
   };
 }
@@ -53,6 +72,7 @@ function makeApi(overrides: Partial<FacultyOpportunityManagementApi> = {}): Facu
     closeOpportunity: vi.fn(),
     listEois: vi.fn().mockResolvedValue({ expressions: [] }),
     reviewEoi: vi.fn(),
+    updateEngagementStatus: vi.fn(),
     ...overrides,
   };
 }
@@ -188,5 +208,110 @@ describe("FacultyOpportunityManagementView", () => {
     expect(screen.queryByRole("button", { name: /accept/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /reject/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /move to review/i })).not.toBeInTheDocument();
+  });
+
+  it("labels the accept action as creating the engagement (Phase F4.1)", async () => {
+    const api = makeApi({
+      listEois: vi.fn().mockResolvedValue({ expressions: [eoi({ status: "UNDER_REVIEW" })] }),
+    });
+    render(<FacultyOpportunityManagementView api={api} />);
+
+    await userEvent.click(screen.getByRole("tab", { name: /expressions of interest/i }));
+    await screen.findByText("Data Science Research Collaboration");
+
+    expect(screen.getByRole("button", { name: /accept & create engagement/i })).toBeInTheDocument();
+  });
+
+  it("shows the resulting engagement's status and no lifecycle actions for a PLANNED engagement it cannot yet act on", async () => {
+    const api = makeApi({
+      listEois: vi.fn().mockResolvedValue({
+        expressions: [eoi({ status: "ACCEPTED", engagement: engagement({ status: "COMPLETED" }) })],
+      }),
+    });
+    render(<FacultyOpportunityManagementView api={api} />);
+
+    await userEvent.click(screen.getByRole("tab", { name: /expressions of interest/i }));
+    await screen.findByText("Data Science Research Collaboration");
+
+    expect(screen.getByText(/engagement:/i)).toBeInTheDocument();
+    expect(screen.getByText("Completed")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Activate" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Complete" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Cancel" })).not.toBeInTheDocument();
+  });
+
+  it("shows Activate/Cancel for a PLANNED engagement and activates it", async () => {
+    const updateEngagementStatus = vi.fn().mockResolvedValue(engagement({ status: "ACTIVE" }));
+    const api = makeApi({
+      listEois: vi.fn().mockResolvedValue({
+        expressions: [eoi({ status: "ACCEPTED", engagement: engagement({ status: "PLANNED" }) })],
+      }),
+      updateEngagementStatus,
+    });
+    render(<FacultyOpportunityManagementView api={api} />);
+
+    await userEvent.click(screen.getByRole("tab", { name: /expressions of interest/i }));
+    await screen.findByText("Data Science Research Collaboration");
+
+    expect(screen.getByText(/engagement:/i)).toBeInTheDocument();
+    expect(screen.getByText("Planned")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Activate" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Complete" })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Activate" }));
+    await waitFor(() => expect(updateEngagementStatus).toHaveBeenCalledWith("eng-1", "ACTIVE"));
+  });
+
+  it("shows Complete/Cancel for an ACTIVE engagement and completes it", async () => {
+    const updateEngagementStatus = vi.fn().mockResolvedValue(engagement({ status: "COMPLETED" }));
+    const api = makeApi({
+      listEois: vi.fn().mockResolvedValue({
+        expressions: [eoi({ status: "ACCEPTED", engagement: engagement({ status: "ACTIVE" }) })],
+      }),
+      updateEngagementStatus,
+    });
+    render(<FacultyOpportunityManagementView api={api} />);
+
+    await userEvent.click(screen.getByRole("tab", { name: /expressions of interest/i }));
+    await screen.findByText("Data Science Research Collaboration");
+
+    expect(screen.getByText(/engagement:/i)).toBeInTheDocument();
+    expect(screen.getByText("Active")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Complete" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Activate" })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Complete" }));
+    await waitFor(() => expect(updateEngagementStatus).toHaveBeenCalledWith("eng-1", "COMPLETED"));
+  });
+
+  it("cancels a PLANNED engagement", async () => {
+    const updateEngagementStatus = vi.fn().mockResolvedValue(engagement({ status: "CANCELLED" }));
+    const api = makeApi({
+      listEois: vi.fn().mockResolvedValue({
+        expressions: [eoi({ status: "ACCEPTED", engagement: engagement({ status: "PLANNED" }) })],
+      }),
+      updateEngagementStatus,
+    });
+    render(<FacultyOpportunityManagementView api={api} />);
+
+    await userEvent.click(screen.getByRole("tab", { name: /expressions of interest/i }));
+    await screen.findByText("Data Science Research Collaboration");
+
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(updateEngagementStatus).toHaveBeenCalledWith("eng-1", "CANCELLED"));
+  });
+
+  it("shows no engagement block for an EOI with no engagement yet", async () => {
+    const api = makeApi({
+      listEois: vi.fn().mockResolvedValue({ expressions: [eoi({ status: "UNDER_REVIEW" })] }),
+    });
+    render(<FacultyOpportunityManagementView api={api} />);
+
+    await userEvent.click(screen.getByRole("tab", { name: /expressions of interest/i }));
+    await screen.findByText("Data Science Research Collaboration");
+
+    expect(screen.queryByText(/engagement:/i)).not.toBeInTheDocument();
   });
 });

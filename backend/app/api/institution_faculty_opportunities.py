@@ -12,6 +12,11 @@ from postgrest.exceptions import APIError
 
 from app.core.dependencies import CurrentUser, require_institution
 from app.core.security import build_user_client
+from app.schemas.faculty_engagement import (
+    FacultyEngagementListResponse,
+    FacultyEngagementResponse,
+    UpdateEngagementStatusRequest,
+)
 from app.schemas.faculty_opportunity_expression import (
     FacultyOpportunityExpressionListResponse,
     FacultyOpportunityExpressionResponse,
@@ -149,9 +154,55 @@ def review_eoi(
     except service.EoiInvalidStatusTransitionError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except APIError as exc:
+        # See industry_faculty_opportunities.review_eoi's own comment --
+        # same F4.1 error-code mapping for accept_faculty_institution_
+        # expression()'s possible exceptions.
+        if exc.code == "P0002":
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        if exc.code in ("55000", "23505"):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except Exception as exc:
         raise _server_error("update the expression of interest") from exc
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Expression of interest not found.")
     return FacultyOpportunityExpressionResponse(**{**row, "source": "INSTITUTION"})
+
+
+# ---- Engagements (Phase F4.1) ----
+
+
+@router.get("/engagements", response_model=FacultyEngagementListResponse)
+def list_engagements(current_user: CurrentUser = Depends(require_institution)) -> FacultyEngagementListResponse:
+    try:
+        client = build_user_client(current_user.access_token)
+        rows = service.list_own_engagements(client, current_user.id)
+    except Exception as exc:
+        raise _server_error("load engagements") from exc
+    return FacultyEngagementListResponse(engagements=[FacultyEngagementResponse(**r) for r in rows])
+
+
+@router.patch("/engagements/{engagement_id}/status", response_model=FacultyEngagementResponse)
+def update_engagement_status(
+    engagement_id: str,
+    body: UpdateEngagementStatusRequest,
+    current_user: CurrentUser = Depends(require_institution),
+) -> FacultyEngagementResponse:
+    try:
+        client = build_user_client(current_user.access_token)
+        row = service.update_engagement_status(
+            client,
+            current_user.id,
+            engagement_id,
+            body.status,
+            body.model_dump(exclude={"status"}, exclude_unset=True),
+        )
+    except service.EngagementInvalidStatusTransitionError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except APIError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except Exception as exc:
+        raise _server_error("update the engagement") from exc
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Engagement not found.")
+    return FacultyEngagementResponse(**row)

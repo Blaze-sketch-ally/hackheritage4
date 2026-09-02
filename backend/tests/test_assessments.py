@@ -33,6 +33,7 @@ from app.schemas.assessment import (
     SubmitAttemptRequest,
     SubmitAttemptResponse,
 )
+from app.schemas.faculty_permissions import AssessmentCapability
 from app.services import assessment_service
 from tests.conftest import authenticated_as
 
@@ -1314,11 +1315,35 @@ def test_replace_blueprint_requires_faculty():
     assert response.status_code == 403
 
 
+def test_replace_blueprint_denied_without_author_capability():
+    """Phase F5A: PUT .../blueprint now requires assessment_author."""
+    assessment_id = uuid4()
+    with (
+        authenticated_as("FACULTY", user_id="faculty-a"),
+        patch(
+            "app.core.dependencies.faculty_permission_service.get_effective_capabilities",
+            return_value=set(),
+        ),
+        patch("app.services.question_bank_service.replace_blueprint") as mock_replace,
+    ):
+        response = client.put(
+            _blueprint_url(assessment_id),
+            json={"rules": [{"difficulty": "Beginner", "question_count": 8}]},
+            headers={"Authorization": "Bearer token"},
+        )
+    assert response.status_code == 403
+    mock_replace.assert_not_called()
+
+
 def test_replace_blueprint_faculty_success():
     assessment_id = uuid4()
     rule = _row_blueprint_rule(assessment_id=str(assessment_id), question_count=8)
     with (
         authenticated_as("FACULTY", user_id="faculty-a"),
+        patch(
+            "app.core.dependencies.faculty_permission_service.get_effective_capabilities",
+            return_value={AssessmentCapability.AUTHOR},
+        ),
         patch("app.services.question_bank_service.replace_blueprint", return_value=[rule]),
     ):
         response = client.put(
@@ -1334,6 +1359,10 @@ def test_replace_blueprint_rejects_duplicate_difficulty_before_reaching_service(
     assessment_id = uuid4()
     with (
         authenticated_as("FACULTY", user_id="faculty-a"),
+        patch(
+            "app.core.dependencies.faculty_permission_service.get_effective_capabilities",
+            return_value={AssessmentCapability.AUTHOR},
+        ),
         patch("app.services.question_bank_service.replace_blueprint") as mock_replace,
     ):
         response = client.put(

@@ -9,6 +9,7 @@ import { ApiError } from "@/lib/api";
 import { listMyExpressions, withdrawExpression } from "@/lib/faculty/opportunities";
 import { OPPORTUNITY_SOURCE_LABELS } from "@/types/faculty-opportunity";
 import { EOI_STATUS_LABELS, type EoiStatus, type FacultyOpportunityExpression } from "@/types/faculty-opportunity-expression";
+import { ENGAGEMENT_STATUS_LABELS } from "@/types/faculty-engagement";
 
 /** "My EOIs" -- the caller's own expressions of interest against
  * Industry/Institution Faculty opportunities. Deliberately separate from
@@ -128,6 +129,11 @@ export function FacultyEoiView() {
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 <StatusBadge status={e.status} />
+                {e.engagement && (
+                  <span className="text-xs text-muted-foreground">
+                    Engagement: {ENGAGEMENT_STATUS_LABELS[e.engagement.status]}
+                  </span>
+                )}
                 {canWithdraw && (
                   <Button size="sm" variant="outline" disabled={busy} onClick={() => void handleWithdraw(e)}>
                     <X className="size-3.5" /> Withdraw

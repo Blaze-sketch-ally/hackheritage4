@@ -25,7 +25,8 @@ from supabase import Client
 
 _QUESTION_BANK_COLUMNS = (
     "id, assessment_id, question_text, question_type, scoring_method, "
-    "difficulty, points, display_order, review_status, is_active, "
+    "difficulty, points, display_order, learning_objective, estimated_time_minutes, "
+    "review_status, is_active, "
     "created_by, created_at, updated_at, "
     "options:assessment_question_options(id, question_id, option_text, display_order), "
     "answer_key:assessment_question_answers(correct_option_ids, correct_answer_text, explanation)"
@@ -41,19 +42,19 @@ def _shape_question(row: dict) -> dict:
 
 
 def list_my_questions(client: Client, assessment_id: UUID | None = None) -> list[dict]:
-    """The full shared question bank, visible to any FACULTY caller
-    regardless of who created each question or its review_status. RLS
-    ("Faculty can view any question", 018_faculty_view_all_questions.sql)
-    is the actual enforcement; the optional assessment_id filter here is a
-    convenience, not a security boundary.
+    """The shared question bank, scoped by RLS (041_assessment_capability_
+    authorization.sql): the caller's own questions always, plus every
+    question if the caller currently holds assessment_reviewer. A plain
+    FACULTY account holding neither capability gets none. The optional
+    assessment_id filter here is a convenience, not a security boundary.
 
-    This was originally scoped to "own questions + others' PENDING
-    questions only" (015), but that left a reviewing faculty member unable
-    to see a question immediately after approving or rejecting someone
-    else's submission -- see 017/018's own header comments for the
-    real-Supabase bugs this widening fixes. WRITE access (create/edit/
-    approve/reject) remains exactly as ownership/status-scoped as before;
-    only this READ was widened.
+    History: 015 originally scoped this to "own questions + others'
+    PENDING questions only," which left a reviewing faculty member unable
+    to see a question immediately after approving/rejecting someone
+    else's submission (017/018 widened it to "any FACULTY caller, any
+    question" to fix that). Phase F5A (041) narrowed it again, this time
+    to a capability-aware rule that still preserves a reviewer's full-bank
+    visibility without granting it to every FACULTY account unconditionally.
     """
     query = client.table("assessment_questions").select(_QUESTION_BANK_COLUMNS)
     if assessment_id is not None:
@@ -128,6 +129,18 @@ class QuestionNotPendingError(Exception):
     Route layer: 409, not a silent no-op or a generic 500."""
 
 
+class QuestionNotApprovableError(Exception):
+    """Phase F6.3: raised when review_question() blocks an APPROVED
+    decision because the question is not yet structurally scoreable --
+    SQLSTATE 55001 (database/migrations/043_question_authoring_
+    metadata.sql's approval-readiness guard: missing/incomplete answer
+    key, correct_option_ids referencing an option that isn't this
+    question's own, too few options, or an unsupported OBJECTIVE
+    question_type). Never raised for a REJECTED decision -- rejecting an
+    incomplete draft must always remain possible. Route layer: 409, same
+    convention as QuestionNotPendingError."""
+
+
 def set_review_status(client: Client, question_id: UUID, review_status: str) -> dict | None:
     """Approve or reject a question via the review_question() RPC
     (016_review_question_rpc.sql) -- NOT a plain table update. See that
@@ -157,6 +170,8 @@ def set_review_status(client: Client, question_id: UUID, review_status: str) -> 
             raise OwnQuestionReviewError() from exc
         if exc.code == "55000":
             raise QuestionNotPendingError() from exc
+        if exc.code == "55001":
+            raise QuestionNotApprovableError() from exc
         raise
 
     data = response.data

@@ -65,11 +65,21 @@ def express_interest(client: Client, source: str, faculty_id: str, opportunity_i
     return {**data, "source": source}
 
 
+_ENGAGEMENT_SELECT = (
+    "id, source_kind, industry_eoi_id, institution_eoi_id, faculty_id, organization_id, "
+    "status, start_date, end_date, notes, created_at, updated_at"
+)
+
+
 def list_own_expressions(client: Client, faculty_id: str) -> list[dict]:
-    """The caller's own EOIs across BOTH sources, newest change first.
-    Union is done here in Python -- same pattern as
-    faculty_opportunity_service's own cross-table union for discovery --
-    not via a shared registry table."""
+    """The caller's own EOIs across BOTH sources, newest change first,
+    each with its resulting Engagement attached if one exists (Phase
+    F4.1) -- an ACCEPTED EOI always has exactly one (the UNIQUE
+    constraint on faculty_engagements.industry_eoi_id/institution_eoi_id
+    guarantees this), anything else has none. Union is done here in
+    Python -- same pattern as faculty_opportunity_service's own
+    cross-table union for discovery -- not via a shared registry table.
+    """
     results: list[dict] = []
     for source, table in _TABLES.items():
         response = (
@@ -81,6 +91,20 @@ def list_own_expressions(client: Client, faculty_id: str) -> list[dict]:
         )
         results.extend({**row, "source": source} for row in response.data or [])
     results.sort(key=lambda e: e["updated_at"] or "", reverse=True)
+
+    engagements = (
+        client.table("faculty_engagements")
+        .select(_ENGAGEMENT_SELECT)
+        .eq("faculty_id", faculty_id)
+        .execute()
+        .data
+        or []
+    )
+    engagements_by_eoi = {
+        e["industry_eoi_id"] or e["institution_eoi_id"]: e for e in engagements
+    }
+    for expression in results:
+        expression["engagement"] = engagements_by_eoi.get(expression["id"])
     return results
 
 

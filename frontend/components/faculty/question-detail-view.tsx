@@ -30,6 +30,8 @@ export function QuestionDetailView({ questionId }: { questionId: string }) {
   const [editing, setEditing] = useState(false);
   const [draftText, setDraftText] = useState("");
   const [draftPoints, setDraftPoints] = useState("");
+  const [draftObjective, setDraftObjective] = useState("");
+  const [draftTime, setDraftTime] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -46,6 +48,8 @@ export function QuestionDetailView({ questionId }: { questionId: string }) {
         setQuestion(data);
         setDraftText(data.question_text);
         setDraftPoints(data.points);
+        setDraftObjective(data.learning_objective ?? "");
+        setDraftTime(data.estimated_time_minutes != null ? String(data.estimated_time_minutes) : "");
         setLoading(false);
       } catch (err) {
         if (cancelled) return;
@@ -72,13 +76,35 @@ export function QuestionDetailView({ questionId }: { questionId: string }) {
     setReloadKey((k) => k + 1);
   }
 
+  /** Returns null (and sets saveError) if the draft's new-metadata field
+   * fails client-side validation; otherwise the estimated-time value to
+   * send (null clears it, matching the backend's exclude_unset semantics
+   * for an explicitly-sent null). A question is allowed to remain an
+   * incomplete draft (015's own documented design, preserved by F6.3's
+   * approval-time-only guard) -- this only validates the SHAPE of what
+   * was actually typed, never requires these optional fields at all. */
+  function validatedEstimatedTime(): number | null | undefined {
+    const trimmed = draftTime.trim();
+    if (trimmed === "") return null;
+    if (!/^\d+$/.test(trimmed) || Number(trimmed) <= 0) {
+      setSaveError("Estimated time must be a positive whole number of minutes.");
+      return undefined;
+    }
+    return Number(trimmed);
+  }
+
   async function handleSaveEdit() {
-    setSaving(true);
     setSaveError(null);
+    const estimatedTimeMinutes = validatedEstimatedTime();
+    if (estimatedTimeMinutes === undefined) return;
+
+    setSaving(true);
     try {
       const updated = await updateQuestion(questionId, {
         question_text: draftText,
         points: draftPoints,
+        learning_objective: draftObjective.trim() || null,
+        estimated_time_minutes: estimatedTimeMinutes,
       });
       setQuestion(updated);
       setEditing(false);
@@ -90,8 +116,11 @@ export function QuestionDetailView({ questionId }: { questionId: string }) {
   }
 
   async function handleResubmit() {
-    setSaving(true);
     setSaveError(null);
+    const estimatedTimeMinutes = validatedEstimatedTime();
+    if (estimatedTimeMinutes === undefined) return;
+
+    setSaving(true);
     try {
       // review_status: "PENDING" is the only value this endpoint accepts
       // (422 otherwise) -- the trigger allows a question's own creator to
@@ -100,6 +129,8 @@ export function QuestionDetailView({ questionId }: { questionId: string }) {
       const updated = await updateQuestion(questionId, {
         question_text: draftText,
         points: draftPoints,
+        learning_objective: draftObjective.trim() || null,
+        estimated_time_minutes: estimatedTimeMinutes,
         review_status: "PENDING",
       });
       setQuestion(updated);
@@ -179,6 +210,14 @@ export function QuestionDetailView({ questionId }: { questionId: string }) {
           </div>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
+          {(question.question_type === "CODE" || question.question_type === "SUBJECTIVE") && (
+            <p className="flex items-center gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
+              <AlertCircle className="size-3.5 shrink-0" />
+              {question.question_type === "CODE" ? "Code" : "Subjective"} questions aren&apos;t supported for
+              automatic scoring yet -- this question cannot be approved until that type is supported.
+            </p>
+          )}
+
           {editing ? (
             <div className="flex flex-col gap-3">
               <div className="space-y-1.5">
@@ -191,15 +230,47 @@ export function QuestionDetailView({ questionId }: { questionId: string }) {
                   className="w-full rounded-lg border border-input bg-transparent px-2.5 py-1.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
                 />
               </div>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="edit-points">Points</Label>
+                  <Input id="edit-points" value={draftPoints} onChange={(e) => setDraftPoints(e.target.value)} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="edit-time">Estimated time (minutes, optional)</Label>
+                  <Input
+                    id="edit-time"
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={draftTime}
+                    onChange={(e) => setDraftTime(e.target.value)}
+                  />
+                </div>
+              </div>
               <div className="space-y-1.5">
-                <Label htmlFor="edit-points">Points</Label>
-                <Input id="edit-points" value={draftPoints} onChange={(e) => setDraftPoints(e.target.value)} />
+                <Label htmlFor="edit-objective">Learning objective (optional)</Label>
+                <textarea
+                  id="edit-objective"
+                  value={draftObjective}
+                  onChange={(e) => setDraftObjective(e.target.value)}
+                  rows={2}
+                  className="w-full rounded-lg border border-input bg-transparent px-2.5 py-1.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                />
               </div>
             </div>
           ) : (
             <div>
               <p className="text-base">{question.question_text}</p>
-              <p className="mt-1 text-sm text-muted-foreground">{question.points} pts</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {question.points} pts
+                {question.estimated_time_minutes != null && ` · ~${question.estimated_time_minutes} min`}
+              </p>
+              {question.learning_objective && (
+                <p className="mt-2 text-sm">
+                  <span className="text-muted-foreground">Learning objective: </span>
+                  {question.learning_objective}
+                </p>
+              )}
             </div>
           )}
 

@@ -214,8 +214,10 @@ def test_student_can_insert_unverified_skill_normally(live):
 def _complete_one_question_assessment(live, skill_id: str) -> tuple[str, str]:
     """Same helper shape as test_skill_gap_live.py's -- returns
     (student_token, attempt_id) for a fully completed, scored attempt."""
-    _fa_id, fa_email = live.create_user("fa", "FACULTY")
-    _fb_id, fb_email = live.create_user("fb", "FACULTY")
+    fa_id, fa_email = live.create_user("fa", "FACULTY")
+    fb_id, fb_email = live.create_user("fb", "FACULTY")
+    live.grant_assessment_capabilities(fa_id, "assessment_author")
+    live.grant_assessment_capabilities(fb_id, "assessment_reviewer")
     fa_token, fb_token = live.token_for(fa_email), live.token_for(fb_email)
 
     aid = live.create_assessment(skill_id=skill_id)
