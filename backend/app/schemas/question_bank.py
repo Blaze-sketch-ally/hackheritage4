@@ -25,7 +25,7 @@ from decimal import Decimal
 from enum import Enum
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.schemas.assessment import AssessmentOptionResponse, Difficulty, QuestionType, ScoringMethod
 
@@ -226,7 +226,18 @@ class QuestionBankResponse(BaseModel):
     """The FACULTY-facing view of one question -- unlike
     AssessmentQuestionResponse (student-facing), this includes
     review_status/created_by/is_active/the answer key. Every route
-    producing this requires require_faculty."""
+    producing this requires require_faculty.
+
+    reviewed_by/review_note (Phase F7.1-F7.2): the CURRENT review
+    decision's reviewer identity and optional note -- database/
+    migrations/044_question_review_governance.sql. This is a
+    latest-review-state pair, not a history list: both are always NULL
+    for a never-reviewed or currently-PENDING-after-resubmission
+    question (the trigger clears them on every resubmission), and both
+    become permanently fixed once the question is APPROVED (the same
+    trigger extends the existing content-immutability guarantee to
+    cover them). reviewed_by is the raw UUID only -- resolving it to a
+    display name is not this phase's concern (F7.2 brief, section 3)."""
 
     id: UUID
     assessment_id: UUID
@@ -241,10 +252,42 @@ class QuestionBankResponse(BaseModel):
     review_status: ReviewStatus
     is_active: bool
     created_by: UUID | None
+    reviewed_by: UUID | None
+    review_note: str | None
     created_at: datetime
     updated_at: datetime
     options: list[AssessmentOptionResponse]
     answer_key: QuestionAnswerKeyInput | None
+
+
+class ReviewDecisionRequest(BaseModel):
+    """POST .../approve or .../reject body (Phase F7.2). `note` is
+    optional -- `{}` and an entirely empty request body are both valid,
+    identical to omitting it. Never accepts reviewed_by/reviewer_id/
+    faculty_id or any other client-supplied reviewer-identity field: the
+    database exclusively derives reviewed_by from auth.uid() inside
+    review_question() (044_question_review_governance.sql) -- that RPC,
+    not this schema, is the actual security boundary for that guarantee,
+    matching this project's existing precedent for the identical concern
+    (ReviewExpressionRequest, app.schemas.faculty_opportunity_expression:
+    "reviewed_by is never accepted here -- the database trigger derives
+    it from auth.uid()"). max_length mirrors that same existing
+    precedent's reviewer_note bound, reused rather than inventing a new
+    one."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    note: str | None = Field(default=None, max_length=5_000)
+
+    @model_validator(mode="after")
+    def _blank_note_becomes_none(self) -> "ReviewDecisionRequest":
+        # A whitespace-only note (e.g. a stray space from client-side
+        # trimming that didn't quite happen) must not persist as if it
+        # were a real, meaningful review note -- normalize it to "no
+        # note supplied" rather than rejecting the request outright.
+        if self.note is not None and self.note.strip() == "":
+            self.note = None
+        return self
 
 
 # ============================================================

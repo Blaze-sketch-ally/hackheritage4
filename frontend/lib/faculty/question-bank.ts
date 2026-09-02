@@ -37,12 +37,20 @@ export function updateQuestion(questionId: string, input: QuestionUpdateInput): 
   return api.patch(`/api/v1/questions/${questionId}`, input);
 }
 
-export function approveQuestion(questionId: string): Promise<QuestionBank> {
-  return api.post(`/api/v1/questions/${questionId}/approve`);
+/** note is optional (Phase F7.2) -- omitting it, or passing an empty/
+ * whitespace-only string, sends no body at all, byte-for-byte identical
+ * to how this call worked before F7.3 (the backend already treats "no
+ * body" and "{}" the same way). Never sends a reviewer identity of any
+ * kind -- reviewed_by is exclusively server-derived from auth.uid()
+ * inside review_question(). */
+export function approveQuestion(questionId: string, note?: string | null): Promise<QuestionBank> {
+  const trimmed = note?.trim();
+  return api.post(`/api/v1/questions/${questionId}/approve`, trimmed ? { note: trimmed } : undefined);
 }
 
-export function rejectQuestion(questionId: string): Promise<QuestionBank> {
-  return api.post(`/api/v1/questions/${questionId}/reject`);
+export function rejectQuestion(questionId: string, note?: string | null): Promise<QuestionBank> {
+  const trimmed = note?.trim();
+  return api.post(`/api/v1/questions/${questionId}/reject`, trimmed ? { note: trimmed } : undefined);
 }
 
 export function getBlueprint(assessmentId: string): Promise<Blueprint> {

@@ -27,7 +27,7 @@ _QUESTION_BANK_COLUMNS = (
     "id, assessment_id, question_text, question_type, scoring_method, "
     "difficulty, points, display_order, learning_objective, estimated_time_minutes, "
     "review_status, is_active, "
-    "created_by, created_at, updated_at, "
+    "created_by, reviewed_by, review_note, created_at, updated_at, "
     "options:assessment_question_options(id, question_id, option_text, display_order), "
     "answer_key:assessment_question_answers(correct_option_ids, correct_answer_text, explanation)"
 )
@@ -141,10 +141,13 @@ class QuestionNotApprovableError(Exception):
     convention as QuestionNotPendingError."""
 
 
-def set_review_status(client: Client, question_id: UUID, review_status: str) -> dict | None:
+def set_review_status(
+    client: Client, question_id: UUID, review_status: str, note: str | None = None
+) -> dict | None:
     """Approve or reject a question via the review_question() RPC
-    (016_review_question_rpc.sql) -- NOT a plain table update. See that
-    migration's header comment for the real-Supabase bug this fixes: a
+    (016_review_question_rpc.sql, extended by 044_question_review_
+    governance.sql for the optional note) -- NOT a plain table update.
+    See 016's header comment for the real-Supabase bug this fixes: a
     plain RLS-gated UPDATE unreliably rejected exactly this
     review-status-changing transition even though every policy condition
     it depends on was independently confirmed true for the caller.
@@ -155,13 +158,20 @@ def set_review_status(client: Client, question_id: UUID, review_status: str) -> 
     pending checks are the real security boundary for this one call, not
     RLS on this table's UPDATE policy.
 
+    note is passed straight through as p_note -- there is no reviewer-
+    identity parameter anywhere in this call. reviewed_by is exclusively
+    auth.uid(), derived inside review_question() itself (and re-verified
+    by prevent_unauthorized_question_review() regardless of what any
+    caller sends); this function has no way to set it even if it wanted
+    to, by design.
+
     Returns None if the question doesn't exist (SQLSTATE P0002 -- route
     layer: 404, matching the previous plain-UPDATE function's contract).
     """
     try:
         response = client.rpc(
             "review_question",
-            {"p_question_id": str(question_id), "p_decision": review_status},
+            {"p_question_id": str(question_id), "p_decision": review_status, "p_note": note},
         ).execute()
     except APIError as exc:
         if exc.code == "P0002":

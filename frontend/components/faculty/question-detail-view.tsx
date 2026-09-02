@@ -37,6 +37,7 @@ export function QuestionDetailView({ questionId }: { questionId: string }) {
 
   const [reviewing, setReviewing] = useState(false);
   const [reviewError, setReviewError] = useState<string | null>(null);
+  const [reviewNote, setReviewNote] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -145,13 +146,24 @@ export function QuestionDetailView({ questionId }: { questionId: string }) {
     setReviewing(true);
     setReviewError(null);
     try {
-      const updated = action === "approve" ? await approveQuestion(questionId) : await rejectQuestion(questionId);
+      const note = reviewNote.trim() || null;
+      const updated = action === "approve" ? await approveQuestion(questionId, note) : await rejectQuestion(questionId, note);
       setQuestion(updated);
+      setReviewNote("");
     } catch (err) {
       setReviewError(err instanceof ApiError ? err.message : "Could not update the question.");
     } finally {
       setReviewing(false);
     }
+  }
+
+  /** Never a real name -- reviewed_by is a raw auth uid with no
+   * profile-lookup wired into this view (F7.3 scope excludes adding one).
+   * "You" is the only case worth naming; everyone else gets a clearly-
+   * labeled abbreviated id, never presented as if it were a display name. */
+  function reviewerLabel(reviewedBy: string): string {
+    if (reviewedBy === user?.id) return "You";
+    return `Reviewer ${reviewedBy.slice(0, 8)}…`;
   }
 
   if (loading) {
@@ -216,6 +228,14 @@ export function QuestionDetailView({ questionId }: { questionId: string }) {
               {question.question_type === "CODE" ? "Code" : "Subjective"} questions aren&apos;t supported for
               automatic scoring yet -- this question cannot be approved until that type is supported.
             </p>
+          )}
+
+          {question.reviewed_by && (
+            <div className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm">
+              <p className="font-medium">Latest review</p>
+              <p className="text-muted-foreground">Reviewed by {reviewerLabel(question.reviewed_by)}</p>
+              {question.review_note && <p className="mt-1 whitespace-pre-wrap">{question.review_note}</p>}
+            </div>
           )}
 
           {editing ? (
@@ -333,6 +353,18 @@ export function QuestionDetailView({ questionId }: { questionId: string }) {
                 <AlertCircle className="size-3.5 shrink-0" /> {reviewError}
               </p>
             )}
+            <div className="space-y-1.5">
+              <Label htmlFor="review-note">Review note (optional)</Label>
+              <textarea
+                id="review-note"
+                value={reviewNote}
+                onChange={(e) => setReviewNote(e.target.value)}
+                disabled={reviewing}
+                rows={2}
+                placeholder="Add feedback for the author…"
+                className="w-full rounded-lg border border-input bg-transparent px-2.5 py-1.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
+              />
+            </div>
             <div className="flex gap-2">
               <Button size="sm" onClick={() => void handleReview("approve")} disabled={reviewing}>
                 <Check className="size-3.5" /> Approve

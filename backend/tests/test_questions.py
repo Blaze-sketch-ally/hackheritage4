@@ -26,6 +26,7 @@ from app.schemas.question_bank import (
     QuestionBankResponse,
     QuestionCreateRequest,
     QuestionUpdateRequest,
+    ReviewDecisionRequest,
 )
 from app.services import question_bank_service
 from tests.conftest import authenticated_as
@@ -180,6 +181,67 @@ def test_question_bank_response_includes_new_f6_metadata_fields():
         assert expected_field in QuestionBankResponse.model_fields
 
 
+def test_question_bank_response_includes_reviewed_by_and_review_note_fields():
+    """Phase F7.2: exposes the two F7.1 governance columns."""
+    for expected_field in ("reviewed_by", "review_note"):
+        assert expected_field in QuestionBankResponse.model_fields
+
+
+def test_question_bank_response_parses_null_reviewed_by_and_review_note():
+    """A never-reviewed (or freshly resubmitted) question has both fields
+    NULL -- must parse cleanly, not require them."""
+    row = _row_question()
+    parsed = QuestionBankResponse(**row)
+    assert parsed.reviewed_by is None
+    assert parsed.review_note is None
+
+
+def test_question_bank_response_parses_populated_reviewed_by_and_review_note():
+    reviewer_id = str(uuid4())
+    row = _row_question(review_status="APPROVED", reviewed_by=reviewer_id, review_note="Looks good.")
+    parsed = QuestionBankResponse(**row)
+    assert str(parsed.reviewed_by) == reviewer_id
+    assert parsed.review_note == "Looks good."
+
+
+def test_review_decision_request_accepts_an_optional_note():
+    assert ReviewDecisionRequest().note is None
+    assert ReviewDecisionRequest(note="Please clarify.").note == "Please clarify."
+
+
+def test_review_decision_request_rejects_client_supplied_reviewer_identity():
+    """The one thing this schema must never accept, under any field name
+    -- reviewed_by is exclusively derived from auth.uid() inside
+    review_question() (044_question_review_governance.sql)."""
+    for forbidden_field in ("reviewed_by", "reviewer_id", "faculty_id"):
+        with pytest.raises(ValidationError):
+            ReviewDecisionRequest(**{forbidden_field: str(uuid4())})
+
+
+def test_review_decision_request_blank_note_becomes_none():
+    """A whitespace-only note must not persist as if it were a real,
+    meaningful review note."""
+    assert ReviewDecisionRequest(note="   ").note is None
+    assert ReviewDecisionRequest(note="\t\n").note is None
+    assert ReviewDecisionRequest(note="").note is None
+
+
+def test_review_decision_request_preserves_a_real_note_with_surrounding_whitespace():
+    """Only PURELY blank notes are normalized -- real content is stored
+    as submitted, not silently trimmed."""
+    assert ReviewDecisionRequest(note=" Please clarify. ").note == " Please clarify. "
+
+
+def test_review_decision_request_rejects_a_note_over_the_length_bound():
+    """Same defensive bound this project already uses for the identical
+    concern elsewhere (ReviewExpressionRequest.reviewer_note,
+    app.schemas.faculty_opportunity_expression) -- reused, not
+    reinvented."""
+    with pytest.raises(ValidationError):
+        ReviewDecisionRequest(note="x" * 5_001)
+    ReviewDecisionRequest(note="x" * 5_000)
+
+
 def test_blueprint_rule_request_rejects_zero_or_negative_count():
     with pytest.raises(ValidationError):
         BlueprintRuleRequest(difficulty="Beginner", question_count=0)
@@ -227,6 +289,8 @@ def _row_question(**overrides) -> dict:
         "review_status": "PENDING",
         "is_active": True,
         "created_by": str(uuid4()),
+        "reviewed_by": None,
+        "review_note": None,
         "created_at": "2026-01-01T00:00:00Z",
         "updated_at": "2026-01-01T00:00:00Z",
         "options": [],
@@ -282,8 +346,31 @@ def test_service_set_review_status_calls_review_question_rpc():
 
     mock_client.rpc.assert_called_once_with(
         "review_question",
-        {"p_question_id": str(question_id), "p_decision": "APPROVED"},
+        {"p_question_id": str(question_id), "p_decision": "APPROVED", "p_note": None},
     )
+
+
+def test_service_set_review_status_passes_note_through_as_p_note():
+    """Phase F7.2: the optional note is forwarded verbatim as p_note --
+    and, just as importantly, this call has no reviewed_by/reviewer_id
+    parameter anywhere for it to smuggle a client-controlled identity
+    through even if it wanted to."""
+    mock_client = MagicMock()
+    response = MagicMock()
+    response.data = _row_question(review_status="REJECTED", review_note="Please fix option B.")
+    mock_client.rpc.return_value.execute.return_value = response
+
+    question_id = uuid4()
+    question_bank_service.set_review_status(mock_client, question_id, "REJECTED", "Please fix option B.")
+
+    call_kwargs = mock_client.rpc.call_args[0][1]
+    assert call_kwargs == {
+        "p_question_id": str(question_id),
+        "p_decision": "REJECTED",
+        "p_note": "Please fix option B.",
+    }
+    assert "reviewed_by" not in call_kwargs
+    assert "p_reviewed_by" not in call_kwargs
 
 
 def test_service_set_review_status_translates_42501_to_own_question_error():
@@ -751,6 +838,110 @@ def test_approve_pending_question_by_different_faculty_succeeds():
         )
     assert response.status_code == 200
     assert response.json()["review_status"] == "APPROVED"
+
+
+def test_approve_with_no_request_body_succeeds():
+    """Phase F7.2: the body is entirely optional -- a genuinely empty
+    request (no JSON at all), matching the CURRENT frontend exactly
+    (which doesn't send one yet -- that's F7.3), must keep working."""
+    approved_row = _row_question(review_status="APPROVED", created_by=str(uuid4()))
+    with (
+        authenticated_as("FACULTY", user_id="faculty-b"),
+        _as_reviewer(),
+        patch.object(question_bank_service, "set_review_status", return_value=approved_row) as mock_review,
+        patch.object(question_bank_service, "get_my_question", return_value=approved_row),
+    ):
+        response = client.post(
+            f"/api/v1/questions/{uuid4()}/approve", headers={"Authorization": "Bearer token"}
+        )
+    assert response.status_code == 200
+    assert mock_review.call_args[0][3] is None, "no body sent -> note must be None"
+
+
+def test_approve_with_empty_json_object_body_succeeds():
+    approved_row = _row_question(review_status="APPROVED", created_by=str(uuid4()))
+    with (
+        authenticated_as("FACULTY", user_id="faculty-b"),
+        _as_reviewer(),
+        patch.object(question_bank_service, "set_review_status", return_value=approved_row) as mock_review,
+        patch.object(question_bank_service, "get_my_question", return_value=approved_row),
+    ):
+        response = client.post(
+            f"/api/v1/questions/{uuid4()}/approve", json={}, headers={"Authorization": "Bearer token"}
+        )
+    assert response.status_code == 200
+    assert mock_review.call_args[0][3] is None
+
+
+def test_approve_with_a_note_forwards_it_to_the_service():
+    approved_row = _row_question(
+        review_status="APPROVED", created_by=str(uuid4()), review_note="Looks correct."
+    )
+    with (
+        authenticated_as("FACULTY", user_id="faculty-b"),
+        _as_reviewer(),
+        patch.object(question_bank_service, "set_review_status", return_value=approved_row) as mock_review,
+        patch.object(question_bank_service, "get_my_question", return_value=approved_row),
+    ):
+        response = client.post(
+            f"/api/v1/questions/{uuid4()}/approve",
+            json={"note": "Looks correct."},
+            headers={"Authorization": "Bearer token"},
+        )
+    assert response.status_code == 200
+    assert mock_review.call_args[0][3] == "Looks correct."
+    assert response.json()["review_note"] == "Looks correct."
+
+
+def test_reject_with_no_request_body_succeeds():
+    rejected_row = _row_question(review_status="REJECTED")
+    with (
+        authenticated_as("FACULTY", user_id="faculty-b"),
+        _as_reviewer(),
+        patch.object(question_bank_service, "set_review_status", return_value=rejected_row) as mock_review,
+        patch.object(question_bank_service, "get_my_question", return_value=rejected_row),
+    ):
+        response = client.post(
+            f"/api/v1/questions/{uuid4()}/reject", headers={"Authorization": "Bearer token"}
+        )
+    assert response.status_code == 200
+    assert mock_review.call_args[0][3] is None
+
+
+def test_reject_with_a_note_forwards_it_to_the_service():
+    rejected_row = _row_question(review_status="REJECTED", review_note="Option B is ambiguous.")
+    with (
+        authenticated_as("FACULTY", user_id="faculty-b"),
+        _as_reviewer(),
+        patch.object(question_bank_service, "set_review_status", return_value=rejected_row) as mock_review,
+        patch.object(question_bank_service, "get_my_question", return_value=rejected_row),
+    ):
+        response = client.post(
+            f"/api/v1/questions/{uuid4()}/reject",
+            json={"note": "Option B is ambiguous."},
+            headers={"Authorization": "Bearer token"},
+        )
+    assert response.status_code == 200
+    assert mock_review.call_args[0][3] == "Option B is ambiguous."
+    assert response.json()["review_note"] == "Option B is ambiguous."
+
+
+def test_approve_rejects_a_client_supplied_reviewer_identity():
+    """422 before any handler code runs -- ReviewDecisionRequest's own
+    extra="forbid" catches this at the schema layer, so set_review_status
+    is never even called."""
+    with (
+        authenticated_as("FACULTY", user_id="faculty-b"),
+        _as_reviewer(),
+        patch.object(question_bank_service, "set_review_status") as mock_review,
+    ):
+        response = client.post(
+            f"/api/v1/questions/{uuid4()}/approve",
+            json={"reviewed_by": str(uuid4())},
+            headers={"Authorization": "Bearer token"},
+        )
+    assert response.status_code == 422
+    mock_review.assert_not_called()
 
 
 def test_reject_nonexistent_or_invisible_question_returns_404():

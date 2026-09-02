@@ -93,6 +93,14 @@ export interface QuestionBank {
   review_status: ReviewStatus;
   is_active: boolean;
   created_by: string | null;
+  /** Phase F7.1-F7.2: the CURRENT review decision's reviewer and optional
+   * note (assessment_questions.reviewed_by/review_note,
+   * 044_question_review_governance.sql). Latest-review-state, not a
+   * history list -- both are always null for a never-reviewed or
+   * just-resubmitted (PENDING) question, and both become permanently
+   * fixed once APPROVED. */
+  reviewed_by: string | null;
+  review_note: string | null;
   created_at: string;
   updated_at: string;
   options: AssessmentOption[];

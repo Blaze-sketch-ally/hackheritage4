@@ -11,6 +11,8 @@ invariants only show up once a real question bank + blueprint + attempt
 exists.
 """
 
+import uuid
+
 import httpx
 
 
@@ -661,3 +663,292 @@ def test_approve_blocked_for_subjective_question_type_marked_objective(live):
 
     r_approve = live.api(fb_token, "POST", f"/questions/{question_id}/approve")
     assert r_approve.status_code == 409
+
+
+# ============================================================
+# Phase F7.1 -- 044_question_review_governance.sql: reviewed_by/
+# review_note on assessment_questions, server-controlled exclusively
+# through review_question()/prevent_unauthorized_question_review(). This
+# is DB-only work (no FastAPI route accepts a note yet -- that's F7.2),
+# so every test here calls review_question() directly over PostgREST
+# (bypassing FastAPI entirely), the same pattern already established by
+# test_answer_key_unreachable_without_capability_but_reachable_with_
+# reviewer for exactly this "prove the DB boundary itself, not just the
+# app layer" reason.
+# ============================================================
+
+
+def _call_review_question(live, token: str, question_id: str, decision: str, note: str | None = None):
+    body = {"p_question_id": question_id, "p_decision": decision}
+    if note is not None:
+        body["p_note"] = note
+    return httpx.post(
+        f"{live._anon_url}/rest/v1/rpc/review_question",
+        headers={"apikey": live._anon_key, "Authorization": f"Bearer {token}"},
+        json=body,
+    )
+
+
+def test_reviewed_by_and_note_persist_on_approve(live):
+    fa_id, fa_email = live.create_user("fa", "FACULTY")
+    fb_id, fb_email = live.create_user("fb", "FACULTY")
+    live.grant_assessment_capabilities(fa_id, "assessment_author")
+    live.grant_assessment_capabilities(fb_id, "assessment_reviewer")
+    fa_token, fb_token = live.token_for(fa_email), live.token_for(fb_email)
+    aid = live.create_assessment()
+    question_id = live.api(fa_token, "POST", "/questions", json=live.mcq_payload(aid, "approve with note")).json()["id"]
+
+    r = _call_review_question(live, fb_token, question_id, "APPROVED", "Looks correct, approving.")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["review_status"] == "APPROVED"
+    assert body["reviewed_by"] == fb_id, "reviewed_by must be the acting reviewer's own id"
+    assert body["review_note"] == "Looks correct, approving."
+
+
+def test_reviewed_by_and_note_persist_on_reject(live):
+    fa_id, fa_email = live.create_user("fa", "FACULTY")
+    fb_id, fb_email = live.create_user("fb", "FACULTY")
+    live.grant_assessment_capabilities(fa_id, "assessment_author")
+    live.grant_assessment_capabilities(fb_id, "assessment_reviewer")
+    fa_token, fb_token = live.token_for(fa_email), live.token_for(fb_email)
+    aid = live.create_assessment()
+    question_id = live.api(fa_token, "POST", "/questions", json=live.mcq_payload(aid, "reject with note")).json()["id"]
+
+    r = _call_review_question(live, fb_token, question_id, "REJECTED", "Option B is ambiguous, please clarify.")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["review_status"] == "REJECTED"
+    assert body["reviewed_by"] == fb_id
+    assert body["review_note"] == "Option B is ambiguous, please clarify."
+
+
+def test_review_without_a_note_leaves_review_note_null(live):
+    """p_note is optional -- omitting it (matching the existing backend
+    caller, which never sends it in F7.1) must remain completely valid,
+    and must not somehow persist a stale/placeholder note."""
+    fa_id, fa_email = live.create_user("fa", "FACULTY")
+    fb_id, fb_email = live.create_user("fb", "FACULTY")
+    live.grant_assessment_capabilities(fa_id, "assessment_author")
+    live.grant_assessment_capabilities(fb_id, "assessment_reviewer")
+    fa_token, fb_token = live.token_for(fa_email), live.token_for(fb_email)
+    aid = live.create_assessment()
+    question_id = live.api(fa_token, "POST", "/questions", json=live.mcq_payload(aid, "approve no note")).json()["id"]
+
+    # Exactly the existing backend's call shape -- no p_note key at all.
+    r = _call_review_question(live, fb_token, question_id, "APPROVED")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["reviewed_by"] == fb_id, "identity is always recorded, even with no note supplied"
+    assert body["review_note"] is None
+
+
+def test_direct_postgrest_cannot_spoof_reviewed_by(live):
+    """The actual security boundary for this whole feature: 041's own
+    UPDATE policy already permits a reviewer to UPDATE a PENDING row they
+    don't own (review_question() exists precisely because RLS alone was
+    never sufficient here). Without the trigger's own reviewed_by check,
+    nothing would stop a raw PATCH -- bypassing review_question()
+    entirely -- from writing an arbitrary reviewed_by."""
+    fa_id, fa_email = live.create_user("fa", "FACULTY")
+    fb_id, fb_email = live.create_user("fb", "FACULTY")
+    live.grant_assessment_capabilities(fa_id, "assessment_author")
+    live.grant_assessment_capabilities(fb_id, "assessment_reviewer")
+    fa_token, fb_token = live.token_for(fa_email), live.token_for(fb_email)
+    aid = live.create_assessment()
+    question_id = live.api(fa_token, "POST", "/questions", json=live.mcq_payload(aid, "spoof attempt")).json()["id"]
+
+    someone_elses_id = str(uuid.uuid4())
+    r = httpx.patch(
+        f"{live._anon_url}/rest/v1/assessment_questions",
+        headers={
+            "apikey": live._anon_key,
+            "Authorization": f"Bearer {fb_token}",
+            "Prefer": "return=representation",
+        },
+        params={"id": f"eq.{question_id}"},
+        json={"review_status": "APPROVED", "reviewed_by": someone_elses_id},
+    )
+    # RLS lets the UPDATE attempt through (fb genuinely holds
+    # assessment_reviewer and the row is PENDING) -- the trigger is what
+    # must reject the spoofed identity specifically.
+    assert r.status_code in (400, 403), (
+        f"a reviewer must never be able to set reviewed_by to anyone but themselves, got {r.status_code}: {r.text}"
+    )
+
+    # And the row must be completely untouched by the rejected attempt.
+    check = live.api(fa_token, "GET", f"/questions/{question_id}")
+    assert check.json()["review_status"] == "PENDING"
+
+
+def test_reviewer_narrow_scope_still_blocks_content_via_review_fields(live):
+    """F7.1 widens the reviewer's allowed field set from {review_status}
+    to {review_status, reviewed_by, review_note} -- and must not widen it
+    any further. A reviewer attempting to also change question content in
+    the same request must still be blocked, exactly as before F7.1."""
+    fa_id, fa_email = live.create_user("fa", "FACULTY")
+    fb_id, fb_email = live.create_user("fb", "FACULTY")
+    live.grant_assessment_capabilities(fa_id, "assessment_author")
+    live.grant_assessment_capabilities(fb_id, "assessment_reviewer")
+    fa_token, fb_token = live.token_for(fa_email), live.token_for(fb_email)
+    aid = live.create_assessment()
+    question_id = live.api(fa_token, "POST", "/questions", json=live.mcq_payload(aid, "reviewer content attempt")).json()["id"]
+
+    r = httpx.patch(
+        f"{live._anon_url}/rest/v1/assessment_questions",
+        headers={"apikey": live._anon_key, "Authorization": f"Bearer {fb_token}", "Prefer": "return=representation"},
+        params={"id": f"eq.{question_id}"},
+        json={"review_status": "REJECTED", "reviewed_by": fb_id, "points": "99.00"},
+    )
+    assert r.status_code in (400, 403)
+
+    check = live.api(fa_token, "GET", f"/questions/{question_id}")
+    assert check.json()["review_status"] == "PENDING"
+    assert float(check.json()["points"]) == 1.00, (
+        "a reviewer must never be able to change question content, even alongside a legitimate review field"
+    )
+
+
+def test_approved_question_reviewed_by_and_review_note_are_immutable(live):
+    """The same historical-integrity guarantee every other content field
+    already has (question_text, learning_objective, etc.) now covers
+    reviewed_by/review_note too -- once APPROVED, neither can change
+    again, from either the reviewer or the author."""
+    fa_id, fa_email = live.create_user("fa", "FACULTY")
+    fb_id, fb_email = live.create_user("fb", "FACULTY")
+    live.grant_assessment_capabilities(fa_id, "assessment_author")
+    live.grant_assessment_capabilities(fb_id, "assessment_reviewer")
+    fa_token, fb_token = live.token_for(fa_email), live.token_for(fb_email)
+    aid = live.create_assessment()
+    question_id = live.api(fa_token, "POST", "/questions", json=live.mcq_payload(aid, "approved immutability")).json()["id"]
+
+    r_approve = _call_review_question(live, fb_token, question_id, "APPROVED", "Original decision.")
+    assert r_approve.status_code == 200
+    assert r_approve.json()["reviewed_by"] == fb_id
+
+    # A second, different reviewer tries to overwrite the note/identity
+    # on an already-APPROVED question via direct PATCH. 041's own reviewer
+    # UPDATE policy already requires review_status = 'PENDING' in its
+    # `using` clause, so on an APPROVED row RLS excludes the row as an
+    # UPDATE target entirely -- PostgREST reports that as 200 with zero
+    # rows affected, not an error status. That is a DIFFERENT (and
+    # earlier) layer than the trigger's own APPROVED-immutability check,
+    # but equally safe -- what actually matters, and what this test
+    # verifies directly below, is that the row's real values never move.
+    fc_id, fc_email = live.create_user("fc", "FACULTY")
+    live.grant_assessment_capabilities(fc_id, "assessment_reviewer")
+    fc_token = live.token_for(fc_email)
+    r_reviewer_attempt = httpx.patch(
+        f"{live._anon_url}/rest/v1/assessment_questions",
+        headers={"apikey": live._anon_key, "Authorization": f"Bearer {fc_token}", "Prefer": "return=representation"},
+        params={"id": f"eq.{question_id}"},
+        json={"reviewed_by": fc_id, "review_note": "Trying to overwrite."},
+    )
+    if r_reviewer_attempt.status_code == 200:
+        assert r_reviewer_attempt.json() == [], (
+            "a 200 here is only safe if RLS matched zero rows -- it must never report the spoofed values back"
+        )
+    else:
+        assert r_reviewer_attempt.status_code in (400, 403)
+
+    # The original author tries too. Unlike the reviewer branch, the
+    # author's own UPDATE policy has no review_status = 'PENDING'
+    # restriction (an author may attempt to PATCH their own question at
+    # any status), so RLS lets this attempt through to the trigger, whose
+    # APPROVED-immutable branch must then reject it.
+    r_author_attempt = httpx.patch(
+        f"{live._anon_url}/rest/v1/assessment_questions",
+        headers={"apikey": live._anon_key, "Authorization": f"Bearer {fa_token}", "Prefer": "return=representation"},
+        params={"id": f"eq.{question_id}"},
+        json={"review_note": "Author trying to edit the note."},
+    )
+    assert r_author_attempt.status_code in (400, 403)
+
+    final = live.api(fa_token, "GET", f"/questions/{question_id}")
+    assert final.json()["review_status"] == "APPROVED"
+
+    # The definitive check: regardless of which layer blocked which
+    # attempt, the actual stored values must still be the FIRST
+    # reviewer's, untouched by either spoof attempt.
+    direct = httpx.get(
+        f"{live._anon_url}/rest/v1/assessment_questions",
+        headers={"apikey": live._anon_key, "Authorization": f"Bearer {fa_token}"},
+        params={"id": f"eq.{question_id}", "select": "reviewed_by,review_note"},
+    )
+    row = direct.json()[0]
+    assert row["reviewed_by"] == fb_id, "must still be the original approving reviewer, not fc and not cleared"
+    assert row["review_note"] == "Original decision.", "must still be the original note, unmodified"
+
+
+def test_resubmission_clears_reviewed_by_and_review_note(live):
+    """F7 is a latest-review-state model, not a history table: once the
+    author resubmits a REJECTED question, the prior reviewer's identity
+    and note must no longer appear to describe the new (unreviewed,
+    PENDING) content."""
+    fa_id, fa_email = live.create_user("fa", "FACULTY")
+    fb_id, fb_email = live.create_user("fb", "FACULTY")
+    live.grant_assessment_capabilities(fa_id, "assessment_author")
+    live.grant_assessment_capabilities(fb_id, "assessment_reviewer")
+    fa_token, fb_token = live.token_for(fa_email), live.token_for(fb_email)
+    aid = live.create_assessment()
+    question_id = live.api(fa_token, "POST", "/questions", json=live.mcq_payload(aid, "resubmission clears fields")).json()["id"]
+
+    r_reject = _call_review_question(live, fb_token, question_id, "REJECTED", "Please fix the second option.")
+    assert r_reject.status_code == 200
+    assert r_reject.json()["reviewed_by"] == fb_id
+    assert r_reject.json()["review_note"] == "Please fix the second option."
+
+    r_resubmit = live.api(
+        fa_token, "PATCH", f"/questions/{question_id}",
+        json={"question_text": "__QA_resubmission clears fields (revised)", "review_status": "PENDING"},
+    )
+    assert r_resubmit.status_code == 200
+    assert r_resubmit.json()["review_status"] == "PENDING"
+
+    # F7.1 is DB-only -- QuestionBankResponse doesn't request
+    # reviewed_by/review_note yet (that's F7.2), so verify the actual
+    # column values directly against PostgREST rather than through the
+    # FastAPI response.
+    direct = httpx.get(
+        f"{live._anon_url}/rest/v1/assessment_questions",
+        headers={"apikey": live._anon_key, "Authorization": f"Bearer {fa_token}"},
+        params={"id": f"eq.{question_id}", "select": "reviewed_by,review_note,review_status"},
+    )
+    assert direct.status_code == 200
+    row = direct.json()[0]
+    assert row["review_status"] == "PENDING"
+    assert row["reviewed_by"] is None, "resubmission must clear the prior reviewer's identity"
+    assert row["review_note"] is None, "resubmission must clear the prior reviewer's note"
+
+
+def test_subsequent_review_after_resubmission_overwrites_latest_reviewer_and_note(live):
+    """A second review cycle, by a DIFFERENT reviewer, must show only the
+    latest decision -- no trace of the first reviewer/note should remain
+    anywhere reachable, confirming resubmission's clear actually took
+    effect and the second review is a clean overwrite, not an append."""
+    fa_id, fa_email = live.create_user("fa", "FACULTY")
+    fb_id, fb_email = live.create_user("fb", "FACULTY")
+    fc_id, fc_email = live.create_user("fc", "FACULTY")
+    live.grant_assessment_capabilities(fa_id, "assessment_author")
+    live.grant_assessment_capabilities(fb_id, "assessment_reviewer")
+    live.grant_assessment_capabilities(fc_id, "assessment_reviewer")
+    fa_token = live.token_for(fa_email)
+    fb_token = live.token_for(fb_email)
+    fc_token = live.token_for(fc_email)
+    aid = live.create_assessment()
+    question_id = live.api(fa_token, "POST", "/questions", json=live.mcq_payload(aid, "second review cycle")).json()["id"]
+
+    first = _call_review_question(live, fb_token, question_id, "REJECTED", "First reviewer's reason.")
+    assert first.status_code == 200
+
+    live.api(
+        fa_token, "PATCH", f"/questions/{question_id}",
+        json={"question_text": "__QA_second review cycle (revised)", "review_status": "PENDING"},
+    )
+
+    second = _call_review_question(live, fc_token, question_id, "APPROVED", "Second reviewer's approval.")
+    assert second.status_code == 200
+    body = second.json()
+    assert body["reviewed_by"] == fc_id, "must be the SECOND reviewer, not the first"
+    assert body["review_note"] == "Second reviewer's approval."
+    assert body["review_note"] != "First reviewer's reason."

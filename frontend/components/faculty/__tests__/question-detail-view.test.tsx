@@ -38,6 +38,8 @@ function question(overrides = {}) {
     review_status: "PENDING",
     is_active: true,
     created_by: "faculty-me",
+    reviewed_by: null,
+    review_note: null,
     created_at: "2026-01-01T00:00:00Z",
     updated_at: "2026-01-01T00:00:00Z",
     options: [],
@@ -125,5 +127,114 @@ describe("QuestionDetailView", () => {
     expect(
       await screen.findByText(/code questions aren.t supported for automatic scoring yet/i),
     ).toBeInTheDocument();
+  });
+
+  it("offers an optional review-note field for a reviewer on a PENDING question", async () => {
+    getQuestion.mockResolvedValue(question({ created_by: "faculty-other", review_status: "PENDING" }));
+    render(<QuestionDetailView questionId="q1" />);
+    await screen.findByText("What is a closure?");
+
+    expect(screen.getByLabelText(/review note/i)).toBeInTheDocument();
+  });
+
+  it("approves without a note when the reviewer leaves the note field blank", async () => {
+    getQuestion.mockResolvedValue(question({ created_by: "faculty-other", review_status: "PENDING" }));
+    approveQuestion.mockResolvedValue(question({ created_by: "faculty-other", review_status: "APPROVED" }));
+
+    render(<QuestionDetailView questionId="q1" />);
+    await screen.findByText("What is a closure?");
+    await userEvent.click(screen.getByRole("button", { name: /approve/i }));
+
+    await waitFor(() => expect(approveQuestion).toHaveBeenCalledWith("q1", null));
+  });
+
+  it("passes a trimmed note through to approveQuestion when the reviewer types one", async () => {
+    getQuestion.mockResolvedValue(question({ created_by: "faculty-other", review_status: "PENDING" }));
+    approveQuestion.mockResolvedValue(question({ created_by: "faculty-other", review_status: "APPROVED" }));
+
+    render(<QuestionDetailView questionId="q1" />);
+    await screen.findByText("What is a closure?");
+    await userEvent.type(screen.getByLabelText(/review note/i), "  Looks good.  ");
+    await userEvent.click(screen.getByRole("button", { name: /approve/i }));
+
+    await waitFor(() => expect(approveQuestion).toHaveBeenCalledWith("q1", "Looks good."));
+  });
+
+  it("passes a note through to rejectQuestion", async () => {
+    getQuestion.mockResolvedValue(question({ created_by: "faculty-other", review_status: "PENDING" }));
+    rejectQuestion.mockResolvedValue(question({ created_by: "faculty-other", review_status: "REJECTED" }));
+
+    render(<QuestionDetailView questionId="q1" />);
+    await screen.findByText("What is a closure?");
+    await userEvent.type(screen.getByLabelText(/review note/i), "Needs a better distractor.");
+    await userEvent.click(screen.getByRole("button", { name: /reject/i }));
+
+    await waitFor(() => expect(rejectQuestion).toHaveBeenCalledWith("q1", "Needs a better distractor."));
+  });
+
+  it("shows the reviewer as \"You\" and the note when the current user was the reviewer", async () => {
+    getQuestion.mockResolvedValue(
+      question({ review_status: "APPROVED", reviewed_by: "faculty-me", review_note: "Nice work." }),
+    );
+    render(<QuestionDetailView questionId="q1" />);
+
+    expect(await screen.findByText(/reviewed by you/i)).toBeInTheDocument();
+    expect(screen.getByText("Nice work.")).toBeInTheDocument();
+  });
+
+  it("shows an abbreviated, clearly-labeled identifier for a different reviewer, never a raw name", async () => {
+    getQuestion.mockResolvedValue(
+      question({ review_status: "REJECTED", reviewed_by: "11111111-2222-3333-4444-555555555555", review_note: null }),
+    );
+    render(<QuestionDetailView questionId="q1" />);
+
+    expect(await screen.findByText(/reviewed by reviewer 11111111/i)).toBeInTheDocument();
+  });
+
+  it("does not render a latest-review section when the question has never been reviewed", async () => {
+    getQuestion.mockResolvedValue(question({ reviewed_by: null, review_note: null }));
+    render(<QuestionDetailView questionId="q1" />);
+    await screen.findByText("What is a closure?");
+
+    expect(screen.queryByText(/latest review/i)).not.toBeInTheDocument();
+  });
+
+  it("shows read-only latest-review info on an APPROVED question with no edit-review control", async () => {
+    getQuestion.mockResolvedValue(
+      question({
+        review_status: "APPROVED",
+        created_by: "faculty-me",
+        reviewed_by: "faculty-other",
+        review_note: "Approved as-is.",
+      }),
+    );
+    render(<QuestionDetailView questionId="q1" />);
+
+    expect(await screen.findByText(/latest review/i)).toBeInTheDocument();
+    expect(screen.getByText("Approved as-is.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /edit review/i })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/review note/i)).not.toBeInTheDocument();
+  });
+
+  it("shows no stale review metadata once a rejected question has been resubmitted to PENDING", async () => {
+    getQuestion.mockResolvedValue(
+      question({
+        review_status: "REJECTED",
+        created_by: "faculty-me",
+        reviewed_by: "faculty-other",
+        review_note: "Please fix the wording.",
+      }),
+    );
+    updateQuestion.mockResolvedValue(
+      question({ review_status: "PENDING", created_by: "faculty-me", reviewed_by: null, review_note: null }),
+    );
+
+    render(<QuestionDetailView questionId="q1" />);
+    expect(await screen.findByText("Please fix the wording.")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /resubmit for review/i }));
+
+    await waitFor(() => expect(screen.queryByText("Please fix the wording.")).not.toBeInTheDocument());
+    expect(screen.queryByText(/latest review/i)).not.toBeInTheDocument();
   });
 });

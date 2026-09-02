@@ -47,6 +47,7 @@ from app.schemas.question_bank import (
     QuestionBankResponse,
     QuestionCreateRequest,
     QuestionUpdateRequest,
+    ReviewDecisionRequest,
 )
 from app.services import question_bank_service
 
@@ -226,14 +227,17 @@ def update_question(
     return QuestionBankResponse(**row)
 
 
-def _review(question_id: UUID, decision: str, current_user: CurrentUser) -> QuestionBankResponse:
+def _review(
+    question_id: UUID, decision: str, current_user: CurrentUser, note: str | None
+) -> QuestionBankResponse:
     """Shared by approve_question/reject_question -- both call the same
-    review_question() RPC (016_review_question_rpc.sql) with a different
-    decision literal, and map its typed exceptions to HTTP responses
-    identically."""
+    review_question() RPC (016_review_question_rpc.sql, extended by
+    044_question_review_governance.sql for the optional note) with a
+    different decision literal, and map its typed exceptions to HTTP
+    responses identically."""
     client = build_user_client(current_user.access_token)
     try:
-        updated = question_bank_service.set_review_status(client, question_id, decision)
+        updated = question_bank_service.set_review_status(client, question_id, decision, note)
     except question_bank_service.OwnQuestionReviewError as exc:
         raise _forbidden() from exc
     except question_bank_service.QuestionNotPendingError as exc:
@@ -267,21 +271,41 @@ def _review(question_id: UUID, decision: str, current_user: CurrentUser) -> Ques
 @router.post("/{question_id}/approve", response_model=QuestionBankResponse)
 def approve_question(
     question_id: UUID,
+    body: ReviewDecisionRequest | None = None,
     current_user: CurrentUser = Depends(require_assessment_reviewer),
 ) -> QuestionBankResponse:
     """Approve a PENDING question submitted by a DIFFERENT faculty member.
     review_question() rejects this outright (403) if the caller is the
     question's own creator, and (409) if it's no longer PENDING (e.g. a
-    concurrent review already resolved it)."""
-    return _review(question_id, "APPROVED", current_user)
+    concurrent review already resolved it).
+
+    body is entirely optional (Phase F7.2) -- an empty request body and
+    `{}` are both equivalent to omitting it, matching the existing
+    frontend, which does not send one yet (that's F7.3): FastAPI falls
+    back to this parameter's own default (None) whenever the request
+    body is empty, and parses `{}` into a `ReviewDecisionRequest` with
+    `note=None` otherwise -- both end up passing `note=None` below,
+    identically. Only `note` may ever be supplied; ReviewDecisionRequest's
+    own `extra="forbid"` rejects any attempt to also send reviewed_by/
+    reviewer_id/faculty_id at the schema layer, before this handler even
+    runs."""
+    note = body.note if body is not None else None
+    return _review(question_id, "APPROVED", current_user, note)
 
 
 @router.post("/{question_id}/reject", response_model=QuestionBankResponse)
 def reject_question(
     question_id: UUID,
+    body: ReviewDecisionRequest | None = None,
     current_user: CurrentUser = Depends(require_assessment_reviewer),
 ) -> QuestionBankResponse:
     """Reject a PENDING question submitted by a DIFFERENT faculty member.
     Its own setter may revise it and set review_status back to PENDING
-    via PATCH -- Phase 1K's entire "resubmit after rejection" path."""
-    return _review(question_id, "REJECTED", current_user)
+    via PATCH -- Phase 1K's entire "resubmit after rejection" path (and,
+    as of F7.1's trigger extension, that same resubmission clears
+    whatever reviewed_by/review_note this rejection is about to set).
+
+    body is optional -- see approve_question's docstring for the exact
+    same reasoning, applied identically here."""
+    note = body.note if body is not None else None
+    return _review(question_id, "REJECTED", current_user, note)
