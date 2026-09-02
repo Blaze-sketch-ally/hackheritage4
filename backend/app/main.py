@@ -2,16 +2,21 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import (
+    admin_faculty,
     applications,
     assessments,
     attempts,
     career_roles,
+    faculty,
+    faculty_opportunities,
     industry,
     industry_collaborations,
+    industry_faculty_opportunities,
     industry_mentorship_opportunities,
     industry_projects,
     industry_trainings,
     industry_workshops,
+    institution_faculty_opportunities,
     opportunities,
     portfolio,
     questions,
@@ -31,6 +36,11 @@ app.add_middleware(
 app.include_router(assessments.router, prefix="/api/v1")
 app.include_router(attempts.router, prefix="/api/v1")
 app.include_router(questions.router, prefix="/api/v1")
+app.include_router(faculty.router, prefix="/api/v1")
+app.include_router(admin_faculty.router, prefix="/api/v1")
+app.include_router(faculty_opportunities.router, prefix="/api/v1")
+app.include_router(industry_faculty_opportunities.router, prefix="/api/v1")
+app.include_router(institution_faculty_opportunities.router, prefix="/api/v1")
 app.include_router(career_roles.router, prefix="/api/v1")
 app.include_router(opportunities.router, prefix="/api/v1")
 app.include_router(applications.router, prefix="/api/v1")

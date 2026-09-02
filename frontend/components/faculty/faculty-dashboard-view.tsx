@@ -2,25 +2,50 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { AlertCircle, CheckCircle2, ClipboardList, FileEdit, ListChecks, RefreshCw } from "lucide-react";
+import {
+  AlertCircle,
+  Briefcase,
+  CheckCircle2,
+  ClipboardList,
+  FileEdit,
+  Inbox,
+  ListChecks,
+  RefreshCw,
+  User,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
 import { StatCard } from "@/components/dashboard/stat-card";
 import { ApiError } from "@/lib/api";
 import { listAssessmentsForFaculty, listMyQuestions } from "@/lib/faculty/question-bank";
+import { getFacultyProfile } from "@/lib/faculty/profile";
+import { listFacultyOpportunities } from "@/lib/faculty/opportunities";
+import { getIncomingCollaborations } from "@/lib/industry/collaborations";
 import type { QuestionBank, ReviewStatus } from "@/types/question-bank";
+import type { FacultyProfile } from "@/types/faculty-profile";
 
 /** Real data throughout -- no mock values. Composed client-side from the
- * existing Phase 1K question-bank API (GET /questions already returns
- * the full shared bank, any faculty/any status, per its own docstring;
- * this view just groups that same response by created_by/review_status
- * rather than asking the backend for a new endpoint). */
+ * existing Phase 1K question-bank API, the Phase F3.1 faculty profile
+ * endpoint, and the Phase F3.2 opportunity-discovery/application (incoming
+ * collaboration) reads. Deliberately still NOT shown: evaluator/reviewer
+ * metrics, which need F5+ evaluation infrastructure that doesn't exist. */
 
 type LoadState =
   | { status: "loading" }
-  | { status: "error"; error: ApiError }
-  | { status: "ready"; questions: QuestionBank[]; assessmentCount: number };
+  | {
+      status: "error";
+      error: ApiError;
+    }
+  | {
+      status: "ready";
+      questions: QuestionBank[];
+      assessmentCount: number;
+      profile: FacultyProfile;
+      opportunityCount: number;
+      pendingApplicationCount: number;
+    };
 
 export function FacultyDashboardView({ facultyId }: { facultyId: string }) {
   const [state, setState] = useState<LoadState>({ status: "loading" });
@@ -30,12 +55,22 @@ export function FacultyDashboardView({ facultyId }: { facultyId: string }) {
     let cancelled = false;
     async function load() {
       try {
-        const [questions, { assessments }] = await Promise.all([
+        const [questions, { assessments }, profile, { opportunities }, { collaborations }] = await Promise.all([
           listMyQuestions(),
           listAssessmentsForFaculty(),
+          getFacultyProfile(),
+          listFacultyOpportunities(),
+          getIncomingCollaborations({ status: "SENT" }),
         ]);
         if (cancelled) return;
-        setState({ status: "ready", questions, assessmentCount: assessments.length });
+        setState({
+          status: "ready",
+          questions,
+          assessmentCount: assessments.length,
+          profile,
+          opportunityCount: opportunities.length,
+          pendingApplicationCount: collaborations.length,
+        });
       } catch (err) {
         if (cancelled) return;
         setState({
@@ -78,7 +113,7 @@ export function FacultyDashboardView({ facultyId }: { facultyId: string }) {
     );
   }
 
-  const { questions, assessmentCount } = state;
+  const { questions, assessmentCount, profile, opportunityCount, pendingApplicationCount } = state;
   const mine = questions.filter((q) => q.created_by === facultyId);
   const authored = mine.length;
   const approved = mine.filter((q) => q.review_status === "APPROVED").length;
@@ -88,6 +123,8 @@ export function FacultyDashboardView({ facultyId }: { facultyId: string }) {
 
   return (
     <div className="space-y-6">
+      <ProfileSummaryCard profile={profile} />
+
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           label="Questions Authored"
@@ -119,6 +156,24 @@ export function FacultyDashboardView({ facultyId }: { facultyId: string }) {
           trend={needsRevision > 0 ? "down" : "neutral"}
           icon={ListChecks}
           accent="violet"
+        />
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <StatCard
+          label="Available Opportunities"
+          value={String(opportunityCount)}
+          helperText="Published projects, training, workshops & mentorship"
+          icon={Briefcase}
+          accent="indigo"
+        />
+        <StatCard
+          label="Applications Needing Action"
+          value={String(pendingApplicationCount)}
+          helperText={pendingApplicationCount > 0 ? "Collaboration requests awaiting your response" : "All caught up"}
+          trend={pendingApplicationCount > 0 ? "up" : "neutral"}
+          icon={Inbox}
+          accent="amber"
         />
       </div>
 
@@ -186,10 +241,80 @@ export function FacultyDashboardView({ facultyId }: { facultyId: string }) {
             >
               <ListChecks /> Manage Blueprints
             </Button>
+            <Button
+              variant="outline"
+              className="w-full justify-start"
+              render={<Link href="/faculty/opportunities" />}
+              nativeButton={false}
+            >
+              <Briefcase /> Browse Opportunities
+            </Button>
+            <Button
+              variant="outline"
+              className="w-full justify-start"
+              render={<Link href="/faculty/applications" />}
+              nativeButton={false}
+            >
+              <Inbox /> View Applications
+              {pendingApplicationCount > 0 && (
+                <Badge variant="secondary" className="ml-auto">
+                  {pendingApplicationCount}
+                </Badge>
+              )}
+            </Button>
+            {profile.completeness < 1 && (
+              <Button
+                variant="outline"
+                className="w-full justify-start"
+                render={<Link href="/faculty/profile" />}
+                nativeButton={false}
+              >
+                <User /> Complete Your Profile
+              </Button>
+            )}
           </CardContent>
         </Card>
       </div>
     </div>
+  );
+}
+
+function ProfileSummaryCard({ profile }: { profile: FacultyProfile }) {
+  const pct = Math.round(profile.completeness * 100);
+  const summaryParts = [profile.designation, profile.department, profile.institution_name].filter(Boolean);
+
+  return (
+    <Card>
+      <CardContent className="flex flex-col gap-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
+            <User className="size-5" aria-hidden="true" />
+          </span>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-medium">
+              {summaryParts.length > 0 ? summaryParts.join(" · ") : "Complete your academic profile"}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {summaryParts.length > 0
+                ? "Academic profile"
+                : "Add your designation, department, and expertise so collaborators know who you are."}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-4 sm:w-64">
+          <div className="flex-1">
+            <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
+              <span>Profile completeness</span>
+              <span>{pct}%</span>
+            </div>
+            <Progress value={pct} />
+          </div>
+          <Button size="sm" variant="outline" render={<Link href="/faculty/profile" />} nativeButton={false}>
+            {profile.completeness > 0 ? "Edit" : "Start"}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

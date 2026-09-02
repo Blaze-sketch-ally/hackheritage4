@@ -6,6 +6,8 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.core.security import InvalidTokenError, build_user_client, verify_access_token
+from app.schemas.faculty_permissions import AssessmentCapability
+from app.services import faculty_permission_service
 
 # auto_error=False so a missing header falls through to our own check below
 # instead of HTTPBearer's default 403 -- "not authenticated" should be 401.
@@ -82,6 +84,66 @@ def require_faculty(current_user: CurrentUser = Depends(get_current_user)) -> Cu
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="This action requires the FACULTY role.",
+        )
+    return current_user
+
+
+def get_faculty_capabilities(
+    current_user: CurrentUser = Depends(require_faculty),
+) -> set[AssessmentCapability]:
+    """Resolve the current Faculty caller's effective assessment capabilities.
+
+    This intentionally uses the caller's user-scoped Supabase client and the
+    self-only RPC from migration 027, never the service role. Existing
+    Faculty endpoints keep require_faculty() during F2 for compatibility;
+    later phases opt into the capability dependencies below deliberately.
+    """
+    try:
+        client = build_user_client(current_user.access_token)
+        return faculty_permission_service.get_effective_capabilities(client)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not resolve Faculty assessment capabilities.",
+        ) from exc
+
+
+def require_assessment_capability(capability: AssessmentCapability):
+    """Build a reusable FastAPI dependency for one Faculty capability."""
+
+    def dependency(
+        current_user: CurrentUser = Depends(require_faculty),
+        capabilities: set[AssessmentCapability] = Depends(get_faculty_capabilities),
+    ) -> CurrentUser:
+        if capability not in capabilities:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"This action requires the {capability.value} capability.",
+            )
+        return current_user
+
+    return dependency
+
+
+require_assessment_author = require_assessment_capability(AssessmentCapability.AUTHOR)
+require_assessment_reviewer = require_assessment_capability(AssessmentCapability.REVIEWER)
+require_assessment_evaluator = require_assessment_capability(AssessmentCapability.EVALUATOR)
+require_assessment_moderator = require_assessment_capability(AssessmentCapability.MODERATOR)
+require_assessment_lead = require_assessment_capability(AssessmentCapability.LEAD)
+
+
+def require_admin(current_user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
+    """Role guard: only ADMIN accounts may proceed. Same shape as
+    require_student/require_faculty/require_industry -- an app-layer
+    check that complements, not replaces, the is_admin(auth.uid()) check
+    each admin_* RPC in 035_admin_faculty_permission_management.sql
+    performs internally (those RPCs are reachable directly via PostgREST
+    by any authenticated user, so this app-layer check alone would not be
+    a real security boundary on its own)."""
+    if current_user.role != "ADMIN":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This action requires the ADMIN role.",
         )
     return current_user
 

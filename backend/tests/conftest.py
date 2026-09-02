@@ -2,8 +2,41 @@
 live Supabase project or real token.
 """
 
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from unittest.mock import MagicMock, patch
+
+# Every route module that imports build_user_client needs its own patch
+# entry here (see authenticated_as' own docstring for why). Kept as a
+# plain list + ExitStack, not one big `with (...)` tuple: CPython's
+# compiler has a hard limit on statically nested blocks in a single
+# parenthesized with-statement (~20), which a `with (a, b, c, ...)` of
+# this many entries silently exceeds -- ExitStack has no such limit and
+# scales as more modules are added.
+_BUILD_USER_CLIENT_MODULES = (
+    "app.api.assessments",
+    "app.api.attempts",
+    "app.api.questions",
+    "app.api.faculty",
+    "app.api.admin_faculty",
+    "app.api.faculty_opportunities",
+    "app.api.industry_faculty_opportunities",
+    "app.api.institution_faculty_opportunities",
+    "app.api.career_roles",
+    "app.api.opportunities",
+    "app.api.applications",
+    "app.api.portfolio",
+    "app.api.industry",
+    "app.api.industry_projects",
+    "app.api.industry_trainings",
+    "app.api.industry_workshops",
+    "app.api.industry_mentorship_opportunities",
+    "app.api.industry_collaborations",
+)
+
+_GET_SUPABASE_MODULES = (
+    "app.api.assessments",
+    "app.api.opportunities",
+)
 
 
 def mock_supabase_user(user_id: str = "student-1", email: str = "student@example.com"):
@@ -43,26 +76,13 @@ def authenticated_as(role: str | None, user_id: str = "student-1"):
     patches here as new route modules import build_user_client.
     """
     client = mock_client_with_role(role)
-    with (
-        patch(
-            "app.core.dependencies.verify_access_token",
-            return_value=mock_supabase_user(user_id),
-        ),
-        patch("app.core.dependencies.build_user_client", return_value=client),
-        patch("app.api.assessments.build_user_client", return_value=client),
-        patch("app.api.attempts.build_user_client", return_value=client),
-        patch("app.api.questions.build_user_client", return_value=client),
-        patch("app.api.career_roles.build_user_client", return_value=client),
-        patch("app.api.opportunities.build_user_client", return_value=client),
-        patch("app.api.applications.build_user_client", return_value=client),
-        patch("app.api.portfolio.build_user_client", return_value=client),
-        patch("app.api.industry.build_user_client", return_value=client),
-        patch("app.api.industry_projects.build_user_client", return_value=client),
-        patch("app.api.industry_trainings.build_user_client", return_value=client),
-        patch("app.api.industry_workshops.build_user_client", return_value=client),
-        patch("app.api.industry_mentorship_opportunities.build_user_client", return_value=client),
-        patch("app.api.industry_collaborations.build_user_client", return_value=client),
-        patch("app.api.assessments.get_supabase", return_value=client),
-        patch("app.api.opportunities.get_supabase", return_value=client),
-    ):
+    with ExitStack() as stack:
+        stack.enter_context(
+            patch("app.core.dependencies.verify_access_token", return_value=mock_supabase_user(user_id))
+        )
+        stack.enter_context(patch("app.core.dependencies.build_user_client", return_value=client))
+        for module in _BUILD_USER_CLIENT_MODULES:
+            stack.enter_context(patch(f"{module}.build_user_client", return_value=client))
+        for module in _GET_SUPABASE_MODULES:
+            stack.enter_context(patch(f"{module}.get_supabase", return_value=client))
         yield

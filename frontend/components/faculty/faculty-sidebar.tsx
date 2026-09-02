@@ -29,10 +29,20 @@ interface NavGroup {
   items: NavItem[];
 }
 
-// Every href below points at a route that already exists in app/faculty/
-// (some are scaffold placeholder pages -- see docs/PROJECT_CONTEXT.md §2 --
-// but a real route, so they're linked, matching the convention already
-// established in StudentSidebar rather than disabled).
+// F3 subphase 1 nav cleanup: an item only carries `href` when the route
+// behind it is real (renders actual data/functionality, not a static
+// "Coming Soon" page). Items with no href are shown disabled with a
+// "Soon" badge instead of linking to a page that isn't real yet --
+// same convention already established in StudentSidebar, for the same
+// reason (don't let navigation claim a feature exists before it does).
+// Question Bank, Assessment Blueprints, Dashboard, Profile, Opportunities
+// (F3.2), and Applications (F3.2) are real; every remaining "Engagement"/
+// "Other" item is still a static placeholder page as of this phase, so
+// it is intentionally NOT linked here even though the page file exists.
+// "Applications" reuses the existing industry_collaborations
+// recipient-side flow (see faculty-applications-view.tsx) -- "Collaborations"
+// below stays Soon rather than becoming a second entry point to the same
+// data under a different label.
 const NAV_GROUPS: NavGroup[] = [
   { items: [{ label: "Dashboard", href: "/faculty/dashboard", icon: LayoutDashboard }] },
   {
@@ -45,11 +55,11 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Engagement",
     items: [
-      { label: "Research", href: "/faculty/research", icon: GraduationCap },
-      { label: "Consultancy", href: "/faculty/consultancy", icon: Briefcase },
-      { label: "FDPs", href: "/faculty/fdps", icon: Presentation },
-      { label: "Workshops", href: "/faculty/workshops", icon: CalendarDays },
-      { label: "Collaborations", href: "/faculty/collaborations", icon: Handshake },
+      { label: "Research", icon: GraduationCap },
+      { label: "Consultancy", icon: Briefcase },
+      { label: "FDPs", icon: Presentation },
+      { label: "Workshops", icon: CalendarDays },
+      { label: "Collaborations", icon: Handshake },
       { label: "Opportunities", href: "/faculty/opportunities", icon: Briefcase },
     ],
   },
@@ -57,8 +67,8 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Other",
     items: [
       { label: "Applications", href: "/faculty/applications", icon: FileText },
-      { label: "Calendar", href: "/faculty/calendar", icon: CalendarDays },
-      { label: "Internships", href: "/faculty/internships", icon: BookOpen },
+      { label: "Calendar", icon: CalendarDays },
+      { label: "Internships", icon: BookOpen },
     ],
   },
   {
@@ -94,12 +104,26 @@ export function FacultySidebar({ onNavigate }: { onNavigate?: () => void }) {
             ) : null}
             {group.items.map((item) => {
               const Icon = item.icon;
-              const active = item.href && (pathname === item.href || pathname.startsWith(`${item.href}/`));
+
+              if (!item.href) {
+                return (
+                  <div
+                    key={item.label}
+                    className="flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-muted-foreground/60"
+                  >
+                    <Icon className="size-4 shrink-0" aria-hidden="true" />
+                    <span className="flex-1">{item.label}</span>
+                    <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium">Soon</span>
+                  </div>
+                );
+              }
+
+              const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
 
               return (
                 <Link
                   key={item.href}
-                  href={item.href!}
+                  href={item.href}
                   onClick={onNavigate}
                   className={cn(
                     "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium transition-colors",

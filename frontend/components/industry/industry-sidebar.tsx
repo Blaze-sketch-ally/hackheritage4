@@ -56,6 +56,7 @@ const NAV_GROUPS: NavGroup[] = [
       { label: "Training", href: "/industry/training", icon: GraduationCap },
       { label: "Workshops", href: "/industry/workshops", icon: CalendarCheck },
       { label: "Collaborations", href: "/industry/collaborations", icon: Handshake },
+      { label: "Faculty Opportunities", href: "/industry/faculty-opportunities", icon: GraduationCap },
     ],
   },
   {

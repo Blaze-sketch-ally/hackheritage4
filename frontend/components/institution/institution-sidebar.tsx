@@ -8,6 +8,7 @@ import {
   CalendarDays,
   ClipboardCheck,
   FileText,
+  GraduationCap,
   Handshake,
   LayoutDashboard,
   type LucideIcon,
@@ -65,6 +66,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { label: "Industry Partners", href: "/institution/industry-partners", icon: Handshake },
       { label: "Collaborations", href: "/institution/collaborations", icon: Handshake },
+      { label: "Faculty Opportunities", href: "/institution/faculty-opportunities", icon: GraduationCap },
     ],
   },
   {
