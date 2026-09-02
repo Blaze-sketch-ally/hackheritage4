@@ -331,6 +331,63 @@ describe("AssessmentTakingView", () => {
 
     expect(await screen.findByText("NOT PASSED")).toBeInTheDocument();
     expect(screen.getByText("Skill remains unverified")).toBeInTheDocument();
+    // The "why wasn't it verified" hint is only for a PASS that still
+    // didn't verify -- a failing result must not show it.
+    expect(screen.queryByText(/never creates a skill on its own/i)).not.toBeInTheDocument();
+  });
+
+  it("explains why a passing result did not verify a skill", async () => {
+    getAssessment.mockResolvedValue(assessment);
+    getCurrentAttempt.mockResolvedValue(null);
+    createAttempt.mockResolvedValue(attemptRow());
+    getAttemptQuestions.mockResolvedValue([question]);
+    saveAnswer.mockResolvedValue({
+      id: "ans1",
+      attempt_id: "attempt-1",
+      question_id: "q1",
+      answer_text: null,
+      selected_option_ids: ["opt-python"],
+      awarded_marks: null,
+      is_correct: null,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z",
+    });
+    submitAttempt.mockResolvedValue(attemptRow({ submitted_at: "2026-01-01T00:05:00Z" }));
+    scoreAttempt.mockResolvedValue(
+      attemptRow({
+        status: "COMPLETED",
+        submitted_at: "2026-01-01T00:05:00Z",
+        score: "10.00",
+        total_marks: "10.00",
+        percentage: "100.00",
+        passed: true,
+        skill_verified: false,
+      }),
+    );
+    getAttemptResult.mockResolvedValue({
+      attempt: attemptRow({
+        status: "COMPLETED",
+        submitted_at: "2026-01-01T00:05:00Z",
+        score: "10.00",
+        total_marks: "10.00",
+        percentage: "100.00",
+      }),
+      passed: true,
+      skill_verified: false,
+      questions: [],
+    });
+
+    render(<AssessmentTakingView assessmentId={ASSESSMENT_ID} />);
+    await userEvent.click(await screen.findByRole("button", { name: /start assessment/i }));
+    await screen.findByText("Question 1 of 1");
+    await userEvent.click(screen.getByRole("radio", { name: ".python" }));
+    await waitFor(() => expect(saveAnswer).toHaveBeenCalled());
+    await userEvent.click(await screen.findByRole("button", { name: /^submit assessment$/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /confirm submit/i }));
+
+    expect(await screen.findByText("PASSED")).toBeInTheDocument();
+    expect(screen.getByText("Skill remains unverified")).toBeInTheDocument();
+    expect(screen.getByText(/never creates a skill on its own/i)).toBeInTheDocument();
   });
 
   it("a scoring failure lets the student retry without re-submitting", async () => {

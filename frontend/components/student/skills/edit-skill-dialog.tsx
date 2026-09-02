@@ -44,6 +44,18 @@ function EditSkillForm({
 
       <FormError message={error} />
 
+      {studentSkill.is_verified && (
+        <p
+          role="status"
+          className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400"
+        >
+          This skill is assessment-verified at {studentSkill.proficiency_level}.{" "}
+          {proficiency === studentSkill.proficiency_level
+            ? "Changing the level here will remove that verification."
+            : "Saving this change will remove the verification — re-earn it by passing the assessment at the new level."}
+        </p>
+      )}
+
       <div className="space-y-1.5">
         <Label htmlFor="edit-skill-proficiency">Proficiency</Label>
         <Select
