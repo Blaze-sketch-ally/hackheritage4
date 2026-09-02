@@ -1,40 +1,18 @@
 import Link from "next/link";
-import { Award, Briefcase, GraduationCap, Target, TrendingUp, type LucideIcon } from "lucide-react";
-import { AiRecommendations } from "@/components/student/ai-recommendations";
-import { ApplicationTracker } from "@/components/dashboard/application-tracker";
 import { Button } from "@/components/ui/button";
+import { DashboardAiSuggestions } from "@/components/student/dashboard/dashboard-ai-suggestions";
+import { DashboardAnnouncements } from "@/components/student/dashboard/dashboard-announcements";
+import { DashboardApplications } from "@/components/student/dashboard/dashboard-applications";
+import { DashboardKpis } from "@/components/student/dashboard/dashboard-kpis";
+import { DashboardLearning } from "@/components/student/dashboard/dashboard-learning";
+import { DashboardRecommendations } from "@/components/student/dashboard/dashboard-recommendations";
 import { ProfileCompletion } from "@/components/student/profile-completion";
-import { RecommendationTabs } from "@/components/student/recommendation-tabs";
 import { SkillOverview } from "@/components/student/skill-overview";
-import { StatCard, type StatCardProps } from "@/components/dashboard/stat-card";
-import { UpcomingEvents } from "@/components/dashboard/upcoming-events";
 import { createClient } from "@/lib/supabase/server";
 import { fetchProfile } from "@/lib/profile";
 import { fetchStudentProfile, getProfileCompletion } from "@/lib/student/profile";
 import { fetchStudentSkills } from "@/lib/student/skills";
-import {
-  MOCK_APPLICATION_STAGES,
-  MOCK_EVENTS,
-  MOCK_KPIS,
-  MOCK_SKILL_RADAR,
-  type DashboardKpi,
-} from "@/lib/mock/student-dashboard";
-
-const KPI_ICONS: Record<DashboardKpi["id"], LucideIcon> = {
-  skillScore: Target,
-  careerReadiness: TrendingUp,
-  learningProgress: GraduationCap,
-  applications: Briefcase,
-  achievements: Award,
-};
-
-const KPI_ACCENTS: Record<DashboardKpi["id"], NonNullable<StatCardProps["accent"]>> = {
-  skillScore: "indigo",
-  careerReadiness: "violet",
-  learningProgress: "blue",
-  applications: "amber",
-  achievements: "emerald",
-};
+import { summarizeSkills } from "@/lib/student/dashboard";
 
 export default async function StudentDashboardPage() {
   const supabase = await createClient();
@@ -46,11 +24,19 @@ export default async function StudentDashboardPage() {
   // point — this is just TypeScript narrowing, not a second auth check.
   if (!user) return null;
 
-  const profile = await fetchProfile(supabase, user.id);
-  const studentProfile = await fetchStudentProfile(supabase, user.id);
-  const studentSkills = await fetchStudentSkills(supabase, user.id);
+  // Identity + skills come straight from Supabase (RLS-scoped) in this
+  // server component. The API-backed sections (skill gap, applications,
+  // learning, assessments) load client-side through the FastAPI bridge,
+  // each in its own component so one failing section never blanks the page.
+  const [profile, studentProfile, studentSkills] = await Promise.all([
+    fetchProfile(supabase, user.id),
+    fetchStudentProfile(supabase, user.id),
+    fetchStudentSkills(supabase, user.id),
+  ]);
+
   const completion = getProfileCompletion(profile, studentProfile);
   const displayName = profile?.full_name || profile?.username || "Student";
+  const skillsSummary = summarizeSkills(studentSkills);
 
   return (
     <div className="space-y-6">
@@ -66,30 +52,19 @@ export default async function StudentDashboardPage() {
         </Button>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-        {MOCK_KPIS.map((kpi) => (
-          <StatCard
-            key={kpi.id}
-            label={kpi.label}
-            value={kpi.value}
-            helperText={kpi.helperText}
-            trend={kpi.trend}
-            icon={KPI_ICONS[kpi.id]}
-            accent={KPI_ACCENTS[kpi.id]}
-          />
-        ))}
-      </div>
+      <DashboardKpis skills={skillsSummary} />
 
       <div className="grid gap-6 xl:grid-cols-3">
         <div className="space-y-6 xl:col-span-2">
-          <SkillOverview radar={MOCK_SKILL_RADAR} studentSkills={studentSkills} />
-          <RecommendationTabs />
-          <ApplicationTracker stages={MOCK_APPLICATION_STAGES} />
+          <SkillOverview studentSkills={studentSkills} />
+          <DashboardApplications />
+          <DashboardLearning />
         </div>
         <div className="space-y-6">
           <ProfileCompletion percent={completion} />
-          <UpcomingEvents events={MOCK_EVENTS} viewAllHref="/student/events" />
-          <AiRecommendations />
+          <DashboardRecommendations />
+          <DashboardAnnouncements />
+          <DashboardAiSuggestions />
         </div>
       </div>
     </div>

@@ -1,10 +1,17 @@
 """API routes for the Industry side of applications.
 
-Every route is guarded by require_industry() and every read/write goes
-through build_user_client(current_user.access_token) -- never
-get_supabase() / service_role -- so Supabase RLS stays the real
+Every route is guarded by require_industry() and every read/write to
+`applications` goes through build_user_client(current_user.access_token)
+-- never get_supabase() / service_role -- so Supabase RLS stays the real
 access-control boundary. The owning Industry account is always
 current_user.id; `industry_id` is never read from the request.
+
+The one service-role touch in this module is a BEST-EFFORT side effect:
+after a status change succeeds, `notification_producer` writes the
+student a `student_notifications` row (that table has no insert policy, so
+only the service role can). It runs on an already-authorized
+require_industry() request, swallows its own errors, and never affects the
+response -- see app.services.notification_producer.
 
 Industry can list its applications, read one, and move one along the
 recruitment status pipeline. It cannot change an application's student,
@@ -29,7 +36,7 @@ from app.schemas.application import (
     ApplicationSummaryResponse,
     OpportunityType,
 )
-from app.services import application_service, match_service
+from app.services import application_service, match_service, notification_producer
 
 router = APIRouter(prefix="/applications", tags=["applications"])
 
@@ -160,4 +167,16 @@ def update_application_status(
         raise _server_error("update the application") from exc
     if row is None:
         raise _not_found()
+
+    # Best-effort: let the student know their application moved. The
+    # producer writes with the service role (student_notifications has no
+    # insert policy) and swallows its own errors -- a failed notification
+    # never turns a successful status change into an error.
+    notification_producer.emit_application_status_change(
+        student_id=row["student_id"],
+        application_id=str(application_id),
+        new_status=row["status"],
+        opportunity_title=(row.get("opportunity") or {}).get("title"),
+    )
+
     return ApplicationResponse(**row)

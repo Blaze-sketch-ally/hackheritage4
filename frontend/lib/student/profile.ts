@@ -49,6 +49,35 @@ export const EMPTY_STUDENT_PROFILE_FIELDS: StudentProfileFields = {
 };
 
 /**
+ * The editable field subset of a `student_profiles` row (or a full set of
+ * empty defaults when the student has no row yet). Lets a page that edits
+ * only some fields still send a complete, safe payload to
+ * `upsertStudentProfile` — matching how the profile form builds it — so
+ * unrelated columns are never accidentally blanked.
+ */
+export function studentProfileToFields(
+  studentProfile: StudentProfile | null,
+): StudentProfileFields {
+  if (!studentProfile) return { ...EMPTY_STUDENT_PROFILE_FIELDS };
+  return {
+    phone: studentProfile.phone,
+    date_of_birth: studentProfile.date_of_birth,
+    gender: studentProfile.gender,
+    location: studentProfile.location,
+    institution_name: studentProfile.institution_name,
+    department: studentProfile.department,
+    degree: studentProfile.degree,
+    graduation_year: studentProfile.graduation_year,
+    cgpa: studentProfile.cgpa,
+    percentage: studentProfile.percentage,
+    career_goals: studentProfile.career_goals,
+    preferred_roles: studentProfile.preferred_roles,
+    preferred_locations: studentProfile.preferred_locations,
+    interests: studentProfile.interests,
+  };
+}
+
+/**
  * Reads the caller's own student_profiles row. Returns null both when no
  * row exists yet (new student, hasn't saved a profile) and on any read
  * error — callers render the form with empty/default fields either way

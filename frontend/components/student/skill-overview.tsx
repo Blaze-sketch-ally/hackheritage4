@@ -1,21 +1,26 @@
 import Link from "next/link";
+import { BadgeCheck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { SkillChart } from "@/components/dashboard/skill-chart";
-import type { SkillRadarPoint } from "@/lib/mock/student-dashboard";
-import type { StudentSkill } from "@/lib/student/skills";
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
+import { summarizeSkills } from "@/lib/student/dashboard";
+import { PROFICIENCY_LEVELS, type StudentSkill } from "@/lib/student/skills";
 
-export function SkillOverview({ radar, studentSkills }: { radar: SkillRadarPoint[]; studentSkills: StudentSkill[] }) {
+/**
+ * A truthful overview of the student's own `student_skills`: how many
+ * skills, how many are assessment-verified, and the proficiency
+ * distribution. No fabricated "skill score" and no demo radar — every
+ * number here is a direct count of the student's real skills.
+ */
+export function SkillOverview({ studentSkills }: { studentSkills: StudentSkill[] }) {
+  const summary = summarizeSkills(studentSkills);
   const preview = studentSkills.slice(0, 6);
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>Skill Overview</CardTitle>
-        <CardDescription>
-          Chart is demo data — real assessment scoring lands in a later phase. The list reflects your actual skills.
-        </CardDescription>
         <CardAction>
           <Button variant="ghost" size="sm" render={<Link href="/student/skills" />} nativeButton={false}>
             View All
@@ -23,7 +28,40 @@ export function SkillOverview({ radar, studentSkills }: { radar: SkillRadarPoint
         </CardAction>
       </CardHeader>
       <CardContent className="grid gap-6 lg:grid-cols-2">
-        <SkillChart data={radar} />
+        <div className="space-y-4">
+          <div className="flex items-baseline gap-4">
+            <div>
+              <p className="text-2xl font-semibold tracking-tight tabular-nums">{summary.total}</p>
+              <p className="text-xs text-muted-foreground">skills tracked</p>
+            </div>
+            <div>
+              <p className="flex items-center gap-1 text-2xl font-semibold tracking-tight tabular-nums text-emerald-600 dark:text-emerald-400">
+                <BadgeCheck className="size-5" aria-hidden="true" />
+                {summary.verified}
+              </p>
+              <p className="text-xs text-muted-foreground">assessment-verified</p>
+            </div>
+          </div>
+
+          {summary.total > 0 ? (
+            <div className="space-y-2">
+              {PROFICIENCY_LEVELS.map((level) => {
+                const count = summary.byLevel[level];
+                const pct = (count / summary.total) * 100;
+                return (
+                  <div key={level} className="space-y-1">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-muted-foreground">{level}</span>
+                      <span className="font-medium tabular-nums">{count}</span>
+                    </div>
+                    <Progress value={pct} />
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
+        </div>
+
         <div className="space-y-2">
           {preview.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-8 text-center">
@@ -44,7 +82,9 @@ export function SkillOverview({ radar, studentSkills }: { radar: SkillRadarPoint
                     {studentSkill.skill.category?.name ?? "Uncategorized"}
                   </p>
                 </div>
-                <Badge variant="outline">{studentSkill.proficiency_level}</Badge>
+                <Badge variant={studentSkill.is_verified ? "default" : "outline"}>
+                  {studentSkill.proficiency_level}
+                </Badge>
               </div>
             ))
           )}

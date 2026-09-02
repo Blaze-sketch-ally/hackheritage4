@@ -48,12 +48,14 @@ def test_migration_033_exists():
     assert MIGRATION_033.is_file(), f"expected {MIGRATION_033} to exist"
 
 
-def test_migration_numbering_stays_contiguous_unique_and_033_is_highest():
+def test_migration_numbering_stays_contiguous_and_unique():
     numbers = sorted(int(p.name[:3]) for p in MIGRATIONS_DIR.glob("[0-9][0-9][0-9]_*.sql"))
     assert len(numbers) == len(set(numbers)), f"duplicate migration numbers: {numbers}"
     assert numbers == list(range(numbers[0], numbers[-1] + 1)), f"gap in migration numbering: {numbers}"
-    assert 33 in numbers
-    assert numbers[-1] == 33, "033 must currently be the highest-numbered migration"
+    assert 33 in numbers, "033 (learning) must still exist"
+    # 033 was the highest when this suite was written; new forward
+    # migrations (034 student portfolio, ...) are expected to appear after
+    # it -- the invariant is contiguity + uniqueness, not a fixed maximum.
 
 
 def test_migration_033_does_not_reuse_a_historical_number_or_rename_anything():

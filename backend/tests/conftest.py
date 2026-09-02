@@ -2,7 +2,7 @@
 live Supabase project or real token.
 """
 
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from unittest.mock import MagicMock, patch
 
 
@@ -49,28 +49,57 @@ def authenticated_as(role: str | None, user_id: str = "student-1"):
 
     """
     client = mock_client_with_role(role)
-    with (
-        patch(
-            "app.core.dependencies.verify_access_token",
-            return_value=mock_supabase_user(user_id),
-        ),
-        patch("app.core.dependencies.build_user_client", return_value=client),
-        patch("app.api.analytics.build_user_client", return_value=client),
-        patch("app.api.applications.build_user_client", return_value=client),
-        patch("app.api.assessments.build_user_client", return_value=client),
-        patch("app.api.interviews.build_user_client", return_value=client),
-        patch("app.api.attempts.build_user_client", return_value=client),
-        patch("app.api.industry.build_user_client", return_value=client),
-        patch("app.api.industry_collaborations.build_user_client", return_value=client),
-        patch("app.api.industry_mentorship_opportunities.build_user_client", return_value=client),
-        patch("app.api.industry_projects.build_user_client", return_value=client),
-        patch("app.api.industry_trainings.build_user_client", return_value=client),
-        patch("app.api.industry_workshops.build_user_client", return_value=client),
-        patch("app.api.internships.build_user_client", return_value=client),
-        patch("app.api.jobs.build_user_client", return_value=client),
-        patch("app.api.skills.build_user_client", return_value=client),
-        patch("app.api.skill_gap.build_user_client", return_value=client),
-        patch("app.api.student_learning.build_user_client", return_value=client),
-        patch("app.api.student_opportunities.build_user_client", return_value=client),
-    ):
+
+    # Every route module that imports build_user_client for its own use
+    # needs its own name binding patched (see the docstring above). The
+    # list is built here and entered through an ExitStack rather than a
+    # parenthesised `with` -- CPython caps statically nested blocks at 20,
+    # and the flat `with (...)` form still counts each context as a block.
+    route_modules = (
+        "analytics",
+        "applications",
+        "assessments",
+        "interviews",
+        "attempts",
+        "industry",
+        "industry_collaborations",
+        "industry_mentorship_opportunities",
+        "industry_projects",
+        "industry_trainings",
+        "industry_workshops",
+        "internships",
+        "jobs",
+        "skills",
+        "skill_gap",
+        "student_events",
+        "student_learning",
+        "student_mentorship",
+        "student_notifications",
+        "student_opportunities",
+        "student_portfolio",
+        "student_recommendations",
+    )
+    with ExitStack() as stack:
+        stack.enter_context(
+            patch(
+                "app.core.dependencies.verify_access_token",
+                return_value=mock_supabase_user(user_id),
+            )
+        )
+        stack.enter_context(
+            patch("app.core.dependencies.build_user_client", return_value=client)
+        )
+        for module in route_modules:
+            stack.enter_context(
+                patch(f"app.api.{module}.build_user_client", return_value=client)
+            )
+        # The S8 notification producer is the one service-role touch reachable
+        # from an authorized (Industry) request. Stub it so no test ever
+        # constructs a real service-role client or attempts a live write --
+        # matching the per-test `patch("app.api.assessments.get_supabase", ...)`
+        # convention. A test that wants to assert on the producer patches
+        # `emit_application_status_change` itself.
+        stack.enter_context(
+            patch("app.services.notification_producer.get_supabase", return_value=MagicMock())
+        )
         yield
