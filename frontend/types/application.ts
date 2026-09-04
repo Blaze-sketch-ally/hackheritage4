@@ -2,9 +2,16 @@
 // (database/migrations/020_applications.sql) and
 // backend/app/schemas/application.py. Keep all three in sync.
 //
-// Applicant identity: the schema/RLS gives Industry no read access to an
-// applicant's `profiles` / `student_profiles`, so an application only
-// carries `student_id` (a uuid) — never a name, email, or avatar.
+// Applicant identity: `profiles` RLS still gives Industry no direct read
+// access to an applicant's `profiles` / `student_profiles` row — that is
+// unchanged. `student_name` is resolved server-side (backend
+// application_service, via the public.application_applicant_names RPC,
+// database/migrations/036_application_applicant_names.sql) scoped to the
+// same ownership predicate as the applications RLS policy itself, so it
+// only ever carries `profiles.full_name` — no email, avatar, or other
+// profile data. It can be null (lookup failure, or the student never set
+// a full_name) — always fall back to `applicantRef`/`applicantDisplayName`
+// rather than assuming it's present.
 
 export const APPLICATION_STATUSES = [
   "APPLIED",
@@ -78,6 +85,11 @@ export interface ApplicationOpportunity {
 export interface Application {
   id: string;
   student_id: string;
+  /** The applicant's display name (profiles.full_name), resolved
+   * server-side. Null/undefined when resolution failed or the student has
+   * no full_name — use `applicantDisplayName` rather than reading this
+   * directly. */
+  student_name?: string | null;
   industry_id: string;
   opportunity_type: OpportunityType;
   internship_id: string | null;
@@ -111,10 +123,23 @@ export const RECRUITMENT_PIPELINE: ApplicationStatus[] = [
 /** Statuses that leave the pipeline — shown separately from the funnel. */
 export const RECRUITMENT_EXITS: ApplicationStatus[] = ["REJECTED", "WITHDRAWN"];
 
-/** A short, privacy-safe label for an applicant — the schema/RLS gives
- * Industry no access to student names, so a truncated id is all there is. */
+/** A short, privacy-safe label for an applicant, built only from the id —
+ * the fallback used when no resolved name is available (RPC failure, or
+ * the student never set a full_name). */
 export function applicantRef(studentId: string): string {
   return `Applicant ${studentId.slice(0, 8)}`;
+}
+
+/** The applicant's real name when the backend resolved one, else the same
+ * `applicantRef` truncated-id fallback every recruitment view already
+ * used. Prefer this over `applicantRef` wherever an application's
+ * applicant is displayed. */
+export function applicantDisplayName(application: {
+  student_id: string;
+  student_name?: string | null;
+}): string {
+  const name = application.student_name?.trim();
+  return name ? name : applicantRef(application.student_id);
 }
 
 // ===========================================================================

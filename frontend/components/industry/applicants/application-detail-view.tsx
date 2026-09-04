@@ -15,6 +15,7 @@ import {
   APPLICATION_STATUS_LABELS,
   OPPORTUNITY_TYPE_LABELS,
   TRANSITION_LABELS,
+  applicantDisplayName,
   applicantRef,
   type Application,
   type IndustrySettableStatus,
@@ -155,7 +156,7 @@ export function ApplicationDetailView({ applicationId }: { applicationId: string
             <div className="min-w-0 space-y-1">
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-xl font-semibold">
-                  {applicantRef(state.application.student_id)}
+                  {applicantDisplayName(state.application)}
                 </h1>
                 <ApplicationStatusBadge status={state.application.status} />
               </div>
@@ -213,6 +214,7 @@ export function ApplicationDetailView({ applicationId }: { applicationId: string
             </CardHeader>
             <CardContent className="space-y-3">
               <dl className="grid gap-4 sm:grid-cols-2">
+                <Detail label="Name">{applicantDisplayName(state.application)}</Detail>
                 <Detail label="Applicant reference">
                   {applicantRef(state.application.student_id)}
                 </Detail>
@@ -221,7 +223,8 @@ export function ApplicationDetailView({ applicationId }: { applicationId: string
                 </Detail>
               </dl>
               <p className="text-xs text-muted-foreground">
-                Applicant profile details are not available to companies at this stage of the portal.
+                Further profile details beyond the applicant&apos;s name are not available to
+                companies at this stage of the portal.
               </p>
             </CardContent>
           </Card>

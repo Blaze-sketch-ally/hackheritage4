@@ -8,13 +8,17 @@ internship/job. Industry's involvement is read + a single mutable field:
 by the `prevent_application_identity_change` trigger and by only ever
 sending `{"status": ...}` from the service.
 
-Student identity: `profiles` RLS only permits a user to read their own
-row (001_profiles.sql), and there is no policy granting Industry access
-to an applicant's `profiles` / `student_profiles`. So the Industry
-application response carries the applicant only as `student_id` (a uuid)
-plus what lives on the application row itself. It never exposes an
-applicant's name, email, avatar, or any other profile data -- the schema
-provides no path to it.
+Student identity: `profiles` RLS still only permits a user to read their
+own row (001_profiles.sql) -- that is unchanged. `student_name` is
+resolved server-side through `public.application_applicant_names`
+(036_application_applicant_names.sql), a SECURITY DEFINER function scoped
+to the exact same "Industry can view applications to their own postings"
+predicate as the applications table's own RLS SELECT policy, so it can
+never name a student for an application the caller doesn't already own.
+It returns only `profiles.full_name` -- no email, avatar, or any other
+profile data. When name resolution fails (or the student has no
+full_name), `student_name` is None and the frontend falls back to a
+truncated `student_id` reference.
 """
 
 from typing import Literal
@@ -70,6 +74,9 @@ class ApplicationOpportunity(BaseModel):
 class ApplicationResponse(BaseModel):
     id: str
     student_id: str
+    # Resolved via public.application_applicant_names -- see module
+    # docstring. None if resolution fails or the student has no full_name.
+    student_name: str | None = None
     industry_id: str
     opportunity_type: str
     internship_id: str | None = None

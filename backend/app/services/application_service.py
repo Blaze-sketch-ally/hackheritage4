@@ -74,6 +74,29 @@ def _shape(row: dict) -> dict:
     return row
 
 
+def _attach_applicant_names(client: Client, rows: list[dict]) -> list[dict]:
+    """Best-effort attach `student_name` to each row via the
+    public.application_applicant_names RPC (036) -- a SECURITY DEFINER
+    function scoped to the exact same ownership predicate as this table's
+    own RLS SELECT policy, so it can only ever name applicants for
+    applications the caller already owns. Never raises: a lookup failure
+    just leaves `student_name` as None on every row, same as an unscored
+    match_score -- it never turns a successful list/get into an error."""
+    if not rows:
+        return rows
+    names: dict[str, str | None] = {}
+    try:
+        response = client.rpc(
+            "application_applicant_names", {"application_ids": [row["id"] for row in rows]}
+        ).execute()
+        names = {r["application_id"]: r["student_name"] for r in (response.data or [])}
+    except Exception:  # noqa: BLE001 -- names are optional enrichment, never fatal
+        names = {}
+    for row in rows:
+        row["student_name"] = names.get(row["id"])
+    return rows
+
+
 def list_applications(
     client: Client,
     industry_id: str,
@@ -95,7 +118,7 @@ def list_applications(
     if job_id:
         query = query.eq("job_id", job_id)
     response = query.order("applied_at", desc=True).execute()
-    return [_shape(row) for row in (response.data or [])]
+    return _attach_applicant_names(client, [_shape(row) for row in (response.data or [])])
 
 
 def get_status_summary(client: Client, industry_id: str) -> dict:
@@ -125,7 +148,7 @@ def get_application(client: Client, industry_id: str, application_id: str) -> di
         .execute()
     )
     row = response.data if response is not None else None
-    return _shape(row) if row else None
+    return _attach_applicant_names(client, [_shape(row)])[0] if row else None
 
 
 def get_skill_match_rows(client: Client, application_id: str) -> list[dict]:

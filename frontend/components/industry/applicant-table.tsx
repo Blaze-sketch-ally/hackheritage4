@@ -15,7 +15,7 @@ import { ApplicationStatusBadge } from "@/components/industry/applicants/applica
 import { CandidateCard } from "@/components/industry/candidate-card";
 import {
   OPPORTUNITY_TYPE_LABELS,
-  applicantRef,
+  applicantDisplayName,
   type Application,
   type IndustrySettableStatus,
 } from "@/types/application";
@@ -66,7 +66,7 @@ export function ApplicantTable({
                     href={`/industry/applicants/${application.id}`}
                     className="hover:underline"
                   >
-                    {applicantRef(application.student_id)}
+                    {applicantDisplayName(application)}
                   </Link>
                 </TableCell>
                 <TableCell className="max-w-[15rem] truncate">

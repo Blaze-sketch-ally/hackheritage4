@@ -131,6 +131,18 @@ describe("RecruitmentApplications", () => {
     expect(table.getByText("Shortlisted")).toBeInTheDocument();
   });
 
+  it("shows the applicant's real name when the backend resolved one", async () => {
+    mocks.getApplications.mockResolvedValueOnce({
+      applications: [application({ student_name: "Arunangshu Pal" })],
+    });
+    mocks.getApplicationsSummary.mockResolvedValueOnce(summary({ APPLIED: 1 }));
+    renderApplicants();
+
+    const table = within(await screen.findByRole("table"));
+    expect(table.getByText("Arunangshu Pal")).toBeInTheDocument();
+    expect(table.queryByText(/Applicant 11112222/)).not.toBeInTheDocument();
+  });
+
   it("filters the table when a funnel stage is clicked", async () => {
     mocks.getApplications.mockResolvedValueOnce({
       applications: [

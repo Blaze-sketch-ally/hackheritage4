@@ -64,6 +64,14 @@ describe("ApplicationDetailView", () => {
     expect(screen.getByText(/three side projects/)).toBeInTheDocument();
   });
 
+  it("shows the applicant's real name when the backend resolved one", async () => {
+    mocks.getApplication.mockResolvedValueOnce(application({ student_name: "Arunangshu Pal" }));
+    render(<ApplicationDetailView applicationId="app-1" />);
+
+    expect(await screen.findByRole("heading", { name: "Arunangshu Pal" })).toBeInTheDocument();
+    expect(screen.getByText("Applicant 11112222")).toBeInTheDocument();
+  });
+
   it("does not expose applicant profile fields, only the student id", async () => {
     mocks.getApplication.mockResolvedValueOnce(application());
     render(<ApplicationDetailView applicationId="app-1" />);

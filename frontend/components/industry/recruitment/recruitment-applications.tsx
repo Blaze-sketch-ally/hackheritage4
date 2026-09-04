@@ -22,7 +22,7 @@ import {
   OPPORTUNITY_TYPES,
   OPPORTUNITY_TYPE_LABELS,
   TRANSITION_LABELS,
-  applicantRef,
+  applicantDisplayName,
   type Application,
   type ApplicationStatus,
   type ApplicationSummary,
@@ -128,7 +128,7 @@ export function RecruitmentApplications({
       const matchesStatus = statusFilter === "all" || app.status === statusFilter;
       const matchesType = typeFilter === "all" || app.opportunity_type === typeFilter;
       const haystack =
-        `${app.opportunity?.title ?? ""} ${applicantRef(app.student_id)}`.toLowerCase();
+        `${app.opportunity?.title ?? ""} ${applicantDisplayName(app)}`.toLowerCase();
       const matchesSearch = !query || haystack.includes(query);
       return matchesStatus && matchesType && matchesSearch;
     });

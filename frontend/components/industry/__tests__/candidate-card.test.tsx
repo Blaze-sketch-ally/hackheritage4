@@ -81,4 +81,17 @@ describe("CandidateCard", () => {
     render(<CandidateCard application={application()} pending={false} onPick={vi.fn()} />);
     expect(screen.queryByText(/@/)).not.toBeInTheDocument();
   });
+
+  it("shows the applicant's real name when the backend resolved one", () => {
+    render(
+      <CandidateCard
+        application={application({ student_name: "Arunangshu Pal" })}
+        pending={false}
+        onPick={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("Arunangshu Pal")).toBeInTheDocument();
+    expect(screen.getByText("AP")).toBeInTheDocument();
+    expect(screen.queryByText(/Applicant 11112222/)).not.toBeInTheDocument();
+  });
 });

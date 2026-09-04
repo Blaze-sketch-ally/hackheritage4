@@ -154,6 +154,33 @@ def test_get_detail_returns_owned_application():
     assert resp.json()["opportunity"]["title"] == "Backend Intern"
 
 
+def test_get_detail_response_includes_resolved_student_name():
+    with (
+        authenticated_as("INDUSTRY", user_id="industry-1"),
+        patch.object(
+            application_service,
+            "get_application",
+            return_value=_row(student_name="Arunangshu Pal"),
+        ),
+    ):
+        resp = client.get(
+            f"/api/v1/applications/{uuid4()}", headers={"Authorization": "Bearer token"}
+        )
+    assert resp.status_code == 200
+    assert resp.json()["student_name"] == "Arunangshu Pal"
+
+
+def test_get_detail_response_student_name_defaults_to_none():
+    with (
+        authenticated_as("INDUSTRY", user_id="industry-1"),
+        patch.object(application_service, "get_application", return_value=_row()),
+    ):
+        resp = client.get(
+            f"/api/v1/applications/{uuid4()}", headers={"Authorization": "Bearer token"}
+        )
+    assert resp.json()["student_name"] is None
+
+
 # ============================================================
 # Status update
 # ============================================================
@@ -275,6 +302,46 @@ def test_shape_collapses_job_embed():
 def test_shape_opportunity_is_none_when_no_embed():
     row = application_service._shape({"id": "a", "internship": None, "job": None})
     assert row["opportunity"] is None
+
+
+def test_list_applications_attaches_resolved_student_names():
+    supabase = MagicMock()
+    supabase.table.return_value.select.return_value.eq.return_value.order.return_value.execute.return_value.data = [
+        _row(id="app-1"),
+        _row(id="app-2"),
+    ]
+    supabase.rpc.return_value.execute.return_value.data = [
+        {"application_id": "app-1", "student_name": "Arunangshu Pal"},
+        {"application_id": "app-2", "student_name": None},
+    ]
+    rows = application_service.list_applications(supabase, "industry-1")
+    assert rows[0]["student_name"] == "Arunangshu Pal"
+    assert rows[1]["student_name"] is None
+    supabase.rpc.assert_called_once_with(
+        "application_applicant_names", {"application_ids": ["app-1", "app-2"]}
+    )
+
+
+def test_list_applications_tolerates_name_rpc_failure():
+    supabase = MagicMock()
+    supabase.table.return_value.select.return_value.eq.return_value.order.return_value.execute.return_value.data = [
+        _row(id="app-1")
+    ]
+    supabase.rpc.side_effect = Exception("rpc unavailable")
+    rows = application_service.list_applications(supabase, "industry-1")
+    assert rows[0]["student_name"] is None
+
+
+def test_get_application_attaches_resolved_student_name():
+    supabase = MagicMock()
+    supabase.table.return_value.select.return_value.eq.return_value.eq.return_value.maybe_single.return_value.execute.return_value.data = _row(
+        id="app-1"
+    )
+    supabase.rpc.return_value.execute.return_value.data = [
+        {"application_id": "app-1", "student_name": "Arunangshu Pal"}
+    ]
+    row = application_service.get_application(supabase, "industry-1", "app-1")
+    assert row["student_name"] == "Arunangshu Pal"
 
 
 def test_list_passes_all_filters_to_query():

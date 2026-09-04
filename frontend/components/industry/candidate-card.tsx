@@ -9,10 +9,22 @@ import { ApplicationStatusActions } from "@/components/industry/applicants/appli
 import { ApplicationStatusBadge } from "@/components/industry/applicants/application-status-badge";
 import {
   OPPORTUNITY_TYPE_LABELS,
-  applicantRef,
+  applicantDisplayName,
   type Application,
   type IndustrySettableStatus,
 } from "@/types/application";
+
+/** Avatar initials from a display name — "Arunangshu Pal" -> "AP", a
+ * single-word name -> its first two letters, an id-based
+ * applicantRef fallback ("Applicant db8b0e39") -> its last two chars, same
+ * as before this helper existed. */
+function initials(displayName: string): string {
+  const words = displayName.trim().split(/\s+/).filter(Boolean);
+  if (words.length >= 2) {
+    return (words[0][0] + words[words.length - 1][0]).toUpperCase();
+  }
+  return displayName.slice(-2).toUpperCase();
+}
 
 function formatDate(value: string | null): string | null {
   if (!value) return null;
@@ -43,7 +55,7 @@ export function CandidateCard({
   const applied = formatDate(application.applied_at);
   const opportunityTitle = application.opportunity?.title ?? "(posting unavailable)";
   const OppIcon = application.opportunity_type === "INTERNSHIP" ? GraduationCap : Briefcase;
-  const ref = applicantRef(application.student_id);
+  const name = applicantDisplayName(application);
 
   return (
     <Card>
@@ -51,11 +63,11 @@ export function CandidateCard({
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 items-center gap-3">
             <Avatar size="sm" className="shrink-0">
-              <AvatarFallback>{ref.slice(-2).toUpperCase()}</AvatarFallback>
+              <AvatarFallback>{initials(name)}</AvatarFallback>
             </Avatar>
             <div className="min-w-0 space-y-0.5">
               <Link href={detailHref} className="block truncate font-medium hover:underline">
-                {ref}
+                {name}
               </Link>
               <p className="flex items-center gap-1 truncate text-xs text-muted-foreground">
                 <OppIcon className="size-3.5 shrink-0" aria-hidden="true" />
