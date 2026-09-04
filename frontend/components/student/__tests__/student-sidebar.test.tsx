@@ -14,4 +14,13 @@ describe("StudentSidebar", () => {
       "/student/skill-gap",
     );
   });
+
+  it("links My Internships to /student/my-internships", () => {
+    render(<StudentSidebar />);
+
+    expect(screen.getByRole("link", { name: /my internships/i })).toHaveAttribute(
+      "href",
+      "/student/my-internships",
+    );
+  });
 });

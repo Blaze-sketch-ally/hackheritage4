@@ -46,15 +46,19 @@ export function InternshipCard({
   const stipend = formatStipend(internship.stipend_amount, internship.stipend_currency);
   const deadline = formatDate(internship.application_deadline);
 
-  const meta: Array<{ icon: typeof MapPin; text: string }> = [];
-  if (internship.location) meta.push({ icon: MapPin, text: internship.location });
+  const meta: Array<{ kind: string; icon: typeof MapPin; text: string }> = [];
+  if (internship.location) meta.push({ kind: "location", icon: MapPin, text: internship.location });
   if (internship.work_mode) {
-    meta.push({ icon: Users, text: WORK_MODE_LABELS[internship.work_mode as WorkMode] });
+    meta.push({
+      kind: "work_mode",
+      icon: Users,
+      text: WORK_MODE_LABELS[internship.work_mode as WorkMode],
+    });
   }
   if (internship.duration_months) {
-    meta.push({ icon: CalendarClock, text: `${internship.duration_months} months` });
+    meta.push({ kind: "duration", icon: CalendarClock, text: `${internship.duration_months} months` });
   }
-  if (stipend) meta.push({ icon: Wallet, text: stipend });
+  if (stipend) meta.push({ kind: "stipend", icon: Wallet, text: stipend });
 
   return (
     <Card>
@@ -74,8 +78,8 @@ export function InternshipCard({
 
         {meta.length > 0 ? (
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-            {meta.map(({ icon: Icon, text }) => (
-              <span key={text} className="inline-flex items-center gap-1">
+            {meta.map(({ kind, icon: Icon, text }) => (
+              <span key={kind} className="inline-flex items-center gap-1">
                 <Icon className="size-3.5" aria-hidden="true" />
                 {text}
               </span>

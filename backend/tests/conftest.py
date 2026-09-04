@@ -67,11 +67,14 @@ def authenticated_as(role: str | None, user_id: str = "student-1"):
         "industry_projects",
         "industry_trainings",
         "industry_workshops",
+        "internship_programs",
+        "internship_workspaces",
         "internships",
         "jobs",
         "skills",
         "skill_gap",
         "student_events",
+        "student_internship_workspaces",
         "student_learning",
         "student_mentorship",
         "student_notifications",
@@ -101,5 +104,17 @@ def authenticated_as(role: str | None, user_id: str = "student-1"):
         # `emit_application_status_change` itself.
         stack.enter_context(
             patch("app.services.notification_producer.get_supabase", return_value=MagicMock())
+        )
+        # internship_workspace_service uses the service-role client for ONE
+        # narrow read: resolving an internship's title/details for a
+        # workspace the student already owns (a CLOSED/ARCHIVED posting is
+        # invisible to student RLS otherwise). Stub it so no test builds a
+        # real service-role client; tests that assert on it patch
+        # `_resolve_internship_summaries` themselves.
+        stack.enter_context(
+            patch(
+                "app.services.internship_workspace_service.get_supabase",
+                return_value=MagicMock(),
+            )
         )
         yield

@@ -36,7 +36,16 @@ from app.schemas.application import (
     ApplicationSummaryResponse,
     OpportunityType,
 )
-from app.services import application_service, match_service, notification_producer
+from app.schemas.internship_workspace import (
+    InternshipWorkspaceSummary,
+    ProvisionWorkspaceResponse,
+)
+from app.services import (
+    application_service,
+    internship_workspace_service,
+    match_service,
+    notification_producer,
+)
 
 router = APIRouter(prefix="/applications", tags=["applications"])
 
@@ -180,3 +189,56 @@ def update_application_status(
     )
 
     return ApplicationResponse(**row)
+
+
+@router.post(
+    "/{application_id}/provision-workspace", response_model=ProvisionWorkspaceResponse
+)
+def provision_application_workspace(
+    application_id: UUID,
+    current_user: CurrentUser = Depends(require_industry),
+) -> ProvisionWorkspaceResponse:
+    """Idempotently (re-)provision the Internship Workspace for a SELECTED
+    application of one of the caller's own postings.
+
+    The SELECTED transition already provisions on a best-effort basis
+    (app.services.application_service); this endpoint is the explicit
+    heal / verify path for a workspace that was skipped -- e.g. the
+    industry created its internship_program only after the student was
+    selected. Returns the existing workspace when one is already present,
+    and a no-op outcome (SKIPPED_*) for an ineligible application. NEVER
+    changes the application's status.
+    """
+    client = build_user_client(current_user.access_token)
+
+    # Ownership + existence via the same ownership-checked getter the rest
+    # of this router uses -- a foreign / unknown id is a clean 404, never
+    # a smuggled provisioning attempt.
+    try:
+        application = application_service.get_application(
+            client, current_user.id, str(application_id)
+        )
+    except Exception as exc:
+        raise _server_error("load the application") from exc
+    if application is None:
+        raise _not_found()
+
+    try:
+        result = internship_workspace_service.provision_for_selection(
+            client, str(application_id)
+        )
+    except internship_workspace_service.ProvisionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
+    except Exception as exc:
+        raise _server_error("provision the internship workspace") from exc
+
+    return ProvisionWorkspaceResponse(
+        outcome=result.outcome,
+        detail=result.detail,
+        work_mode=result.work_mode,
+        workspace=(
+            InternshipWorkspaceSummary(**result.workspace) if result.workspace else None
+        ),
+    )

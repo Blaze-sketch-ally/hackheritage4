@@ -27,7 +27,11 @@ with REJECTED reachable from any active stage and WITHDRAWN owned by the
 student. `_STATUS_TRANSITIONS` below is that pipeline, enforced here.
 """
 
+import contextlib
+
 from supabase import Client
+
+from app.services import internship_workspace_service
 
 # Industry-driven transitions only. WITHDRAWN is never a target (student
 # action) and never a source with outgoing edges. SELECTED / REJECTED are
@@ -204,4 +208,23 @@ def update_status(
         .eq("industry_id", industry_id)
         .execute()
     )
+
+    # Phase 2: on the SELECTED transition, provision the student's
+    # Internship Workspace (038_internship_workspace.sql) -- one per
+    # application, for REMOTE/HYBRID internships that have a program.
+    # BEST-EFFORT: a failure here never rolls back the status change --
+    #   * there is no transaction spanning the two PostgREST calls;
+    #   * SELECTED is terminal, so there is no clean "undo" transition;
+    #   * provision_for_selection() is idempotent and re-runnable
+    #     (POST /api/v1/applications/{id}/provision-workspace, or the
+    #     scripts/backfill_internship_workspaces.py utility), so a miss
+    #     self-heals.
+    # Same best-effort posture as notification_producer in the route and
+    # interview_service's own application-advance. This call is READ-ONLY
+    # with respect to `applications` / `internships` -- it only inserts an
+    # internship_workspaces row.
+    if target_status == "SELECTED":
+        with contextlib.suppress(Exception):
+            internship_workspace_service.provision_for_selection(client, application_id)
+
     return get_application(client, industry_id, application_id)

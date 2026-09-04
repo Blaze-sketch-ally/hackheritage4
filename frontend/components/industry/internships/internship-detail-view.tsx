@@ -20,6 +20,7 @@ import {
 import { getSkillCatalog, type CatalogSkill } from "@/lib/industry/skills";
 import { InternshipForm } from "@/components/industry/opportunity-form";
 import { InternshipActions } from "@/components/industry/internships/internship-actions";
+import { InternshipProgramLink } from "@/components/industry/internship-program/internship-program-link";
 import { InternshipStatusBadge } from "@/components/industry/internships/internship-status-badge";
 import {
   SKILL_IMPORTANCE_LABELS,
@@ -369,6 +370,8 @@ function ReadView({
           ) : null}
         </CardContent>
       </Card>
+
+      <InternshipProgramLink internshipId={internship.id} />
 
       <Card>
         <CardHeader>

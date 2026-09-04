@@ -25,6 +25,7 @@ const TYPE_ICON: Record<NotificationType, LucideIcon> = {
   MENTORSHIP: Users,
   EVENT: CalendarDays,
   SYSTEM: Info,
+  INTERNSHIP: Briefcase,
 };
 
 function relativeTime(iso: string | null): string {

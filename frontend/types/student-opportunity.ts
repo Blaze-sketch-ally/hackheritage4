@@ -88,6 +88,10 @@ export interface StudentApplicationOpportunity {
   title: string | null;
   industry: OpportunityIndustry | null;
   location: string | null;
+  /** ONSITE / REMOTE / HYBRID / null (null once the posting is no longer
+   * PUBLISHED). Drives the Applications-page workspace CTA for a SELECTED
+   * internship: only REMOTE/HYBRID get an Internship Workspace. */
+  work_mode: string | null;
 }
 
 export interface StudentApplication {

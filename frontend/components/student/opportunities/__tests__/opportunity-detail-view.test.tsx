@@ -76,7 +76,7 @@ function application(overrides: Partial<StudentApplication> = {}): StudentApplic
     applied_at: "2026-09-02T00:00:00Z",
     created_at: "2026-09-02T00:00:00Z",
     updated_at: "2026-09-02T00:00:00Z",
-    opportunity: { id: OPP_ID, source_type: "INTERNSHIP", title: "Backend Intern", industry: null, location: "Pune" },
+    opportunity: { id: OPP_ID, source_type: "INTERNSHIP", title: "Backend Intern", industry: null, location: "Pune", work_mode: "HYBRID" },
     ...overrides,
   };
 }

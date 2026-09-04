@@ -13,6 +13,7 @@ export const NOTIFICATION_TYPES = [
   "MENTORSHIP",
   "EVENT",
   "SYSTEM",
+  "INTERNSHIP",
 ] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
 
@@ -23,6 +24,7 @@ export const RELATED_ENTITY_TYPES = [
   "LEARNING_RESOURCE",
   "MENTORSHIP",
   "EVENT",
+  "INTERNSHIP_WORKSPACE",
 ] as const;
 export type RelatedEntityType = (typeof RELATED_ENTITY_TYPES)[number];
 
@@ -64,6 +66,8 @@ export function relatedHref(n: StudentNotification): string | null {
       return `/student/events/${encodeURIComponent(id)}`;
     case "MENTORSHIP":
       return `/student/mentorship/${encodeURIComponent(id)}`;
+    case "INTERNSHIP_WORKSPACE":
+      return `/student/my-internships/${encodeURIComponent(id)}`;
     case "INTERVIEW":
       // No student-facing interview route exists yet.
       return null;

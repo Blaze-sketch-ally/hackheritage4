@@ -131,6 +131,10 @@ class StudentApplicationOpportunity(BaseModel):
     title: str | None = None
     industry: OpportunityIndustry | None = None
     location: str | None = None
+    # ONSITE / REMOTE / HYBRID / null -- null once the posting is no longer
+    # PUBLISHED. Drives the "Open Internship Workspace" vs "on-site, no
+    # workspace" CTA on the Applications page for a SELECTED internship.
+    work_mode: str | None = None
 
 
 class StudentApplicationResponse(BaseModel):

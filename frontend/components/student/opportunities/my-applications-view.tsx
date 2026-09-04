@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { AlertCircle, FileText, RefreshCw } from "lucide-react";
+import { AlertCircle, ArrowUpRight, FileText, RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -10,12 +10,18 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { ApplicationStatusBadge } from "@/components/student/opportunities/application-status-badge";
 import { ApiError } from "@/lib/api";
 import { listMyApplications } from "@/lib/student/opportunities";
+import { listMyInternshipWorkspaces } from "@/lib/student/internship-workspace";
+import type { InternshipWorkspaceSummary } from "@/types/internship-workspace";
 import type { SourceType, StudentApplication } from "@/types/student-opportunity";
 
 type LoadState =
   | { status: "loading" }
   | { status: "error"; error: ApiError }
-  | { status: "ready"; applications: StudentApplication[] };
+  | {
+      status: "ready";
+      applications: StudentApplication[];
+      workspacesByApplication: Record<string, InternshipWorkspaceSummary>;
+    };
 
 const TYPE_LABEL: Record<SourceType, string> = { JOB: "Job", INTERNSHIP: "Internship" };
 const DETAIL_BASE: Record<SourceType, string> = {
@@ -24,9 +30,10 @@ const DETAIL_BASE: Record<SourceType, string> = {
 };
 
 /** GET /api/v1/student/applications -- the authenticated student's own
- * applications only. Status is whatever the owning Industry account last
- * set; this view re-fetches on mount so it always shows the current
- * value. */
+ * applications only. Also loads the student's internship workspaces (best
+ * effort) so a SELECTED Remote/Hybrid internship can link straight to its
+ * workspace. The industry-only provisioning endpoint is never called
+ * here. */
 export function MyApplicationsView() {
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [reloadKey, setReloadKey] = useState(0);
@@ -36,8 +43,21 @@ export function MyApplicationsView() {
     async function load() {
       try {
         const { applications } = await listMyApplications();
+
+        let workspacesByApplication: Record<string, InternshipWorkspaceSummary> = {};
+        try {
+          const { workspaces } = await listMyInternshipWorkspaces();
+          workspacesByApplication = Object.fromEntries(
+            workspaces.map((w) => [w.application_id, w]),
+          );
+        } catch {
+          // The workspace CTA is an enhancement -- a failure here must
+          // never hide the applications list.
+          workspacesByApplication = {};
+        }
+
         if (cancelled) return;
-        setState({ status: "ready", applications });
+        setState({ status: "ready", applications, workspacesByApplication });
       } catch (err) {
         if (cancelled) return;
         setState({
@@ -105,6 +125,7 @@ export function MyApplicationsView() {
               <TableHead>Company</TableHead>
               <TableHead>Applied on</TableHead>
               <TableHead>Status</TableHead>
+              <TableHead>Internship Workspace</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -134,6 +155,12 @@ export function MyApplicationsView() {
                   <TableCell>
                     <ApplicationStatusBadge status={app.status} />
                   </TableCell>
+                  <TableCell>
+                    <WorkspaceCell
+                      application={app}
+                      workspace={state.workspacesByApplication[app.id]}
+                    />
+                  </TableCell>
                 </TableRow>
               );
             })}
@@ -141,5 +168,47 @@ export function MyApplicationsView() {
         </Table>
       </CardContent>
     </Card>
+  );
+}
+
+function WorkspaceCell({
+  application,
+  workspace,
+}: {
+  application: StudentApplication;
+  workspace: InternshipWorkspaceSummary | undefined;
+}) {
+  const isSelectedInternship =
+    application.status === "SELECTED" &&
+    (application.opportunity?.source_type ?? application.opportunity_type) === "INTERNSHIP";
+
+  if (!isSelectedInternship) return <span className="text-muted-foreground">—</span>;
+
+  if (workspace) {
+    return (
+      <Button
+        size="sm"
+        variant="outline"
+        render={<Link href={`/student/my-internships/${workspace.id}`} />}
+        nativeButton={false}
+      >
+        Open Internship Workspace <ArrowUpRight className="size-3.5" />
+      </Button>
+    );
+  }
+
+  const workMode = application.opportunity?.work_mode;
+  if (workMode && workMode !== "REMOTE" && workMode !== "HYBRID") {
+    return (
+      <span className="text-sm text-muted-foreground">
+        On-site internship — no online workspace.
+      </span>
+    );
+  }
+
+  return (
+    <span className="text-sm text-muted-foreground">
+      Internship workspace is not available yet.
+    </span>
   );
 }

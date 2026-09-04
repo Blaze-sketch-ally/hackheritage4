@@ -101,6 +101,19 @@ export function CandidateCard({
           <Button size="sm" variant="outline" render={<Link href={detailHref} />}>
             View
           </Button>
+          {application.status === "SELECTED" &&
+          application.opportunity_type === "INTERNSHIP" &&
+          application.opportunity?.id ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              render={
+                <Link href={`/industry/internships/${application.opportunity.id}/program`} />
+              }
+            >
+              Set up program
+            </Button>
+          ) : null}
           {showActions ? (
             <ApplicationStatusActions
               status={application.status}
