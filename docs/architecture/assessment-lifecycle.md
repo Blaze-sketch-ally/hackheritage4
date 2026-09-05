@@ -424,6 +424,143 @@ permitted to write, so RLS's own symmetric `USING`/`WITH CHECK` on
 `auth.uid()`. See
 `025_portfolio_projects_and_certifications.sql`'s own header comment.
 
+## Evaluation Boundary — Phase F8.1
+
+Phase F8 (Evaluation & Rubrics) adds the human-evaluation layer this
+chain's own header comment always left open: `scoring_method` has allowed
+`AI_EVALUATED` since `004_assessments.sql`, but nothing before F8
+implemented what happens to a question marked that way. F8.1
+(`045_evaluation_foundation.sql`) is the **database-only foundation** —
+no API, no frontend, and it does not change objective scoring or grant
+Faculty any new visibility into student answers. F8.2 (a dedicated
+security phase) owns the actual `assessment_answers` RLS change; F8.4
+owns integrating a finalized human score into `assessment_attempts.score`.
+
+| Concept | Role | Owning table |
+|---|---|---|
+| An evaluator assignment | A historical fact — who was authorized to evaluate one exact `(attempt_id, question_id)`, and when | `evaluator_assignments` |
+| A rubric | Current configuration, until a `FINALIZED` evaluation uses it — then usage-locked (see below) | `rubrics` / `rubric_criteria` |
+| An evaluation (current state) | Mutable while not `FINALIZED`; immutable once `FINALIZED` | `evaluations` |
+| An evaluation's history | Append-only — every transition, permanently | `evaluation_history` |
+
+**Grain, chosen deliberately, not by default:** an assignment scopes
+exactly `(evaluator, attempt_id, question_id)` — the same composite
+primary key `assessment_attempt_questions` already uses, referenced via a
+two-column foreign key rather than a bare `attempt_id`. Scoping at the
+whole-attempt level would hand an evaluator every question in an attempt,
+including ones nothing assigned them to; this grain is what lets a future
+`assessment_answers` RLS policy (F8.2) join through the assignment and
+grant nothing broader than what was actually assigned.
+
+**Append-only history, not F7's latest-state model.** F7 (Review
+Governance) deliberately stores only the current reviewer/note, reasoning
+that nothing asks "show me every past review." F8 makes the opposite
+choice for the identical-shaped problem, because a finalized evaluation
+is a real, high-stakes number a student's outcome depends on:
+`evaluations` is the current record (mirroring `assessment_answers`' own
+"mutable while in progress, trigger-locked once it matters" shape), and
+`evaluation_history` is a second, append-only table recording every
+transition — the exact same two-table pattern
+`faculty_assessment_permissions` + `faculty_assessment_permission_audit`
+(`027_faculty_assessment_permissions.sql`) already established for
+capability grants, reused here for a new domain rather than invented.
+
+**Finalization is server-forced, not merely validated** —
+`submitted_at`/`finalized_at`/`finalized_by` are always overwritten by
+the trigger the moment their status is entered, regardless of what a
+client sends. This is stricter than `044_question_review_governance.sql`'s
+own `reviewed_by` (which only rejects a *mismatched* client value, rather
+than ignoring it outright) — a corrected, stronger version of that same
+lesson, applied here because a score is higher-stakes than a review note.
+
+**Rubric immutability is usage-triggered, not versioned.** Once any
+`FINALIZED` evaluation references a rubric, that rubric's (and its
+criteria's) name/description/marks become immutable — the same pattern
+`prevent_unauthorized_question_review()`'s `APPROVED` branch already uses
+for question content, applied to rubrics rather than a new
+version-chain/copy-on-use system.
+
+**Mentor ≠ evaluator, unchanged.** F8.1 adds zero policies to `profiles`,
+`student_profiles`, or either mentorship table — a mentor's visibility
+(Phase F4.2, above) is exactly what it was before this phase, and an
+evaluator's own new visibility is scoped to `evaluator_assignments` and
+`evaluations` only, never to `assessment_answers` (still F8.2's
+concern, not opened here).
+
+**Assignment creation is `service_role`-only in F8.1, deliberately not
+`is_admin()`-gated** even though `is_admin()`
+(`035_admin_faculty_permission_management.sql`) already gates the
+closely analogous `admin_grant_assessment_capability()`. Who the real
+governance actor for evaluator assignment should be is an open decision
+this phase does not resolve — see that migration's own header comment.
+
+## Evaluator Answer Access — Phase F8.2
+
+F8.2 (`046_evaluator_answer_access.sql`) is the first migration in this
+project's history to grant any Faculty role read access to
+`assessment_answers` beyond the mentor's existing summary-only policy
+(`assessment_attempts.score/percentage`, no answer content, Phase F4.2
+above). Implemented exactly as audited and approved — read access only,
+no write policy anywhere in this migration.
+
+**The full authorization chain, every link required:**
+
+```
+auth.uid()
+  → is_faculty(auth.uid())                                          (015)
+  → has_assessment_capability(auth.uid(), 'assessment_evaluator')   (027, checked LIVE on every query --
+                                                                       SUSPENDED/EXPIRED/REVOKED removes
+                                                                       access on the very next request,
+                                                                       automatically)
+  → an ACTIVE evaluator_assignments row for the EXACT
+    (attempt_id, question_id) being read                            (045)
+  → assessment_answers / assessment_attempts row visible
+```
+
+A capability alone is never sufficient — the explicitly rejected shape
+(`has_assessment_capability(...) → SELECT assessment_answers`, with no
+assignment check) would have exposed every student's answer to every
+evaluator. `has_active_evaluator_assignment(p_attempt_id, p_question_id)`
+is the one new helper (`SECURITY DEFINER`, `search_path=''`, derives the
+evaluator's identity from `auth.uid()` only — never a caller-supplied
+parameter, which would otherwise let one evaluator probe another's
+assignments).
+
+**Approved decisions this migration encodes:**
+- **Co-evaluation is allowed.** Multiple different evaluators may hold
+  simultaneous `ACTIVE` assignments to the same `(attempt_id,
+  question_id)` — every policy scopes strictly to `auth.uid()`'s own
+  assignment row, so revoking one co-evaluator's access never affects
+  another's (verified live).
+- **Student identity is visible** to the assigned evaluator via
+  `assessment_attempts.student_id` on an attempt they are actually
+  assigned to — but no policy was added to `profiles` of any kind; an
+  evaluator learns a uuid, not a browsable profile.
+- **No answer-key access.** `assessment_question_answers` remains exactly
+  as protected as before this migration, for every role — the rubric
+  (F8.1) is the authoritative grading criteria for human evaluation.
+- **No `assessment_attempt_questions` access** — nothing an evaluator
+  needs is missing without it (their own assignment already carries
+  `attempt_id`/`question_id`, and `assessment_answers` carries both
+  directly).
+- **Rubric/rubric criteria visibility** is scoped to only the rubric
+  actually attached to the reading evaluator's own evaluation — never a
+  blanket "any evaluator reads any rubric" grant.
+- **Mentor contributes nothing to evaluator authorization** — verified
+  live for the mixed case (one Faculty account holding both `faculty_mentor`
+  and `assessment_evaluator`, with an active mentorship *and* an active
+  evaluator assignment for the same student): answer visibility appears
+  only once the evaluator assignment exists, never from the mentorship
+  alone.
+
+**What F8.2 deliberately does not do:** no FastAPI route, no service, no
+frontend — `require_assessment_evaluator` (existing) is left for F8.3 to
+combine with an assignment-specific check at the service layer, the same
+"RLS is the real boundary, the backend re-verifies as defense in depth"
+pattern this project already uses in `attempts.py`'s `get_attempt_result`.
+No change to `create_assessment_attempt()`/`score_assessment_attempt()` —
+final score integration remains F8.4's concern.
+
 ## What is explicitly *not* documented here
 
 Assessment CRUD (creating a new assessment itself is `service_role`-only,

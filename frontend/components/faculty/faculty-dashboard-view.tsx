@@ -2,35 +2,36 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import {
-  AlertCircle,
-  Briefcase,
-  CheckCircle2,
-  ClipboardList,
-  FileEdit,
-  Inbox,
-  ListChecks,
-  RefreshCw,
-  User,
-} from "lucide-react";
+import { AlertCircle, Briefcase, ClipboardCheck, Inbox, LayoutGrid, RefreshCw, User } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { StatCard } from "@/components/dashboard/stat-card";
 import { ApiError } from "@/lib/api";
-import { listAssessmentsForFaculty, listMyQuestions } from "@/lib/faculty/question-bank";
+import {
+  type AssessmentCapability,
+  hasEvaluationWorkspaceAccess,
+  hasQuestionStudioAccess,
+  useFacultyCapabilitiesContext,
+} from "@/lib/faculty/capabilities";
 import { getFacultyProfile } from "@/lib/faculty/profile";
 import { listFacultyOpportunities } from "@/lib/faculty/opportunities";
 import { getIncomingCollaborations } from "@/lib/industry/collaborations";
-import type { QuestionBank, ReviewStatus } from "@/types/question-bank";
 import type { FacultyProfile } from "@/types/faculty-profile";
 
-/** Real data throughout -- no mock values. Composed client-side from the
- * existing Phase 1K question-bank API, the Phase F3.1 faculty profile
- * endpoint, and the Phase F3.2 opportunity-discovery/application (incoming
- * collaboration) reads. Deliberately still NOT shown: evaluator/reviewer
- * metrics, which need F5+ evaluation infrastructure that doesn't exist. */
+/** Phase 1 (Faculty Dashboard Architecture): this is now the Faculty
+ * Connect dashboard -- the general-Faculty experience every FACULTY user
+ * gets, regardless of capability. Question-authoring/review KPIs and
+ * quick actions used to live here unconditionally; they moved to
+ * AssessmentStudioOverview (the Question Studio dashboard), which is
+ * only ever shown/linked to a caller who actually holds
+ * assessment_author or assessment_reviewer. This view no longer reads
+ * the question bank at all -- see that component for the moved content.
+ *
+ * Real data throughout -- no mock values. Composed client-side from the
+ * Phase F3.1 faculty profile endpoint and the Phase F3.2 opportunity-
+ * discovery/application (incoming collaboration) reads. */
 
 type LoadState =
   | { status: "loading" }
@@ -40,24 +41,21 @@ type LoadState =
     }
   | {
       status: "ready";
-      questions: QuestionBank[];
-      assessmentCount: number;
       profile: FacultyProfile;
       opportunityCount: number;
       pendingApplicationCount: number;
     };
 
-export function FacultyDashboardView({ facultyId }: { facultyId: string }) {
+export function FacultyDashboardView() {
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [reloadKey, setReloadKey] = useState(0);
+  const capabilityState = useFacultyCapabilitiesContext();
 
   useEffect(() => {
     let cancelled = false;
     async function load() {
       try {
-        const [questions, { assessments }, profile, { opportunities }, { collaborations }] = await Promise.all([
-          listMyQuestions(),
-          listAssessmentsForFaculty(),
+        const [profile, { opportunities }, { collaborations }] = await Promise.all([
           getFacultyProfile(),
           listFacultyOpportunities(),
           getIncomingCollaborations({ status: "SENT" }),
@@ -65,8 +63,6 @@ export function FacultyDashboardView({ facultyId }: { facultyId: string }) {
         if (cancelled) return;
         setState({
           status: "ready",
-          questions,
-          assessmentCount: assessments.length,
           profile,
           opportunityCount: opportunities.length,
           pendingApplicationCount: collaborations.length,
@@ -113,51 +109,16 @@ export function FacultyDashboardView({ facultyId }: { facultyId: string }) {
     );
   }
 
-  const { questions, assessmentCount, profile, opportunityCount, pendingApplicationCount } = state;
-  const mine = questions.filter((q) => q.created_by === facultyId);
-  const authored = mine.length;
-  const approved = mine.filter((q) => q.review_status === "APPROVED").length;
-  const needsRevision = mine.filter((q) => q.review_status === "REJECTED").length;
-  const pendingReview = questions.filter((q) => q.review_status === "PENDING" && q.created_by !== facultyId);
-  const recent = [...mine].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 5);
+  const { profile, opportunityCount, pendingApplicationCount } = state;
+  const capabilities = capabilityState.status === "ready" ? capabilityState.capabilities : null;
+  const showWorkspaceSwitcher =
+    capabilities !== null && (hasQuestionStudioAccess(capabilities) || hasEvaluationWorkspaceAccess(capabilities));
 
   return (
     <div className="space-y-6">
       <ProfileSummaryCard profile={profile} />
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard
-          label="Questions Authored"
-          value={String(authored)}
-          helperText={`${assessmentCount} assessment${assessmentCount === 1 ? "" : "s"} in the bank`}
-          icon={FileEdit}
-          accent="indigo"
-        />
-        <StatCard
-          label="Pending Your Review"
-          value={String(pendingReview.length)}
-          helperText={pendingReview.length > 0 ? "From other setters" : "All caught up"}
-          trend={pendingReview.length > 0 ? "up" : "neutral"}
-          icon={ClipboardList}
-          accent="amber"
-        />
-        <StatCard
-          label="Approved"
-          value={String(approved)}
-          helperText="Live in the question bank"
-          trend="up"
-          icon={CheckCircle2}
-          accent="emerald"
-        />
-        <StatCard
-          label="Needs Revision"
-          value={String(needsRevision)}
-          helperText={needsRevision > 0 ? "Rejected by a reviewer" : "None right now"}
-          trend={needsRevision > 0 ? "down" : "neutral"}
-          icon={ListChecks}
-          accent="violet"
-        />
-      </div>
+      {showWorkspaceSwitcher && capabilities !== null && <WorkspaceSwitcherCard capabilities={capabilities} />}
 
       <div className="grid gap-4 sm:grid-cols-2">
         <StatCard
@@ -177,105 +138,87 @@ export function FacultyDashboardView({ facultyId }: { facultyId: string }) {
         />
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-3">
-        <Card className="xl:col-span-2">
-          <CardHeader>
-            <CardTitle>Your Recent Questions</CardTitle>
-            <CardAction>
-              <Button variant="ghost" size="sm" render={<Link href="/faculty/questions" />} nativeButton={false}>
-                View All
-              </Button>
-            </CardAction>
-          </CardHeader>
-          <CardContent>
-            {recent.length === 0 ? (
-              <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed py-8 text-center">
-                <p className="text-sm text-muted-foreground">You haven&apos;t authored any questions yet.</p>
-                <Button size="sm" render={<Link href="/faculty/questions/new" />} nativeButton={false}>
-                  Create Your First Question
-                </Button>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {recent.map((q) => (
-                  <Link
-                    key={q.id}
-                    href={`/faculty/questions/${q.id}`}
-                    className="flex items-center justify-between gap-3 rounded-lg border border-border/60 px-3 py-2 hover:bg-muted/50"
-                  >
-                    <p className="min-w-0 flex-1 truncate text-sm font-medium">{q.question_text}</p>
-                    <ReviewStatusBadge status={q.review_status} isActive={q.is_active} />
-                  </Link>
-                ))}
-              </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Quick Actions</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <Button
+            className="w-full justify-start"
+            render={<Link href="/faculty/opportunities" />}
+            nativeButton={false}
+          >
+            <Briefcase /> Browse Opportunities
+          </Button>
+          <Button
+            variant="outline"
+            className="w-full justify-start"
+            render={<Link href="/faculty/applications" />}
+            nativeButton={false}
+          >
+            <Inbox /> View Applications
+            {pendingApplicationCount > 0 && (
+              <Badge variant="secondary" className="ml-auto">
+                {pendingApplicationCount}
+              </Badge>
             )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Quick Actions</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            <Button className="w-full justify-start" render={<Link href="/faculty/questions/new" />} nativeButton={false}>
-              <FileEdit /> Create Question
-            </Button>
+          </Button>
+          {profile.completeness < 1 && (
             <Button
               variant="outline"
               className="w-full justify-start"
-              render={<Link href="/faculty/questions" />}
+              render={<Link href="/faculty/profile" />}
               nativeButton={false}
             >
-              <ClipboardList /> Review Queue
-              {pendingReview.length > 0 && (
-                <Badge variant="secondary" className="ml-auto">
-                  {pendingReview.length}
-                </Badge>
-              )}
+              <User /> Complete Your Profile
             </Button>
-            <Button
-              variant="outline"
-              className="w-full justify-start"
-              render={<Link href="/faculty/blueprint" />}
-              nativeButton={false}
-            >
-              <ListChecks /> Manage Blueprints
-            </Button>
-            <Button
-              variant="outline"
-              className="w-full justify-start"
-              render={<Link href="/faculty/opportunities" />}
-              nativeButton={false}
-            >
-              <Briefcase /> Browse Opportunities
-            </Button>
-            <Button
-              variant="outline"
-              className="w-full justify-start"
-              render={<Link href="/faculty/applications" />}
-              nativeButton={false}
-            >
-              <Inbox /> View Applications
-              {pendingApplicationCount > 0 && (
-                <Badge variant="secondary" className="ml-auto">
-                  {pendingApplicationCount}
-                </Badge>
-              )}
-            </Button>
-            {profile.completeness < 1 && (
-              <Button
-                variant="outline"
-                className="w-full justify-start"
-                render={<Link href="/faculty/profile" />}
-                nativeButton={false}
-              >
-                <User /> Complete Your Profile
-              </Button>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
+  );
+}
+
+/** Only rendered once capabilities have resolved to at least one
+ * additional workspace -- a Faculty member with no assessment
+ * capability at all never sees a "switcher" implying workspaces that
+ * don't exist for them (see the audit's "do not show contributor
+ * widgets merely because the user is Faculty" finding). */
+function WorkspaceSwitcherCard({ capabilities }: { capabilities: readonly AssessmentCapability[] }) {
+  const isQuestionStudio = hasQuestionStudioAccess(capabilities);
+  const isEvaluator = hasEvaluationWorkspaceAccess(capabilities);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Your Faculty Workspaces</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-wrap gap-2">
+        <Badge variant="outline" className="pointer-events-none">
+          Faculty Connect (current)
+        </Badge>
+        {isQuestionStudio && (
+          <Button
+            size="sm"
+            variant="outline"
+            render={<Link href="/faculty/assessment-studio" />}
+            nativeButton={false}
+          >
+            <LayoutGrid className="size-3.5" /> Question Studio
+          </Button>
+        )}
+        {isEvaluator && (
+          <Button
+            size="sm"
+            variant="outline"
+            render={<Link href="/faculty/evaluation-workspace" />}
+            nativeButton={false}
+          >
+            <ClipboardCheck className="size-3.5" /> Evaluation Workspace
+          </Button>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -318,19 +261,10 @@ function ProfileSummaryCard({ profile }: { profile: FacultyProfile }) {
   );
 }
 
-function ReviewStatusBadge({ status, isActive }: { status: ReviewStatus; isActive: boolean }) {
-  if (!isActive) return <Badge variant="secondary">Inactive</Badge>;
-  if (status === "APPROVED") {
-    return <Badge className="bg-emerald-600 text-white hover:bg-emerald-600/90 dark:bg-emerald-500">Approved</Badge>;
-  }
-  if (status === "REJECTED") return <Badge variant="destructive">Rejected</Badge>;
-  return <Badge variant="outline">Pending</Badge>;
-}
-
 function DashboardSkeleton() {
   return (
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-busy="true" aria-label="Loading dashboard">
-      {[0, 1, 2, 3].map((i) => (
+    <div className="grid gap-4 sm:grid-cols-2" aria-busy="true" aria-label="Loading dashboard">
+      {[0, 1].map((i) => (
         <Card key={i} className="animate-pulse">
           <CardContent className="space-y-2">
             <div className="h-3 w-20 rounded bg-muted" />

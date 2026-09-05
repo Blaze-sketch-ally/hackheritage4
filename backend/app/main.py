@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import (
+    admin_evaluator_assignments,
     admin_faculty,
     admin_mentorships,
     applications,
@@ -10,6 +11,7 @@ from app.api import (
     career_roles,
     faculty,
     faculty_engagements,
+    faculty_evaluations,
     faculty_mentorships,
     faculty_opportunities,
     industry,
@@ -42,8 +44,10 @@ app.include_router(attempts.router, prefix="/api/v1")
 app.include_router(questions.router, prefix="/api/v1")
 app.include_router(faculty.router, prefix="/api/v1")
 app.include_router(admin_faculty.router, prefix="/api/v1")
+app.include_router(admin_evaluator_assignments.router, prefix="/api/v1")
 app.include_router(faculty_opportunities.router, prefix="/api/v1")
 app.include_router(faculty_engagements.router, prefix="/api/v1")
+app.include_router(faculty_evaluations.router, prefix="/api/v1")
 app.include_router(faculty_mentorships.router, prefix="/api/v1")
 app.include_router(student_mentorships.router, prefix="/api/v1")
 app.include_router(admin_mentorships.router, prefix="/api/v1")

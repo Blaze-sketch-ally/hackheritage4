@@ -1,7 +1,16 @@
 import { createContext, useContext, type ReactNode } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+
+const { useFacultyCapabilitiesContext } = vi.hoisted(() => ({
+  useFacultyCapabilitiesContext: vi.fn(),
+}));
+
+vi.mock("@/lib/faculty/capabilities", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/faculty/capabilities")>("@/lib/faculty/capabilities");
+  return { ...actual, useFacultyCapabilitiesContext };
+});
 
 /** See the identical mock in question-create-form.test.tsx: the real
  * @base-ui/react Select this project's components/ui/select.tsx wraps
@@ -92,8 +101,34 @@ function question(overrides = {}) {
 }
 
 describe("QuestionBankView", () => {
+  beforeEach(() => {
+    // Reviewer by default -- this file's own existing tests are about
+    // reviewer actions (approve/reject); author-specific "New question"
+    // visibility is covered by its own dedicated tests below.
+    useFacultyCapabilitiesContext.mockReturnValue({ status: "ready", capabilities: ["assessment_reviewer"] });
+  });
+
   afterEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("shows the New question action only for a caller with assessment_author", async () => {
+    useFacultyCapabilitiesContext.mockReturnValue({ status: "ready", capabilities: ["assessment_author"] });
+    listMyQuestions.mockResolvedValue([question({ id: "q1", created_by: "faculty-me" })]);
+
+    render(<QuestionBankView />);
+    await screen.findByText("What is a closure?");
+
+    expect(screen.getByRole("button", { name: /new question/i })).toHaveAttribute("href", "/faculty/questions/new");
+  });
+
+  it("hides the New question action for a reviewer without author capability", async () => {
+    listMyQuestions.mockResolvedValue([question({ id: "q1", created_by: "faculty-other" })]);
+
+    render(<QuestionBankView />);
+    await screen.findByText("What is a closure?");
+
+    expect(screen.queryByRole("button", { name: /new question/i })).not.toBeInTheDocument();
   });
 
   it("shows Approve/Reject only for another setter's PENDING question, never for the caller's own", async () => {

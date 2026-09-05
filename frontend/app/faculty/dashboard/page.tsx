@@ -24,7 +24,7 @@ export default async function FacultyDashboardPage() {
           Track your question bank, review queue, and assessment blueprints.
         </p>
       </div>
-      <FacultyDashboardView facultyId={user.id} />
+      <FacultyDashboardView />
     </div>
   );
 }

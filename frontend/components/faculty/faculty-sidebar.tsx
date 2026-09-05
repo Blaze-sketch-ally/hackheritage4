@@ -6,6 +6,7 @@ import {
   BookOpen,
   Briefcase,
   CalendarDays,
+  ClipboardCheck,
   FileText,
   GraduationCap,
   Handshake,
@@ -19,6 +20,7 @@ import {
   Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { hasEvaluationWorkspaceAccess, hasQuestionStudioAccess, useFacultyCapabilitiesContext } from "@/lib/faculty/capabilities";
 
 interface NavItem {
   label: string;
@@ -37,30 +39,27 @@ interface NavGroup {
 // "Soon" badge instead of linking to a page that isn't real yet --
 // same convention already established in StudentSidebar, for the same
 // reason (don't let navigation claim a feature exists before it does).
-// Question Bank, Assessment Blueprints, Dashboard, Profile, Opportunities
-// (F3.2), and Applications (F3.2) are real; every remaining "Engagement"/
-// "Other" item is still a static placeholder page as of this phase, so
-// it is intentionally NOT linked here even though the page file exists.
+// Dashboard, Profile, Opportunities (F3.2), Applications (F3.2), and
+// Mentorship are real; every remaining "Engagement"/"Other" item is
+// still a static placeholder page as of this phase, so it is
+// intentionally NOT linked here even though the page file exists.
 // "Applications" reuses the existing industry_collaborations
 // recipient-side flow (see faculty-applications-view.tsx) -- "Collaborations"
 // below stays Soon rather than becoming a second entry point to the same
 // data under a different label.
 //
-// Phase F5A: the "Assessment" group is renamed "Assessment Studio" and
-// gains an "Overview" landing link (assessment-studio-overview.tsx) --
-// Question Bank and Blueprints are unchanged, real pages; nothing about
-// them moved or was rebuilt, this only gives the group an identifiable
-// front door alongside the two existing tools.
-const NAV_GROUPS: NavGroup[] = [
+// Phase 1 (Faculty Dashboard Architecture): this is now ONLY the Faculty
+// Connect experience -- the general-Faculty workspace every FACULTY user
+// gets regardless of capability. Question Studio and Evaluation
+// Workspace used to be a single static "Assessment Studio" group here;
+// they are now separate, capability-gated groups computed below, never
+// shown to a caller who doesn't (yet) hold the relevant capability. This
+// directly addresses the deployment-readiness audit's finding that every
+// Faculty member saw Question Bank/Blueprint links regardless of
+// capability, with unauthorized access only failing later at the
+// backend.
+const CONNECT_NAV_GROUPS: NavGroup[] = [
   { items: [{ label: "Dashboard", href: "/faculty/dashboard", icon: LayoutDashboard }] },
-  {
-    label: "Assessment Studio",
-    items: [
-      { label: "Overview", href: "/faculty/assessment-studio", icon: LayoutGrid },
-      { label: "Question Bank", href: "/faculty/questions", icon: Layers },
-      { label: "Assessment Blueprints", href: "/faculty/blueprint", icon: FileText },
-    ],
-  },
   {
     label: "Engagement",
     items: [
@@ -90,8 +89,43 @@ const NAV_GROUPS: NavGroup[] = [
   },
 ];
 
+// Visible only when the caller holds assessment_author and/or
+// assessment_reviewer (see hasQuestionStudioAccess) -- Question Bank and
+// Blueprints are unchanged, real pages; nothing about them moved or was
+// rebuilt, only their visibility became capability-aware.
+const QUESTION_STUDIO_GROUP: NavGroup = {
+  label: "Question Studio",
+  items: [
+    { label: "Overview", href: "/faculty/assessment-studio", icon: LayoutGrid },
+    { label: "Question Bank", href: "/faculty/questions", icon: Layers },
+    { label: "Blueprints", href: "/faculty/blueprint", icon: FileText },
+  ],
+};
+
+// Visible only when the caller holds assessment_evaluator. Phase 1 only
+// establishes this nav entry and its placeholder destination -- the real
+// evaluator workspace (assigned evaluations, answers, rubrics, finalize)
+// is Phase 2. Deliberately a single real link, never a "Soon"-badged
+// disabled item: an evaluator-capable Faculty member genuinely has
+// somewhere to go today, it just honestly says what isn't built yet.
+const EVALUATION_WORKSPACE_GROUP: NavGroup = {
+  label: "Evaluation Workspace",
+  items: [{ label: "Overview", href: "/faculty/evaluation-workspace", icon: ClipboardCheck }],
+};
+
 export function FacultySidebar({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
+  const capabilityState = useFacultyCapabilitiesContext();
+
+  // Deferred, not flickered: while capabilities are loading (or failed to
+  // load), these two groups are simply absent -- never rendered and then
+  // removed, never briefly shown to a caller who turns out to lack the
+  // capability. See the audit's own "no flicker" requirement.
+  const groups: NavGroup[] = [...CONNECT_NAV_GROUPS];
+  if (capabilityState.status === "ready") {
+    if (hasQuestionStudioAccess(capabilityState.capabilities)) groups.push(QUESTION_STUDIO_GROUP);
+    if (hasEvaluationWorkspaceAccess(capabilityState.capabilities)) groups.push(EVALUATION_WORKSPACE_GROUP);
+  }
 
   return (
     <div className="flex h-full flex-col">
@@ -105,7 +139,7 @@ export function FacultySidebar({ onNavigate }: { onNavigate?: () => void }) {
       </div>
 
       <nav className="flex-1 space-y-6 overflow-y-auto px-3 py-4">
-        {NAV_GROUPS.map((group, i) => (
+        {groups.map((group, i) => (
           <div key={group.label ?? i} className="space-y-1">
             {group.label ? (
               <p className="px-2.5 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">

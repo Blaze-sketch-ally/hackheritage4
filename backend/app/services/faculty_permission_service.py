@@ -10,6 +10,8 @@ sufficient caller: there is no need for (and no use of) service_role
 anywhere in this module.
 """
 
+from datetime import UTC, datetime
+
 from postgrest.exceptions import APIError
 from supabase import Client
 
@@ -89,6 +91,57 @@ def admin_list_faculty_with_permissions(client: Client) -> list[dict]:
                 }
             )
     return list(faculty_by_id.values())
+
+
+def _capability_is_currently_active(status: str | None, expires_at: str | None) -> bool:
+    """Mirrors has_assessment_capability()'s own SQL condition exactly
+    (status = 'GRANTED' and (expires_at is null or expires_at > now())),
+    computed in Python from data already fetched by
+    admin_list_faculty_assessment_permissions() -- a listing convenience
+    only. The real, authoritative check happens again, fresh, at the
+    moment of actually creating an assignment (see
+    evaluation_service.admin_create_assignment), so brief staleness here
+    (a capability expiring between listing and selection) is harmless."""
+    if status != "GRANTED":
+        return False
+    if expires_at is None:
+        return True
+    try:
+        expiry = datetime.fromisoformat(expires_at)
+    except ValueError:
+        return False
+    return expiry > datetime.now(UTC)
+
+
+def admin_list_eligible_evaluators(client: Client) -> list[dict]:
+    """Phase 2 (Evaluator Assignment): Faculty currently holding an
+    active, unexpired assessment_evaluator capability -- the eligible-
+    evaluator picker for assignment creation. Reuses
+    admin_list_faculty_assessment_permissions() (035) -- the exact same
+    RPC admin_list_faculty_with_permissions() already calls -- rather
+    than adding a new one; this function only narrows the shape/filter
+    down to what assignment creation actually needs (id/email/name of
+    evaluator-eligible Faculty only), so no unrelated Faculty or
+    capability data ever leaves the backend for this purpose."""
+    try:
+        response = client.rpc("admin_list_faculty_assessment_permissions").execute()
+    except APIError as exc:
+        if exc.code == "42501":
+            raise AdminAuthorizationError(str(exc)) from exc
+        raise
+
+    eligible: dict[str, dict] = {}
+    for row in response.data or []:
+        if row.get("capability") != "assessment_evaluator":
+            continue
+        if not _capability_is_currently_active(row.get("status"), row.get("expires_at")):
+            continue
+        eligible[row["faculty_id"]] = {
+            "faculty_id": row["faculty_id"],
+            "email": row["faculty_email"],
+            "full_name": row["faculty_full_name"],
+        }
+    return list(eligible.values())
 
 
 def admin_grant_capability(

@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useAuth } from "@/hooks/use-auth";
 import { ApiError } from "@/lib/api";
+import { hasAssessmentCapability, useFacultyCapabilitiesContext } from "@/lib/faculty/capabilities";
 import { approveQuestion, listMyQuestions, rejectQuestion } from "@/lib/faculty/question-bank";
 import type { Difficulty, QuestionType } from "@/types/assessment";
 import type { QuestionBank, ReviewStatus } from "@/types/question-bank";
@@ -101,6 +102,9 @@ type LoadState =
 
 export function QuestionBankView() {
   const { user } = useAuth();
+  const capabilityState = useFacultyCapabilitiesContext();
+  const isAuthor =
+    capabilityState.status === "ready" && hasAssessmentCapability(capabilityState.capabilities, "assessment_author");
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [reloadKey, setReloadKey] = useState(0);
   const [actioningId, setActioningId] = useState<string | null>(null);
@@ -215,9 +219,11 @@ export function QuestionBankView() {
         <p className="text-sm text-muted-foreground">
           Your own drafts and submissions, plus questions from other setters awaiting review.
         </p>
-        <Button size="sm" render={<Link href="/faculty/questions/new" />} nativeButton={false}>
-          <Plus className="size-3.5" /> New question
-        </Button>
+        {isAuthor && (
+          <Button size="sm" render={<Link href="/faculty/questions/new" />} nativeButton={false}>
+            <Plus className="size-3.5" /> New question
+          </Button>
+        )}
       </div>
 
       {actionError && (
