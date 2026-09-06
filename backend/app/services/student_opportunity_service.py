@@ -328,8 +328,8 @@ def apply_to_opportunity(
 _APPLICATION_SELECT = (
     "id, student_id, opportunity_type, internship_id, job_id, status, cover_note, "
     "match_score, applied_at, created_at, updated_at, "
-    "internship:internships(id, title, location, industry_id), "
-    "job:jobs(id, title, location, industry_id)"
+    "internship:internships(id, title, location, work_mode, industry_id), "
+    "job:jobs(id, title, location, work_mode, industry_id)"
 )
 
 
@@ -345,6 +345,9 @@ def _shape_application(row: dict, industries: dict[str, dict]) -> dict:
         "source_type": source_type,
         "title": picked.get("title") if picked else None,
         "location": picked.get("location") if picked else None,
+        # Lets the Applications view tell an on-site SELECTED internship
+        # (no online workspace) apart from a Remote/Hybrid one.
+        "work_mode": picked.get("work_mode") if picked else None,
         "industry": (
             _industry_payload(picked["industry_id"], industries)
             if picked and picked.get("industry_id")

@@ -424,7 +424,7 @@ def get_student_detail(client: Client, institution_id: str, student_id: str) -> 
 
     applications = list(
         client.table("applications")
-        .select("id, status, opportunity_type, internship_id, job_id, applied_at, industry_id")
+        .select("id, student_id, status, opportunity_type, internship_id, job_id, applied_at, industry_id")
         .eq("student_id", student_id)
         .execute()
         .data

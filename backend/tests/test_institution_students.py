@@ -725,6 +725,142 @@ def test_detail_portfolio_projects_certifications_achievements():
 
 
 # ============================================================
+# Regression: get_student_detail's own applications query once omitted
+# `student_id` from its .select(...) column list. _placement_buckets
+# (shared with list_students / the dashboard / departments / analytics)
+# indexes every application row by row["student_id"] -- a real Postgrest
+# response only ever contains the columns actually requested, so a real
+# institution viewing any student with >=1 application got a live 500
+# (KeyError: 'student_id'), even though every test above already passed:
+# _FakeQuery.select() is a no-op that returns whatever full row dict the
+# test authored, regardless of what columns were actually asked for, so
+# it could never catch a missing-column select. _ProjectingFakeQuery
+# below actually projects to the requested columns, the way Postgrest
+# really behaves, specifically to close that blind spot.
+# ============================================================
+
+
+class _ProjectingFakeQuery:
+    def __init__(self, rows):
+        self._all_rows = [dict(r) for r in rows]
+        self._rows = list(self._all_rows)
+        self._columns: list[str] | None = None
+        self._single = False
+
+    def select(self, columns, *_a, **_k):
+        self._columns = [c.strip() for c in columns.split(",")]
+        return self
+
+    def eq(self, field, value):
+        self._rows = [r for r in self._rows if r.get(field) == value]
+        return self
+
+    def in_(self, field, values):
+        values = set(values)
+        self._rows = [r for r in self._rows if r.get(field) in values]
+        return self
+
+    def maybe_single(self):
+        self._single = True
+        return self
+
+    def execute(self):
+        cols = self._columns or []
+        projected = [{c: r[c] for c in cols if c in r} for r in self._rows]
+        data = projected[0] if self._single and projected else (None if self._single else projected)
+        return MagicMock(data=data)
+
+
+class _ProjectingFakeClient(_FakeClient):
+    """Same table/rpc registry as _FakeClient, but real column projection
+    on `applications` specifically -- the table this regression targets.
+    Every other table keeps using the lenient _FakeQuery so this doesn't
+    have to also author full rows for institution_link_requests etc."""
+
+    def table(self, name):
+        if name == "applications":
+            return _ProjectingFakeQuery(self._tables.get(name, []))
+        return super().table(name)
+
+
+def test_detail_with_application_does_not_crash_placement_buckets():
+    """The exact regression: a linked student with one real application
+    must resolve placement_status, not KeyError('student_id')."""
+    tables = _base_tables(
+        student_profiles=[
+            {"id": "s1", "institution_id": "inst-1", "department": "CSE", "graduation_year": 2026,
+             "cgpa": None, "percentage": None, "degree": None, "phone": None, "date_of_birth": None,
+             "gender": None, "location": None, "institution_name": None, "career_goals": None,
+             "preferred_roles": [], "preferred_locations": [], "interests": []},
+        ],
+        applications=[
+            {"id": "a1", "student_id": "s1", "status": "APPLIED", "opportunity_type": "JOB",
+             "internship_id": None, "job_id": "j1", "applied_at": "2026-01-01", "industry_id": "co-1"},
+        ],
+    )
+    result = institution_student_service.get_student_detail(
+        _ProjectingFakeClient(
+            tables,
+            rpc_results={
+                "institution_student_names": _names_rpc([]),
+                "institution_visible_opportunity_titles": lambda _params: [],
+            },
+        ),
+        "inst-1",
+        "s1",
+    )
+    assert result["placement_status"] == "APPLYING"
+    assert result["applications"][0]["id"] == "a1"
+    # student_id is fetched for internal placement-bucket bookkeeping only
+    # -- the response contract never exposes it on an application row.
+    assert "student_id" not in result["applications"][0]
+
+
+def test_detail_with_no_applications_still_resolves_placement_status():
+    tables = _base_tables(
+        student_profiles=[
+            {"id": "s1", "institution_id": "inst-1", "department": "CSE", "graduation_year": 2026,
+             "cgpa": None, "percentage": None, "degree": None, "phone": None, "date_of_birth": None,
+             "gender": None, "location": None, "institution_name": None, "career_goals": None,
+             "preferred_roles": [], "preferred_locations": [], "interests": []},
+        ],
+    )
+    result = institution_student_service.get_student_detail(_ProjectingFakeClient(tables), "inst-1", "s1")
+    assert result["applications"] == []
+    assert result["placement_status"] == "NOT_PARTICIPATING"
+    assert result["internship_status"] == "NONE"
+
+
+def test_detail_applications_query_selects_student_id():
+    """Direct guard on the .select(...) column list itself, independent
+    of _placement_buckets' own behavior, so a future refactor that drops
+    the column again fails immediately and explicitly."""
+    captured: dict = {}
+
+    class _CapturingQuery(_ProjectingFakeQuery):
+        def select(self, columns, *_a, **_k):
+            captured["columns"] = [c.strip() for c in columns.split(",")]
+            return super().select(columns, *_a, **_k)
+
+    class _CapturingClient(_ProjectingFakeClient):
+        def table(self, name):
+            if name == "applications":
+                return _CapturingQuery(self._tables.get(name, []))
+            return super().table(name)
+
+    tables = _base_tables(
+        student_profiles=[
+            {"id": "s1", "institution_id": "inst-1", "department": "CSE", "graduation_year": 2026,
+             "cgpa": None, "percentage": None, "degree": None, "phone": None, "date_of_birth": None,
+             "gender": None, "location": None, "institution_name": None, "career_goals": None,
+             "preferred_roles": [], "preferred_locations": [], "interests": []},
+        ],
+    )
+    institution_student_service.get_student_detail(_CapturingClient(tables), "inst-1", "s1")
+    assert "student_id" in captured["columns"]
+
+
+# ============================================================
 # RLS boundary: no service-role anywhere on this path
 # ============================================================
 

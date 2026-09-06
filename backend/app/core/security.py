@@ -51,3 +51,16 @@ def build_user_client(access_token: str) -> Client:
     client = create_client(settings.supabase_url, settings.supabase_anon_key)
     client.postgrest.auth(access_token)
     return client
+
+
+def build_anon_client() -> Client:
+    """A Supabase client with no user session at all -- the `anon` role.
+
+    Uses the anon key, with no `.auth()` call, so RLS applies exactly as it
+    would for an unauthenticated browser. Reserved for the handful of
+    genuinely public, SECURITY DEFINER functions explicitly granted to
+    `anon` (e.g. public.verify_internship_certificate, 039) -- never for an
+    ordinary user-scoped read, and never a substitute for
+    app.database.supabase.get_supabase()'s service-role bypass.
+    """
+    return create_client(settings.supabase_url, settings.supabase_anon_key)

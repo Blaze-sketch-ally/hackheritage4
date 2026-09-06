@@ -6,6 +6,7 @@ from app.api import (
     applications,
     assessments,
     attempts,
+    certificates,
     industry,
     industry_collaborations,
     industry_mentorship_opportunities,
@@ -14,6 +15,8 @@ from app.api import (
     industry_workshops,
     institution,
     institution_link_requests,
+    internship_programs,
+    internship_workspaces,
     internships,
     interviews,
     jobs,
@@ -21,6 +24,7 @@ from app.api import (
     skills,
     student_events,
     student_institution,
+    student_internship_workspaces,
     student_learning,
     student_mentorship,
     student_notifications,
@@ -44,6 +48,7 @@ app.include_router(analytics.router, prefix="/api/v1")
 app.include_router(applications.router, prefix="/api/v1")
 app.include_router(assessments.router, prefix="/api/v1")
 app.include_router(attempts.router, prefix="/api/v1")
+app.include_router(certificates.router, prefix="/api/v1")
 app.include_router(industry.router, prefix="/api/v1")
 app.include_router(industry_collaborations.router, prefix="/api/v1")
 app.include_router(industry_mentorship_opportunities.router, prefix="/api/v1")
@@ -52,6 +57,8 @@ app.include_router(industry_trainings.router, prefix="/api/v1")
 app.include_router(industry_workshops.router, prefix="/api/v1")
 app.include_router(institution.router, prefix="/api/v1")
 app.include_router(institution_link_requests.router, prefix="/api/v1")
+app.include_router(internship_programs.router, prefix="/api/v1")
+app.include_router(internship_workspaces.router, prefix="/api/v1")
 app.include_router(internships.router, prefix="/api/v1")
 app.include_router(interviews.router, prefix="/api/v1")
 app.include_router(jobs.router, prefix="/api/v1")
@@ -59,6 +66,7 @@ app.include_router(skills.router, prefix="/api/v1")
 app.include_router(skill_gap.router, prefix="/api/v1")
 app.include_router(student_events.router, prefix="/api/v1")
 app.include_router(student_institution.router, prefix="/api/v1")
+app.include_router(student_internship_workspaces.router, prefix="/api/v1")
 app.include_router(student_learning.router, prefix="/api/v1")
 app.include_router(student_mentorship.router, prefix="/api/v1")
 app.include_router(student_notifications.router, prefix="/api/v1")

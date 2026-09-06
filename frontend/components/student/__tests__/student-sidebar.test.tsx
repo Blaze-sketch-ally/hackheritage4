@@ -23,4 +23,13 @@ describe("StudentSidebar", () => {
       "/student/institution",
     );
   });
+
+  it("links My Internships to /student/my-internships", () => {
+    render(<StudentSidebar />);
+
+    expect(screen.getByRole("link", { name: /my internships/i })).toHaveAttribute(
+      "href",
+      "/student/my-internships",
+    );
+  });
 });

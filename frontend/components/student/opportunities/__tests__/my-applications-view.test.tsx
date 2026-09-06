@@ -1,12 +1,17 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 
 const mocks = vi.hoisted(() => ({
   listMyApplications: vi.fn(),
+  listMyInternshipWorkspaces: vi.fn(),
 }));
 
 vi.mock("@/lib/student/opportunities", () => ({
   listMyApplications: mocks.listMyApplications,
+}));
+
+vi.mock("@/lib/student/internship-workspace", () => ({
+  listMyInternshipWorkspaces: mocks.listMyInternshipWorkspaces,
 }));
 
 import { MyApplicationsView } from "@/components/student/opportunities/my-applications-view";
@@ -36,12 +41,14 @@ function application(overrides: Partial<StudentApplication> = {}): StudentApplic
       title: "Backend Intern",
       industry: { id: "industry-1", company_name: "Acme", industry_sector: null, logo_url: null },
       location: "Pune",
+      work_mode: "HYBRID",
     },
     ...overrides,
   };
 }
 
 describe("MyApplicationsView", () => {
+  beforeEach(() => mocks.listMyInternshipWorkspaces.mockResolvedValue({ workspaces: [] }));
   afterEach(() => vi.resetAllMocks());
 
   it("shows a loading state", () => {
@@ -80,10 +87,73 @@ describe("MyApplicationsView", () => {
 
   it("renders safely for a row whose posting is no longer visible", async () => {
     mocks.listMyApplications.mockResolvedValueOnce({
-      applications: [application({ opportunity: { id: "", source_type: "INTERNSHIP", title: null, industry: null, location: null } })],
+      applications: [application({ opportunity: { id: "", source_type: "INTERNSHIP", title: null, industry: null, location: null, work_mode: null } })],
     });
     render(<MyApplicationsView />);
     expect(await screen.findByText("Internship")).toBeInTheDocument();
+  });
+
+  it("shows an Open Internship Workspace CTA for a SELECTED internship that has a workspace", async () => {
+    mocks.listMyApplications.mockResolvedValueOnce({
+      applications: [application({ id: "app-9", status: "SELECTED" })],
+    });
+    mocks.listMyInternshipWorkspaces.mockResolvedValueOnce({
+      workspaces: [
+        {
+          id: "ws-42",
+          application_id: "app-9",
+          internship_id: "int-1",
+          student_id: "student-1",
+          industry_id: "industry-1",
+          work_mode: "HYBRID",
+          workspace_status: "PENDING_ACCEPTANCE",
+          accepted_at: null, started_at: null, completed_at: null,
+          declined_at: null, decline_reason: null, rescinded_at: null, rescind_reason: null,
+          created_at: null, updated_at: null, internship: null,
+        },
+      ],
+    });
+    render(<MyApplicationsView />);
+    const cta = await screen.findByRole("button", { name: /open internship workspace/i });
+    expect(cta).toHaveAttribute("href", "/student/my-internships/ws-42");
+  });
+
+  it("does not fabricate a workspace for a SELECTED internship without one", async () => {
+    mocks.listMyApplications.mockResolvedValueOnce({
+      applications: [application({ id: "app-9", status: "SELECTED" })], // work_mode HYBRID
+    });
+    mocks.listMyInternshipWorkspaces.mockResolvedValueOnce({ workspaces: [] });
+    render(<MyApplicationsView />);
+    expect(
+      await screen.findByText("Internship workspace is not available yet."),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /open internship workspace/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("tells the student an on-site SELECTED internship has no online workspace", async () => {
+    mocks.listMyApplications.mockResolvedValueOnce({
+      applications: [
+        application({
+          id: "app-9",
+          status: "SELECTED",
+          opportunity: { ...application().opportunity!, work_mode: "ONSITE" },
+        }),
+      ],
+    });
+    mocks.listMyInternshipWorkspaces.mockResolvedValueOnce({ workspaces: [] });
+    render(<MyApplicationsView />);
+    expect(
+      await screen.findByText("On-site internship — no online workspace."),
+    ).toBeInTheDocument();
+  });
+
+  it("shows the applications list even if the workspace lookup fails", async () => {
+    mocks.listMyApplications.mockResolvedValueOnce({ applications: [application()] });
+    mocks.listMyInternshipWorkspaces.mockRejectedValueOnce(new ApiError(500, "down"));
+    render(<MyApplicationsView />);
+    expect(await screen.findByText("Backend Intern")).toBeInTheDocument();
   });
 });
 
