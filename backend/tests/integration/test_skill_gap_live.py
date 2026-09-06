@@ -176,3 +176,162 @@ def test_skill_gap_cross_student_isolation(live):
     assert r.json()["skills"][0]["status"] == "NOT_ASSESSED", (
         "Student B has no completed attempts of their own -- Student A's score must not leak"
     )
+
+
+# ============================================================
+# Phase 3A: eligibility fix (get_student_skill_scores now branches on
+# evaluation_status/final_percentage instead of trusting raw percentage
+# for any COMPLETED row) -- live proof against a real mixed
+# OBJECTIVE + AI_EVALUATED attempt, real evaluator assignment, and real
+# fold-in, through both existing consumers (career-role skill-gap and
+# opportunity skill-matching).
+# ============================================================
+
+
+def _mixed_attempt_pending_evaluation(live, skill_id: str) -> dict:
+    """One OBJECTIVE MCQ (answered correctly, so the raw/objective-only
+    percentage would be 100 if it were ever wrongly read) plus one
+    SUBJECTIVE/AI_EVALUATED question -- a COMPLETED attempt whose
+    evaluation_status starts PENDING. Returns everything the rest of the
+    test needs to assign an evaluator and finalize."""
+    fa_id, fa_email = live.create_user("p3fa", "FACULTY")
+    fb_id, fb_email = live.create_user("p3fb", "FACULTY")
+    live.grant_assessment_capabilities(fa_id, "assessment_author")
+    live.grant_assessment_capabilities(fb_id, "assessment_reviewer")
+    fa_token, fb_token = live.token_for(fa_email), live.token_for(fb_email)
+
+    aid = live.create_assessment(title_suffix="_p3a", skill_id=skill_id)
+    mcq_id = live.api(fa_token, "POST", "/questions", json=live.mcq_payload(aid, "Q1")).json()["id"]
+    live.api(fb_token, "POST", f"/questions/{mcq_id}/approve")
+    subjective_payload = {
+        "assessment_id": aid, "question_text": "__QA_p3a subjective", "question_type": "SUBJECTIVE",
+        "scoring_method": "AI_EVALUATED", "difficulty": "Beginner", "points": "10.00", "display_order": 1, "options": [],
+    }
+    subjective_id = live.api(fa_token, "POST", "/questions", json=subjective_payload).json()["id"]
+    live.api(fb_token, "POST", f"/questions/{subjective_id}/approve")
+    live.api(
+        fa_token, "PUT", f"/assessments/{aid}/blueprint",
+        json={"rules": [{"difficulty": "Beginner", "question_count": 2}]},
+    )
+
+    _s_id, s_email = live.create_user("p3s", "STUDENT")
+    s_token = live.token_for(s_email)
+    attempt_id = live.api(s_token, "POST", f"/assessments/{aid}/attempts").json()["id"]
+    questions = live.api(s_token, "GET", f"/attempts/{attempt_id}/questions").json()
+    mcq_q = next(q for q in questions if q["id"] == mcq_id)
+    correct_option_id = next(o["id"] for o in mcq_q["options"] if o["option_text"] == "B")
+    live.api(
+        s_token, "POST", f"/attempts/{attempt_id}/answers",
+        json={"question_id": mcq_id, "selected_option_ids": [correct_option_id]},
+    )
+    live.api(
+        s_token, "POST", f"/attempts/{attempt_id}/answers",
+        json={"question_id": subjective_id, "answer_text": "My subjective answer."},
+    )
+    live.api(s_token, "POST", f"/attempts/{attempt_id}/submit")
+    live.api(s_token, "POST", f"/attempts/{attempt_id}/score")
+
+    return {"attempt_id": attempt_id, "aid": aid, "subjective_qid": subjective_id, "s_token": s_token}
+
+
+def test_mixed_attempt_excluded_while_pending_then_contributes_final_percentage_after_finalization(live):
+    """The core Phase 3A live proof: a COMPLETED mixed attempt does NOT
+    contribute to skill-gap while its AI_EVALUATED question is
+    unresolved, then contributes final_percentage (not the raw,
+    objective-only percentage) once an admin-assigned evaluator finalizes
+    it through the real Phase 2 evaluator workflow.
+
+    This only exercises the career-role skill-gap consumer live.
+    Opportunity skill-matching reads the exact same
+    get_student_skill_scores() function (see app/services/
+    application_service.py) with no eligibility logic of its own, so a
+    live proof through that second consumer would be redundant; it is
+    instead verified at the unit level (tests/test_applications.py,
+    unchanged and still passing after this fix). A live opportunity-
+    match test was deliberately NOT added here: doing so would require
+    creating an opportunity via a fixture-created INDUSTRY account, which
+    triggers a PRE-EXISTING, unrelated bug in this directory's own
+    conftest.py LiveFixtures.cleanup() -- it deletes from
+    applications.opportunity_id, a column that does not exist on the
+    real live `applications` table (whose actual columns are id,
+    student_id, industry_id, opportunity_type, internship_id, job_id,
+    status, cover_note, match_score, applied_at, created_at, updated_at
+    -- confirmed directly against the live project). This appears to
+    predate this task entirely (migration 024's `applications` schema
+    does not match the live table at all) and affects every live test in
+    this suite that creates an opportunity through a fixture-owned
+    industry account, including the pre-existing
+    test_opportunities_live.py -- it is a live-test-infrastructure/schema
+    issue, not an eligibility-logic issue, and is out of Phase 3A's
+    scope to fix. Reported as a known limitation, not fixed here."""
+    skill_id = (
+        live.admin.table("skills").select("id").eq("is_active", True).limit(1).execute().data[0]["id"]
+    )
+    ctx = _mixed_attempt_pending_evaluation(live, skill_id)
+
+    role_id = live.create_career_role_with_requirement(skill_id, required_level=50.0)
+
+    # 1. Pending: excluded, despite the objective MCQ having been
+    #    answered correctly (raw percentage would show a misleadingly
+    #    high number if this function still read it).
+    r_gap_pending = live.api(ctx["s_token"], "GET", f"/career-roles/{role_id}/skill-gap")
+    assert r_gap_pending.status_code == 200
+    assert r_gap_pending.json()["skills"][0]["status"] == "NOT_ASSESSED"
+
+    # 2. Admin assigns an evaluator and the evaluator finalizes with a
+    #    known awarded_marks -- exactly the real Phase 2 workflow.
+    _admin_id, admin_email = live.create_user("p3adm", "ADMIN")
+    admin_token = live.token_for(admin_email)
+    evaluator_id, evaluator_email = live.create_user("p3eval", "FACULTY")
+    live.grant_assessment_capabilities(evaluator_id, "assessment_evaluator")
+    evaluator_token = live.token_for(evaluator_email)
+
+    r_assign = live.api(
+        admin_token, "POST", "/admin/evaluator-assignments",
+        json={"evaluator_id": evaluator_id, "attempt_id": ctx["attempt_id"], "question_id": ctx["subjective_qid"]},
+    )
+    assert r_assign.status_code == 201, r_assign.text
+
+    rubric_id = live.admin.table("rubrics").insert(
+        {"question_id": ctx["subjective_qid"], "name": "Correctness", "max_marks": "10.00"}
+    ).execute().data[0]["id"]
+
+    evaluation_id = live.api(evaluator_token, "GET", "/faculty/evaluations").json()[0]["evaluation_id"]
+    live.api(evaluator_token, "PATCH", f"/faculty/evaluations/{evaluation_id}/status", json={"status": "IN_PROGRESS"})
+    live.api(
+        evaluator_token, "PATCH", f"/faculty/evaluations/{evaluation_id}",
+        json={"rubric_id": rubric_id, "awarded_marks": "6.00"},
+    )
+    live.api(evaluator_token, "PATCH", f"/faculty/evaluations/{evaluation_id}/status", json={"status": "SUBMITTED"})
+    r_finalize = live.api(
+        evaluator_token, "PATCH", f"/faculty/evaluations/{evaluation_id}/status", json={"status": "FINALIZED"}
+    )
+    assert r_finalize.status_code == 200, r_finalize.text
+
+    # 3. Confirm the attempt itself is now COMPLETE with a real
+    #    final_percentage (ground truth via the service-role admin
+    #    client, independent of either consumer endpoint).
+    attempt_row = (
+        live.admin.table("assessment_attempts")
+        .select("evaluation_status, percentage, final_percentage")
+        .eq("id", ctx["attempt_id"])
+        .execute()
+        .data[0]
+    )
+    assert attempt_row["evaluation_status"] == "COMPLETE"
+    final_percentage = float(attempt_row["final_percentage"])
+    # MCQ (1 pt, correct -> 1) + subjective (10 pts, awarded 6) =
+    # 7/11 = 63.64%, not the objective-only percentage (100%, since the
+    # MCQ alone was answered correctly) that this function used to
+    # (wrongly) treat as final.
+    assert final_percentage == 63.64
+    assert float(attempt_row["percentage"]) == 100.0
+    assert final_percentage != float(attempt_row["percentage"])
+
+    # 4. The consumer now reflects final_percentage, not the
+    #    stale/objective-only percentage.
+    r_gap_final = live.api(ctx["s_token"], "GET", f"/career-roles/{role_id}/skill-gap")
+    assert r_gap_final.status_code == 200
+    gap_skill = r_gap_final.json()["skills"][0]
+    assert gap_skill["status"] == "STRONG"
+    assert float(gap_skill["student_score"]) == final_percentage

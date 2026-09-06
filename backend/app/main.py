@@ -9,6 +9,7 @@ from app.api import (
     assessments,
     attempts,
     career_roles,
+    certificates,
     faculty,
     faculty_engagements,
     faculty_evaluations,
@@ -22,10 +23,17 @@ from app.api import (
     industry_trainings,
     industry_workshops,
     institution_faculty_opportunities,
-    opportunities,
+    internship_programs,
+    internship_workspaces,
+    internships,
+    jobs,
     portfolio,
     questions,
+    student_internship_workspaces,
+    student_mentorship_opportunities,
     student_mentorships,
+    student_notifications,
+    student_opportunities,
 )
 from app.core.config import settings
 
@@ -50,12 +58,20 @@ app.include_router(faculty_engagements.router, prefix="/api/v1")
 app.include_router(faculty_evaluations.router, prefix="/api/v1")
 app.include_router(faculty_mentorships.router, prefix="/api/v1")
 app.include_router(student_mentorships.router, prefix="/api/v1")
+app.include_router(student_mentorship_opportunities.router, prefix="/api/v1")
 app.include_router(admin_mentorships.router, prefix="/api/v1")
 app.include_router(industry_faculty_opportunities.router, prefix="/api/v1")
 app.include_router(institution_faculty_opportunities.router, prefix="/api/v1")
 app.include_router(career_roles.router, prefix="/api/v1")
-app.include_router(opportunities.router, prefix="/api/v1")
+app.include_router(internships.router, prefix="/api/v1")
+app.include_router(internship_programs.router, prefix="/api/v1")
+app.include_router(internship_workspaces.router, prefix="/api/v1")
+app.include_router(student_internship_workspaces.router, prefix="/api/v1")
+app.include_router(jobs.router, prefix="/api/v1")
 app.include_router(applications.router, prefix="/api/v1")
+app.include_router(student_opportunities.router, prefix="/api/v1")
+app.include_router(student_notifications.router, prefix="/api/v1")
+app.include_router(certificates.router, prefix="/api/v1")
 app.include_router(portfolio.router, prefix="/api/v1")
 app.include_router(industry.router, prefix="/api/v1")
 app.include_router(industry_projects.router, prefix="/api/v1")

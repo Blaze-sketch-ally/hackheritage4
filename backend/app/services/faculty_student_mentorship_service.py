@@ -276,6 +276,7 @@ def get_mentee_bundle(client: Client, faculty_id: str, mentorship_id: str) -> di
         "assessment_attempts": attempts,
         "projects": portfolio["projects"],
         "certifications": portfolio["certifications"],
+        "achievements": portfolio["achievements"],
     }
 
 

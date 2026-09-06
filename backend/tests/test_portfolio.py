@@ -54,6 +54,22 @@ def _certification_row(**overrides):
     return row
 
 
+def _achievement_row(**overrides):
+    row = {
+        "id": str(uuid4()),
+        "student_id": str(uuid4()),
+        "title": "Winner, Regional Hackathon",
+        "description": "Best overall project among 40 teams.",
+        "achievement_date": "2025-11-01",
+        "issuing_organization": "State Tech Council",
+        "url": "https://example.com/hackathon-results",
+        "created_at": "2026-01-01T00:00:00Z",
+        "updated_at": "2026-01-01T00:00:00Z",
+    }
+    row.update(overrides)
+    return row
+
+
 # ============================================================
 # Projects: student can create/list/update/delete own
 # ============================================================
@@ -240,6 +256,128 @@ def test_student_can_delete_own_certification():
 
 
 # ============================================================
+# Achievements: student can create/list/update/delete own
+# (052_student_achievements.sql)
+# ============================================================
+
+
+def test_student_can_create_achievement():
+    with (
+        authenticated_as("STUDENT", user_id="student-1"),
+        patch.object(portfolio_service, "create_achievement", return_value=_achievement_row()),
+    ):
+        response = client.post(
+            "/api/v1/portfolio/achievements",
+            json={"title": "Winner, Regional Hackathon"},
+            headers={"Authorization": "Bearer token"},
+        )
+    assert response.status_code == 201
+    assert response.json()["title"] == "Winner, Regional Hackathon"
+
+
+def test_industry_cannot_create_achievement():
+    with authenticated_as("INDUSTRY", user_id="industry-1"):
+        response = client.post(
+            "/api/v1/portfolio/achievements",
+            json={"title": "Fake"},
+            headers={"Authorization": "Bearer token"},
+        )
+    assert response.status_code == 403
+
+
+def test_student_can_list_own_achievements():
+    with (
+        authenticated_as("STUDENT", user_id="student-1"),
+        patch.object(portfolio_service, "list_achievements", return_value=[_achievement_row()]),
+    ):
+        response = client.get("/api/v1/portfolio/achievements", headers={"Authorization": "Bearer token"})
+    assert response.status_code == 200
+    assert len(response.json()["achievements"]) == 1
+
+
+def test_student_can_update_own_achievement():
+    achievement_id = uuid4()
+    with (
+        authenticated_as("STUDENT", user_id="student-1"),
+        patch.object(portfolio_service, "update_achievement", return_value=_achievement_row(title="Updated")),
+    ):
+        response = client.patch(
+            f"/api/v1/portfolio/achievements/{achievement_id}",
+            json={"title": "Updated"},
+            headers={"Authorization": "Bearer token"},
+        )
+    assert response.status_code == 200
+
+
+def test_updating_another_students_achievement_returns_404():
+    achievement_id = uuid4()
+    with (
+        authenticated_as("STUDENT", user_id="student-1"),
+        patch.object(portfolio_service, "update_achievement", return_value=None),
+    ):
+        response = client.patch(
+            f"/api/v1/portfolio/achievements/{achievement_id}",
+            json={"title": "Hijacked"},
+            headers={"Authorization": "Bearer token"},
+        )
+    assert response.status_code == 404
+
+
+def test_student_can_delete_own_achievement():
+    achievement_id = uuid4()
+    with (
+        authenticated_as("STUDENT", user_id="student-1"),
+        patch.object(portfolio_service, "delete_achievement", return_value=True),
+    ):
+        response = client.delete(
+            f"/api/v1/portfolio/achievements/{achievement_id}", headers={"Authorization": "Bearer token"}
+        )
+    assert response.status_code == 204
+
+
+def test_deleting_another_students_achievement_returns_404():
+    achievement_id = uuid4()
+    with (
+        authenticated_as("STUDENT", user_id="student-1"),
+        patch.object(portfolio_service, "delete_achievement", return_value=False),
+    ):
+        response = client.delete(
+            f"/api/v1/portfolio/achievements/{achievement_id}", headers={"Authorization": "Bearer token"}
+        )
+    assert response.status_code == 404
+
+
+def test_create_achievement_rejects_missing_title():
+    with authenticated_as("STUDENT", user_id="student-1"):
+        response = client.post(
+            "/api/v1/portfolio/achievements",
+            json={"description": "No title given."},
+            headers={"Authorization": "Bearer token"},
+        )
+    assert response.status_code == 422
+
+
+def test_create_achievement_rejects_invalid_url():
+    with authenticated_as("STUDENT", user_id="student-1"):
+        response = client.post(
+            "/api/v1/portfolio/achievements",
+            json={"title": "Something", "url": "not-a-url"},
+            headers={"Authorization": "Bearer token"},
+        )
+    assert response.status_code == 422
+
+
+def test_create_achievement_rejects_malformed_payload():
+    with authenticated_as("STUDENT", user_id="student-1"):
+        response = client.post(
+            "/api/v1/portfolio/achievements",
+            json={"title": "X", "achievement_date": "not-a-date"},
+            headers={"Authorization": "Bearer token"},
+        )
+    assert response.status_code == 422
+
+
+# ============================================================
 # GET /portfolio -- combined view
 # ============================================================
 
@@ -255,6 +393,7 @@ def test_get_my_portfolio_combines_projects_and_certifications():
                 "student_id": student_id,
                 "projects": [_project_row(student_id=student_id)],
                 "certifications": [_certification_row(student_id=student_id)],
+                "achievements": [_achievement_row(student_id=student_id)],
             },
         ) as mock_get,
     ):
@@ -263,6 +402,7 @@ def test_get_my_portfolio_combines_projects_and_certifications():
     body = response.json()
     assert len(body["projects"]) == 1
     assert len(body["certifications"]) == 1
+    assert len(body["achievements"]) == 1
     # Identity always from the token, never a client-supplied student_id
     # -- there is no request body/query param this endpoint could even
     # accept one through.
@@ -383,7 +523,12 @@ def test_industry_owner_can_read_applicant_portfolio():
         patch.object(
             portfolio_service,
             "get_student_portfolio",
-            return_value={"student_id": student_id, "projects": [_project_row(student_id=student_id)], "certifications": []},
+            return_value={
+                "student_id": student_id,
+                "projects": [_project_row(student_id=student_id)],
+                "certifications": [],
+                "achievements": [],
+            },
         ),
     ):
         response = client.get(

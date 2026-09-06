@@ -1,7 +1,18 @@
-import { redirect } from "next/navigation";
+import { JobDetailView } from "@/components/industry/jobs/job-detail-view";
 
-// Same reasoning as app/industry/internships/[id]/page.tsx.
-export default async function IndustryJobRedirectPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function IndustryJobDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ edit?: string | string[] }>;
+}) {
   const { id } = await params;
-  redirect(`/industry/opportunities/${id}/applicants`);
+  const sp = await searchParams;
+
+  return (
+    <div className="mx-auto max-w-3xl">
+      <JobDetailView jobId={id} initialEdit={sp.edit === "1"} />
+    </div>
+  );
 }

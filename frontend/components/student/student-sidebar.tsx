@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Award,
+  Bell,
   BookOpen,
   Briefcase,
   Building2,
@@ -11,6 +12,7 @@ import {
   ClipboardCheck,
   FileText,
   FolderKanban,
+  GraduationCap,
   Handshake,
   LayoutDashboard,
   type LucideIcon,
@@ -55,13 +57,9 @@ const NAV_GROUPS: NavGroup[] = [
       // Boundary" section).
       { label: "Assessments", href: "/student/assessment", icon: ClipboardCheck },
       { label: "Skill Gap Analysis", href: "/student/skill-gap", icon: TrendingUp },
-      // Real, fully-built feature (Phase 1M) -- the canonical browse hub
-      // (all types, with the Jobs/Internships toggle built in).
-      // /student/jobs and /student/internships below filter the exact
-      // same opportunity system, not a second implementation.
-      { label: "Opportunities", href: "/student/opportunities", icon: Briefcase },
       { label: "Learning & Courses", href: "/student/learning", icon: BookOpen },
       { label: "Internships", href: "/student/internships", icon: Briefcase },
+      { label: "My Internships", href: "/student/my-internships", icon: GraduationCap },
       { label: "Jobs & Placements", href: "/student/jobs", icon: Building2 },
       { label: "Applications", href: "/student/applications", icon: FileText },
     ],
@@ -79,6 +77,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Network",
     items: [
       { label: "Mentorship", href: "/student/mentorship", icon: Users },
+      { label: "Mentorship Opportunities", href: "/student/mentorship-opportunities", icon: Handshake },
       { label: "Workshops & Events", href: "/student/events", icon: CalendarDays },
       { label: "Industry Projects", icon: Handshake },
     ],
@@ -86,6 +85,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Account",
     items: [
+      { label: "Notifications", href: "/student/notifications", icon: Bell },
       { label: "Profile", href: "/student/profile", icon: User },
       { label: "Settings", href: "/student/settings", icon: Settings },
     ],

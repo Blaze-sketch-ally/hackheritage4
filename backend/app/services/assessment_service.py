@@ -527,6 +527,36 @@ def get_student_skill_scores(client: Client, student_id: str) -> dict[str, Decim
     same "only a COMPLETED attempt is authoritative" rule
     get_attempt_result_rows() already follows.
 
+    F8.4 (049_evaluation_status_and_final_score.sql) means COMPLETED no
+    longer implies "trustworthy" by itself: an attempt can be COMPLETED
+    while its AI_EVALUATED questions are still PENDING/PARTIAL, or the
+    attempt can have regressed to NEEDS_RECONCILIATION after a later
+    conflicting FINALIZED evaluation. evaluation_status is NOT NULL
+    DEFAULT 'NOT_REQUIRED' with a CHECK constraint restricting it to
+    exactly {NOT_REQUIRED, PENDING, PARTIAL, COMPLETE,
+    NEEDS_RECONCILIATION} (049:38-39), and a second CHECK constraint
+    guarantees final_percentage is non-null if and only if
+    evaluation_status = 'COMPLETE' (049:54-57). So the authoritative score
+    per row is:
+      - NOT_REQUIRED -> percentage (an objective-only attempt; this is
+        the pre-F8.4 behavior, unchanged)
+      - COMPLETE -> final_percentage (the folded-in result; the raw
+        percentage is deliberately never used here, since for a
+        mixed/AI-only attempt it reflects only the objective portion --
+        see 048's own header)
+      - PENDING/PARTIAL/NEEDS_RECONCILIATION -> excluded entirely, not
+        contributed at any value; this is the fix for the bug this
+        function had before F8.4 existed (a COMPLETED-but-unevaluated
+        attempt would previously have contributed a misleading
+        percentage -- 100 in the all-AI_EVALUATED case, per 048's own
+        v_total_marks = 0 branch)
+      - anything else (a null/unrecognized value, which the DB's own
+        NOT NULL + CHECK constraint should never actually produce, but
+        this is still an untrusted JSON boundary) -> excluded, the same
+        as PENDING/PARTIAL; never treated as NOT_REQUIRED by default,
+        since that would silently trust a result this function cannot
+        verify is real
+
     RLS ("Students can view their own attempts") already scopes this to
     the caller; the explicit .eq("student_id", ...) here is defense in
     depth, matching the pattern used throughout this module. The nested
@@ -544,7 +574,7 @@ def get_student_skill_scores(client: Client, student_id: str) -> dict[str, Decim
     """
     response = (
         client.table("assessment_attempts")
-        .select("percentage, assessment:assessments(skill_id)")
+        .select("percentage, evaluation_status, final_percentage, assessment:assessments(skill_id)")
         .eq("student_id", student_id)
         .eq("status", "COMPLETED")
         .execute()
@@ -552,10 +582,26 @@ def get_student_skill_scores(client: Client, student_id: str) -> dict[str, Decim
     best_by_skill: dict[str, Decimal] = {}
     for row in response.data or []:
         assessment = row.get("assessment")
-        if not assessment or row.get("percentage") is None:
+        if not assessment:
             continue
+
+        evaluation_status = row.get("evaluation_status")
+        if evaluation_status == "NOT_REQUIRED":
+            score = row.get("percentage")
+        elif evaluation_status == "COMPLETE":
+            score = row.get("final_percentage")
+        else:
+            # PENDING, PARTIAL, NEEDS_RECONCILIATION, or an unrecognized/
+            # null value -- not a trustworthy final result, so this
+            # attempt does not contribute at all (never falls back to the
+            # raw percentage).
+            continue
+
+        if score is None:
+            continue
+
         skill_id = assessment["skill_id"]
-        percentage = Decimal(str(row["percentage"]))
+        percentage = Decimal(str(score))
         if skill_id not in best_by_skill or percentage > best_by_skill[skill_id]:
             best_by_skill[skill_id] = percentage
     return best_by_skill

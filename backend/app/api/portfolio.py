@@ -21,6 +21,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from app.core.dependencies import CurrentUser, require_student
 from app.core.security import build_user_client
 from app.schemas.portfolio import (
+    AchievementCreateRequest,
+    AchievementListResponse,
+    AchievementResponse,
+    AchievementUpdateRequest,
     CertificationCreateRequest,
     CertificationListResponse,
     CertificationResponse,
@@ -42,6 +46,10 @@ def _project_not_found() -> HTTPException:
 
 def _certification_not_found() -> HTTPException:
     return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Certification not found.")
+
+
+def _achievement_not_found() -> HTTPException:
+    return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Achievement not found.")
 
 
 @router.get("", response_model=PortfolioResponse)
@@ -224,3 +232,88 @@ def delete_certification(
         ) from exc
     if not deleted:
         raise _certification_not_found()
+
+
+# ------------------------------------------------------------
+# Achievements
+# ------------------------------------------------------------
+
+
+@router.get("/achievements", response_model=AchievementListResponse)
+def list_my_achievements(
+    current_user: CurrentUser = Depends(require_student),
+) -> AchievementListResponse:
+    client = build_user_client(current_user.access_token)
+    try:
+        rows = portfolio_service.list_achievements(client, current_user.id)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Could not load your achievements."
+        ) from exc
+    return AchievementListResponse(achievements=rows)
+
+
+@router.post("/achievements", response_model=AchievementResponse, status_code=status.HTTP_201_CREATED)
+def create_achievement(
+    payload: AchievementCreateRequest, current_user: CurrentUser = Depends(require_student)
+) -> AchievementResponse:
+    client = build_user_client(current_user.access_token)
+    try:
+        row = portfolio_service.create_achievement(
+            client, current_user.id, payload.model_dump(mode="json")
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Could not create this achievement."
+        ) from exc
+    return AchievementResponse(**row)
+
+
+@router.get("/achievements/{achievement_id}", response_model=AchievementResponse)
+def get_achievement(
+    achievement_id: UUID, current_user: CurrentUser = Depends(require_student)
+) -> AchievementResponse:
+    client = build_user_client(current_user.access_token)
+    try:
+        row = portfolio_service.get_achievement(client, achievement_id)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Could not load this achievement."
+        ) from exc
+    if row is None:
+        raise _achievement_not_found()
+    return AchievementResponse(**row)
+
+
+@router.patch("/achievements/{achievement_id}", response_model=AchievementResponse)
+def update_achievement(
+    achievement_id: UUID,
+    payload: AchievementUpdateRequest,
+    current_user: CurrentUser = Depends(require_student),
+) -> AchievementResponse:
+    client = build_user_client(current_user.access_token)
+    update_data = payload.model_dump(mode="json", exclude_unset=True)
+    try:
+        row = portfolio_service.update_achievement(client, achievement_id, update_data)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Could not update this achievement."
+        ) from exc
+    if row is None:
+        raise _achievement_not_found()
+    return AchievementResponse(**row)
+
+
+@router.delete("/achievements/{achievement_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_achievement(
+    achievement_id: UUID, current_user: CurrentUser = Depends(require_student)
+) -> None:
+    client = build_user_client(current_user.access_token)
+    try:
+        deleted = portfolio_service.delete_achievement(client, achievement_id)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Could not delete this achievement."
+        ) from exc
+    if not deleted:
+        raise _achievement_not_found()

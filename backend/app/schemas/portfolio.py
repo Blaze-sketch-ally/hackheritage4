@@ -133,6 +133,60 @@ class CertificationListResponse(BaseModel):
 
 
 # ============================================================
+# student_achievements (052_student_achievements.sql) -- an award,
+# recognition, or milestone. A third, distinct portfolio-evidence
+# resource: its own shape (achievement_date/issuing_organization), no
+# shared query pattern with projects or certifications.
+# ============================================================
+
+
+class AchievementCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=4000)
+    achievement_date: date | None = None
+    issuing_organization: str | None = Field(default=None, max_length=200)
+    url: str | None = Field(default=None, max_length=2048)
+
+    _validate_url = field_validator("url")(_validate_optional_url)
+
+
+class AchievementUpdateRequest(BaseModel):
+    """Partial update -- every field optional. student_id has no field
+    here at all; it can never be reassigned (same RLS-symmetry pattern as
+    Project/CertificationUpdateRequest)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=4000)
+    achievement_date: date | None = None
+    issuing_organization: str | None = Field(default=None, max_length=200)
+    url: str | None = Field(default=None, max_length=2048)
+
+    _validate_url = field_validator("url")(_validate_optional_url)
+
+
+class AchievementResponse(BaseModel):
+    """Mirrors `student_achievements`."""
+
+    id: UUID
+    student_id: UUID
+    title: str
+    description: str | None
+    achievement_date: date | None
+    issuing_organization: str | None
+    url: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class AchievementListResponse(BaseModel):
+    achievements: list[AchievementResponse]
+
+
+# ============================================================
 # Combined view -- GET /portfolio and the industry applicant read
 # (GET /applications/{id}/portfolio) both return this same shape, one
 # function (portfolio_service.get_student_portfolio) serving both --
@@ -144,3 +198,4 @@ class PortfolioResponse(BaseModel):
     student_id: UUID
     projects: list[ProjectResponse]
     certifications: list[CertificationResponse]
+    achievements: list[AchievementResponse]

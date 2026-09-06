@@ -1,3 +1,4 @@
+import { AchievementList } from "@/components/portfolio/achievement-list";
 import { CertificationList } from "@/components/portfolio/certification-list";
 import { ProjectList } from "@/components/portfolio/project-list";
 
@@ -6,7 +7,11 @@ import { ProjectList } from "@/components/portfolio/project-list";
  * /student/certifications each lock to one section) -- never a
  * per-route duplicate, same `section`-lock pattern Phase 1M's
  * OpportunityListView already established with `lockedType`. */
-export function PortfolioView({ section = "all" }: { section?: "all" | "projects" | "certifications" }) {
+export function PortfolioView({
+  section = "all",
+}: {
+  section?: "all" | "projects" | "certifications" | "achievements";
+}) {
   return (
     <div className="space-y-8">
       {(section === "all" || section === "projects") && (
@@ -26,6 +31,16 @@ export function PortfolioView({ section = "all" }: { section?: "all" | "projects
             <p className="text-sm text-muted-foreground">Credentials that strengthen your professional profile.</p>
           </div>
           <CertificationList />
+        </section>
+      )}
+
+      {(section === "all" || section === "achievements") && (
+        <section className="space-y-3">
+          <div>
+            <h2 className="text-lg font-semibold">Achievements</h2>
+            <p className="text-sm text-muted-foreground">Awards, recognitions, and milestones worth highlighting.</p>
+          </div>
+          <AchievementList />
         </section>
       )}
     </div>

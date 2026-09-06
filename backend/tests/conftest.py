@@ -24,12 +24,19 @@ _BUILD_USER_CLIENT_MODULES = (
     "app.api.faculty_evaluations",
     "app.api.faculty_mentorships",
     "app.api.student_mentorships",
+    "app.api.student_mentorship_opportunities",
     "app.api.admin_mentorships",
     "app.api.industry_faculty_opportunities",
     "app.api.institution_faculty_opportunities",
     "app.api.career_roles",
-    "app.api.opportunities",
+    "app.api.internships",
+    "app.api.internship_programs",
+    "app.api.internship_workspaces",
+    "app.api.student_internship_workspaces",
+    "app.api.jobs",
     "app.api.applications",
+    "app.api.student_opportunities",
+    "app.api.student_notifications",
     "app.api.portfolio",
     "app.api.industry",
     "app.api.industry_projects",
@@ -41,7 +48,6 @@ _BUILD_USER_CLIENT_MODULES = (
 
 _GET_SUPABASE_MODULES = (
     "app.api.assessments",
-    "app.api.opportunities",
 )
 
 

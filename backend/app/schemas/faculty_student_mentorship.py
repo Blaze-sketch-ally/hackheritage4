@@ -12,7 +12,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.schemas.portfolio import CertificationResponse, ProjectResponse
+from app.schemas.portfolio import AchievementResponse, CertificationResponse, ProjectResponse
 
 MentorshipStatus = Literal[
     "REQUESTED", "ACCEPTED", "ACTIVE", "DECLINED", "WITHDRAWN", "COMPLETED", "ENDED"
@@ -134,6 +134,7 @@ class MenteeProfileBundleResponse(BaseModel):
     assessment_attempts: list[MenteeAssessmentAttemptResponse]
     projects: list[ProjectResponse]
     certifications: list[CertificationResponse]
+    achievements: list[AchievementResponse]
 
 
 # ---- Admin oversight (admin_list_faculty_student_mentorships RPC) ----

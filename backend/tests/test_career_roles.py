@@ -27,8 +27,26 @@ client = TestClient(app)
 # ============================================================
 
 
-def _completed_attempt_row(skill_id: str, percentage: str):
-    return {"percentage": percentage, "assessment": {"skill_id": skill_id}}
+def _completed_attempt_row(
+    skill_id: str,
+    percentage: str,
+    evaluation_status: str = "NOT_REQUIRED",
+    final_percentage: str | None = None,
+):
+    return {
+        "percentage": percentage,
+        "evaluation_status": evaluation_status,
+        "final_percentage": final_percentage,
+        "assessment": {"skill_id": skill_id},
+    }
+
+
+def _mock_rows(mock_client, rows):
+    response = MagicMock()
+    response.data = rows
+    (
+        mock_client.table.return_value.select.return_value.eq.return_value.eq.return_value.execute
+    ).return_value = response
 
 
 def test_skill_scores_only_from_completed_attempts():
@@ -36,11 +54,7 @@ def test_skill_scores_only_from_completed_attempts():
     this is enforced by the .eq('status', 'COMPLETED') filter itself, so
     this test verifies that filter is actually applied."""
     mock_client = MagicMock()
-    response = MagicMock()
-    response.data = [_completed_attempt_row("skill-1", "80.00")]
-    (
-        mock_client.table.return_value.select.return_value.eq.return_value.eq.return_value.execute
-    ).return_value = response
+    _mock_rows(mock_client, [_completed_attempt_row("skill-1", "80.00")])
 
     scores = assessment_service.get_student_skill_scores(mock_client, "student-1")
 
@@ -55,15 +69,14 @@ def test_skill_scores_takes_best_of_multiple_completed_attempts():
     documented 'best percentage' behavior, not the most recent or an
     average."""
     mock_client = MagicMock()
-    response = MagicMock()
-    response.data = [
-        _completed_attempt_row("skill-1", "55.00"),
-        _completed_attempt_row("skill-1", "90.00"),
-        _completed_attempt_row("skill-1", "70.00"),
-    ]
-    (
-        mock_client.table.return_value.select.return_value.eq.return_value.eq.return_value.execute
-    ).return_value = response
+    _mock_rows(
+        mock_client,
+        [
+            _completed_attempt_row("skill-1", "55.00"),
+            _completed_attempt_row("skill-1", "90.00"),
+            _completed_attempt_row("skill-1", "70.00"),
+        ],
+    )
 
     scores = assessment_service.get_student_skill_scores(mock_client, "student-1")
 
@@ -76,14 +89,13 @@ def test_skill_scores_excludes_rows_with_deactivated_assessment_embed():
     see the function's own docstring for why this differs from
     get_attempt_result_rows()'s hard-failure behavior."""
     mock_client = MagicMock()
-    response = MagicMock()
-    response.data = [
-        {"percentage": "80.00", "assessment": None},
-        _completed_attempt_row("skill-2", "60.00"),
-    ]
-    (
-        mock_client.table.return_value.select.return_value.eq.return_value.eq.return_value.execute
-    ).return_value = response
+    _mock_rows(
+        mock_client,
+        [
+            {"percentage": "80.00", "evaluation_status": "NOT_REQUIRED", "final_percentage": None, "assessment": None},
+            _completed_attempt_row("skill-2", "60.00"),
+        ],
+    )
 
     scores = assessment_service.get_student_skill_scores(mock_client, "student-1")
 
@@ -92,11 +104,217 @@ def test_skill_scores_excludes_rows_with_deactivated_assessment_embed():
 
 def test_skill_scores_empty_when_no_completed_attempts():
     mock_client = MagicMock()
-    response = MagicMock()
-    response.data = []
-    (
-        mock_client.table.return_value.select.return_value.eq.return_value.eq.return_value.execute
-    ).return_value = response
+    _mock_rows(mock_client, [])
+
+    scores = assessment_service.get_student_skill_scores(mock_client, "student-1")
+
+    assert scores == {}
+
+
+# ------------------------------------------------------------
+# F8.4 eligibility: NOT_REQUIRED/COMPLETE contribute, everything else
+# (PENDING/PARTIAL/NEEDS_RECONCILIATION/unknown) is excluded -- see
+# get_student_skill_scores()'s own docstring for the full contract.
+# ------------------------------------------------------------
+
+
+def test_skill_scores_objective_only_uses_percentage():
+    """Test 1: COMPLETED + NOT_REQUIRED + percentage 80 -> skill score 80."""
+    mock_client = MagicMock()
+    _mock_rows(mock_client, [_completed_attempt_row("skill-1", "80.00", "NOT_REQUIRED")])
+
+    scores = assessment_service.get_student_skill_scores(mock_client, "student-1")
+
+    assert scores == {"skill-1": Decimal("80.00")}
+
+
+def test_skill_scores_ai_pending_excluded_despite_high_raw_percentage():
+    """Test 2: COMPLETED + PENDING + raw percentage 100 -> excluded
+    entirely. This is exactly the bug this fix closes -- an all-
+    AI_EVALUATED attempt's raw percentage is hard-coded to 100 by
+    score_assessment_attempt() (048) and must never be read as if it
+    were a real result."""
+    mock_client = MagicMock()
+    _mock_rows(mock_client, [_completed_attempt_row("skill-1", "100.00", "PENDING")])
+
+    scores = assessment_service.get_student_skill_scores(mock_client, "student-1")
+
+    assert scores == {}
+
+
+def test_skill_scores_ai_finalized_uses_final_percentage_not_raw():
+    """Test 3: COMPLETED + COMPLETE + percentage 100 + final_percentage 75
+    -> skill score 75. The raw percentage must never be used once
+    evaluation_status is COMPLETE."""
+    mock_client = MagicMock()
+    _mock_rows(
+        mock_client,
+        [_completed_attempt_row("skill-1", "100.00", "COMPLETE", "75.00")],
+    )
+
+    scores = assessment_service.get_student_skill_scores(mock_client, "student-1")
+
+    assert scores == {"skill-1": Decimal("75.00")}
+
+
+def test_skill_scores_mixed_finalized_uses_final_percentage():
+    """Test 4: mixed assessment, COMPLETE, final_percentage 82 -> 82."""
+    mock_client = MagicMock()
+    _mock_rows(
+        mock_client,
+        [_completed_attempt_row("skill-1", "60.00", "COMPLETE", "82.00")],
+    )
+
+    scores = assessment_service.get_student_skill_scores(mock_client, "student-1")
+
+    assert scores == {"skill-1": Decimal("82.00")}
+
+
+def test_skill_scores_partial_evaluation_excluded():
+    """Test 5: COMPLETED + PARTIAL -> excluded."""
+    mock_client = MagicMock()
+    _mock_rows(mock_client, [_completed_attempt_row("skill-1", "90.00", "PARTIAL")])
+
+    scores = assessment_service.get_student_skill_scores(mock_client, "student-1")
+
+    assert scores == {}
+
+
+def test_skill_scores_needs_reconciliation_excluded():
+    """Test 6: COMPLETED + NEEDS_RECONCILIATION -> excluded, even though
+    the row may still carry a stale raw percentage."""
+    mock_client = MagicMock()
+    _mock_rows(mock_client, [_completed_attempt_row("skill-1", "90.00", "NEEDS_RECONCILIATION")])
+
+    scores = assessment_service.get_student_skill_scores(mock_client, "student-1")
+
+    assert scores == {}
+
+
+def test_skill_scores_incomplete_attempt_excluded_by_status_filter():
+    """Test 7: an IN_PROGRESS/ABANDONED attempt never reaches this
+    function's rows at all -- the .eq('status', 'COMPLETED') filter
+    (asserted in test_skill_scores_only_from_completed_attempts) is what
+    excludes it; this test documents the expectation for a fully mocked
+    'no COMPLETED rows returned' scenario."""
+    mock_client = MagicMock()
+    _mock_rows(mock_client, [])
+
+    scores = assessment_service.get_student_skill_scores(mock_client, "student-1")
+
+    assert scores == {}
+
+
+def test_skill_scores_multiple_attempts_best_score_behavior_unchanged():
+    """Test 8: several eligible attempts for the same skill -> existing
+    best-score behavior is unaffected by the eligibility fix."""
+    mock_client = MagicMock()
+    _mock_rows(
+        mock_client,
+        [
+            _completed_attempt_row("skill-1", "50.00", "NOT_REQUIRED"),
+            _completed_attempt_row("skill-1", "65.00", "COMPLETE", "65.00"),
+        ],
+    )
+
+    scores = assessment_service.get_student_skill_scores(mock_client, "student-1")
+
+    assert scores == {"skill-1": Decimal("65.00")}
+
+
+def test_skill_scores_pending_attempt_never_beats_eligible_lower_score():
+    """Test 9: an eligible attempt at 70 alongside a PENDING attempt whose
+    raw percentage is 100 -> result is 70, not 100. Directly matches the
+    worked example in the task's own eligibility rule."""
+    mock_client = MagicMock()
+    _mock_rows(
+        mock_client,
+        [
+            _completed_attempt_row("skill-1", "70.00", "NOT_REQUIRED"),
+            _completed_attempt_row("skill-1", "100.00", "PENDING"),
+        ],
+    )
+
+    scores = assessment_service.get_student_skill_scores(mock_client, "student-1")
+
+    assert scores == {"skill-1": Decimal("70.00")}
+
+
+def test_skill_scores_finalized_result_contributes_regardless_of_revocation():
+    """Test 10: the service only ever reads the attempt row itself --
+    there is no evaluator_assignments join or check here, so a FINALIZED/
+    folded-in result contributes exactly the same whether or not the
+    evaluator who produced it was later revoked (revocation never
+    touches evaluation_status/final_percentage -- see
+    fold_in_attempt_evaluation()'s own eligibility join, 049)."""
+    mock_client = MagicMock()
+    _mock_rows(
+        mock_client,
+        [_completed_attempt_row("skill-1", "40.00", "COMPLETE", "88.00")],
+    )
+
+    scores = assessment_service.get_student_skill_scores(mock_client, "student-1")
+
+    assert scores == {"skill-1": Decimal("88.00")}
+    mock_client.table.assert_called_with("assessment_attempts")
+
+
+def test_skill_scores_co_evaluation_agreement_contributes_final_percentage():
+    """Test 11: co-evaluators agreeing resolves to a single COMPLETE
+    result with one final_percentage -- indistinguishable, from this
+    function's point of view, from any other COMPLETE row."""
+    mock_client = MagicMock()
+    _mock_rows(
+        mock_client,
+        [_completed_attempt_row("skill-1", "50.00", "COMPLETE", "77.00")],
+    )
+
+    scores = assessment_service.get_student_skill_scores(mock_client, "student-1")
+
+    assert scores == {"skill-1": Decimal("77.00")}
+
+
+def test_skill_scores_unexpected_evaluation_status_safely_excluded():
+    """Test 12: an unrecognized/unexpected evaluation_status value (which
+    the DB's own NOT NULL + CHECK constraint should never actually
+    produce, but this function must not trust the JSON boundary blindly)
+    is excluded, never treated as NOT_REQUIRED."""
+    mock_client = MagicMock()
+    _mock_rows(
+        mock_client,
+        [{"percentage": "99.00", "evaluation_status": "SOMETHING_UNEXPECTED", "final_percentage": None, "assessment": {"skill_id": "skill-1"}}],
+    )
+
+    scores = assessment_service.get_student_skill_scores(mock_client, "student-1")
+
+    assert scores == {}
+
+
+def test_skill_scores_null_evaluation_status_safely_excluded():
+    """Test 12b: a null evaluation_status (should never happen given the
+    NOT NULL DEFAULT, but defensively excluded rather than assumed
+    NOT_REQUIRED)."""
+    mock_client = MagicMock()
+    _mock_rows(
+        mock_client,
+        [{"percentage": "99.00", "evaluation_status": None, "final_percentage": None, "assessment": {"skill_id": "skill-1"}}],
+    )
+
+    scores = assessment_service.get_student_skill_scores(mock_client, "student-1")
+
+    assert scores == {}
+
+
+def test_skill_scores_complete_with_null_final_percentage_safely_excluded():
+    """Defense in depth: even if evaluation_status somehow says COMPLETE
+    while final_percentage is null (the DB CHECK constraint should make
+    this impossible), the row is excluded rather than crashing or
+    silently contributing a null-derived value."""
+    mock_client = MagicMock()
+    _mock_rows(
+        mock_client,
+        [_completed_attempt_row("skill-1", "99.00", "COMPLETE", None)],
+    )
 
     scores = assessment_service.get_student_skill_scores(mock_client, "student-1")
 

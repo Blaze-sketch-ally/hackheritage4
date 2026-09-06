@@ -29,6 +29,10 @@ _PROJECT_COLUMNS = (
 _CERTIFICATION_COLUMNS = (
     "id, student_id, name, issuer, issue_date, credential_url, created_at, updated_at"
 )
+_ACHIEVEMENT_COLUMNS = (
+    "id, student_id, title, description, achievement_date, issuing_organization, url, "
+    "created_at, updated_at"
+)
 
 
 # ============================================================
@@ -151,22 +155,78 @@ def delete_certification(client: Client, certification_id: UUID) -> bool:
 
 
 # ============================================================
+# student_achievements
+# ============================================================
+
+
+def list_achievements(client: Client, student_id: str) -> list[dict]:
+    response = (
+        client.table("student_achievements")
+        .select(_ACHIEVEMENT_COLUMNS)
+        .eq("student_id", student_id)
+        .order("created_at", desc=True)
+        .execute()
+    )
+    return response.data or []
+
+
+def get_achievement(client: Client, achievement_id: UUID) -> dict | None:
+    response = (
+        client.table("student_achievements")
+        .select(_ACHIEVEMENT_COLUMNS)
+        .eq("id", str(achievement_id))
+        .maybe_single()
+        .execute()
+    )
+    return response.data if response is not None else None
+
+
+def create_achievement(client: Client, student_id: str, payload: dict) -> dict:
+    response = (
+        client.table("student_achievements")
+        .insert({**payload, "student_id": student_id})
+        .execute()
+    )
+    return response.data[0]
+
+
+def update_achievement(client: Client, achievement_id: UUID, payload: dict) -> dict | None:
+    response = (
+        client.table("student_achievements").update(payload).eq("id", str(achievement_id)).execute()
+    )
+    rows = response.data or []
+    return rows[0] if rows else None
+
+
+def delete_achievement(client: Client, achievement_id: UUID) -> bool:
+    response = (
+        client.table("student_achievements").delete().eq("id", str(achievement_id)).execute()
+    )
+    return bool(response.data)
+
+
+# ============================================================
 # Combined view
 # ============================================================
 
 
 def get_student_portfolio(client: Client, student_id: str) -> dict:
-    """Both sections together -- used by GET /portfolio (student, own
-    id) and GET /applications/{id}/portfolio (industry, an applicant's
-    id, after app/api/applications.py has already proven the
+    """All three sections together -- used by GET /portfolio (student,
+    own id) and GET /applications/{id}/portfolio (industry, an
+    applicant's id, after app/api/applications.py has already proven the
     application/opportunity ownership chain via
     application_service.get_application()). RLS is what actually decides
     whether either read returns anything: an industry caller with no
     legitimate application relationship to this student_id gets back
     empty lists here, not an error -- same "RLS silently returns nothing
-    for an unowned relationship" shape used throughout this project."""
+    for an unowned relationship" shape used throughout this project.
+
+    student_achievements (052) has no industry-view RLS policy (see that
+    migration's own header) -- an industry caller reading this always
+    gets an empty achievements list, never an error."""
     return {
         "student_id": student_id,
         "projects": list_projects(client, student_id),
         "certifications": list_certifications(client, student_id),
+        "achievements": list_achievements(client, student_id),
     }

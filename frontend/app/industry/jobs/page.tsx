@@ -1,21 +1,12 @@
-import Link from "next/link";
-import { Plus } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { MyOpportunitiesView } from "@/components/opportunities/my-opportunities-view";
+import { JobsListView } from "@/components/industry/jobs/jobs-list-view";
 
+// The industry layout already guarantees an authenticated INDUSTRY user.
+// Data is loaded client-side through the FastAPI bridge
+// (lib/industry/jobs.ts).
 export default function IndustryJobsPage() {
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-xl font-semibold">Jobs</h1>
-          <p className="text-sm text-muted-foreground">Manage your full-time job postings.</p>
-        </div>
-        <Button render={<Link href="/industry/jobs/create" />} nativeButton={false}>
-          <Plus /> Post a Job
-        </Button>
-      </div>
-      <MyOpportunitiesView lockedType="JOB" />
+    <div className="mx-auto max-w-4xl">
+      <JobsListView />
     </div>
   );
 }

@@ -1,102 +1,279 @@
-"""API routes for applications (Phase 1M) -- the student's own
-applications list and industry status updates. Opportunity-scoped
-application actions (apply, view applicants) live under
-app.api.opportunities instead (POST /opportunities/{id}/applications,
-GET /opportunities/{id}/applicants) -- same split as Phase 1K's
-assessments.py (owns /assessments/{id}/attempts) vs attempts.py (owns
-/attempts/{id}/answers, /submit, /score, /result).
+"""API routes for the Industry side of applications.
+
+Every route is guarded by require_industry() and every read/write to
+`applications` goes through build_user_client(current_user.access_token)
+-- never get_supabase() / service_role -- so Supabase RLS stays the real
+access-control boundary. The owning Industry account is always
+current_user.id; `industry_id` is never read from the request.
+
+The one service-role touch in this module is a BEST-EFFORT side effect:
+after a status change succeeds, `notification_producer` writes the
+student a `student_notifications` row (that table has no insert policy, so
+only the service role can). It runs on an already-authorized
+require_industry() request, swallows its own errors, and never affects the
+response -- see app.services.notification_producer.
+
+Industry can list its applications, read one, move one along the
+recruitment status pipeline, and view the applicant's portfolio (a
+read-only view onto app.services.portfolio_service -- the same one the
+student sees on their own /portfolio, RLS deciding what an industry
+caller may see through the ownership chain proven by
+application_service.get_application()). It cannot change an application's
+student, opportunity, or owner (there is no field for it here, and the
+database triggers block it regardless). Student-facing "apply" /
+"withdraw" flows are NOT part of this module.
 """
 
+import contextlib
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from app.core.dependencies import CurrentUser, require_industry, require_student
+from app.core.dependencies import CurrentUser, require_industry
 from app.core.security import build_user_client
 from app.schemas.application import (
     ApplicationListResponse,
+    ApplicationMatchResponse,
     ApplicationResponse,
-    ApplicationStatusUpdateRequest,
+    ApplicationStatus,
+    ApplicationStatusUpdate,
+    ApplicationSummaryResponse,
+    OpportunityType,
+)
+from app.schemas.internship_workspace import (
+    InternshipWorkspaceSummary,
+    ProvisionWorkspaceResponse,
 )
 from app.schemas.portfolio import PortfolioResponse
-from app.services import application_service, portfolio_service
+from app.services import (
+    application_service,
+    internship_workspace_service,
+    match_service,
+    notification_producer,
+    portfolio_service,
+)
 
 router = APIRouter(prefix="/applications", tags=["applications"])
 
 
+def _not_found() -> HTTPException:
+    return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Application not found.")
+
+
+def _server_error(action: str) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail=f"Could not {action}. Please try again.",
+    )
+
+
 @router.get("", response_model=ApplicationListResponse)
-def list_my_applications(current_user: CurrentUser = Depends(require_student)) -> ApplicationListResponse:
-    """The authenticated student's own applications -- identity always
-    from the token, never a client-supplied student_id."""
+def list_applications(
+    status_filter: ApplicationStatus | None = Query(default=None, alias="status"),
+    opportunity_type: OpportunityType | None = Query(default=None),
+    internship_id: UUID | None = Query(default=None),
+    job_id: UUID | None = Query(default=None),
+    current_user: CurrentUser = Depends(require_industry),
+) -> ApplicationListResponse:
     client = build_user_client(current_user.access_token)
     try:
-        rows = application_service.list_student_applications(client, current_user.id)
+        rows = application_service.list_applications(
+            client,
+            current_user.id,
+            status=status_filter,
+            opportunity_type=opportunity_type,
+            internship_id=str(internship_id) if internship_id else None,
+            job_id=str(job_id) if job_id else None,
+        )
     except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Could not load your applications."
-        ) from exc
+        raise _server_error("load applications") from exc
     return ApplicationListResponse(applications=rows)
 
 
-@router.patch("/{application_id}/status", response_model=ApplicationResponse)
-def update_status(
-    application_id: UUID,
-    payload: ApplicationStatusUpdateRequest,
+@router.get("/summary", response_model=ApplicationSummaryResponse)
+def get_applications_summary(
     current_user: CurrentUser = Depends(require_industry),
-) -> ApplicationResponse:
-    """Industry-only, scoped to their own opportunities' applicants by
-    RLS -- see prevent_unauthorized_application_change
-    (024_opportunities_and_applications.sql) for why this can never
-    change anything but status, regardless of what a raw REST call
-    attempts."""
+) -> ApplicationSummaryResponse:
+    """Per-status counts of the caller's own applications -- the
+    recruitment funnel's data source. Declared before /{application_id}
+    so the literal path wins the match."""
     client = build_user_client(current_user.access_token)
     try:
-        row = application_service.update_application_status(
-            client, application_id, payload.status.value
-        )
+        summary = application_service.get_status_summary(client, current_user.id)
     except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Could not update this application."
-        ) from exc
+        raise _server_error("load the recruitment summary") from exc
+    return ApplicationSummaryResponse(**summary)
+
+
+@router.get("/{application_id}", response_model=ApplicationResponse)
+def get_application(
+    application_id: UUID,
+    current_user: CurrentUser = Depends(require_industry),
+) -> ApplicationResponse:
+    client = build_user_client(current_user.access_token)
+    try:
+        row = application_service.get_application(client, current_user.id, str(application_id))
+    except Exception as exc:
+        raise _server_error("load the application") from exc
     if row is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Application not found.")
+        raise _not_found()
     return ApplicationResponse(**row)
 
 
+@router.get("/{application_id}/match", response_model=ApplicationMatchResponse)
+def get_application_match(
+    application_id: UUID,
+    current_user: CurrentUser = Depends(require_industry),
+) -> ApplicationMatchResponse:
+    """A deterministic, advisory skill-fit summary for one owned
+    application: score 0-100, matched / needs-improvement / missing skills,
+    coverage, and a recommendation band. No LLM. Never changes the
+    application's status. The candidate skill data comes from the
+    ownership-checked public.application_skill_match RPC
+    (056_application_skill_match.sql).
+    """
+    client = build_user_client(current_user.access_token)
+
+    try:
+        application = application_service.get_application(
+            client, current_user.id, str(application_id)
+        )
+    except Exception as exc:
+        raise _server_error("load the application") from exc
+    if application is None:
+        raise _not_found()
+
+    try:
+        rows = application_service.get_skill_match_rows(client, str(application_id))
+    except Exception as exc:
+        raise _server_error("calculate the match") from exc
+
+    result = match_service.compute_match(str(application_id), rows)
+
+    # Best-effort cache of the server-computed score onto applications.match_score
+    # (Phase 8 left the column read-only). Only when the posting actually has
+    # requirements -- a "0" for a posting with no required skills would be
+    # misleading. A write failure never fails the response.
+    if result["required_count"] > 0:
+        with contextlib.suppress(Exception):
+            application_service.set_match_score(
+                client, current_user.id, str(application_id), result["score"]
+            )
+
+    return ApplicationMatchResponse(**result)
+
+
 @router.get("/{application_id}/portfolio", response_model=PortfolioResponse)
-def get_application_portfolio(
-    application_id: UUID, current_user: CurrentUser = Depends(require_industry)
+def get_applicant_portfolio(
+    application_id: UUID,
+    current_user: CurrentUser = Depends(require_industry),
 ) -> PortfolioResponse:
-    """Phase 1N -- the "Portfolio" step of Industry -> My Opportunities ->
-    Applicants -> Applicant -> Portfolio. Security is layered exactly as
-    the master prompt requires: (1)-(3) "the application exists, belongs
-    to an opportunity, that opportunity belongs to this industry account"
-    are all proven together by application_service.get_application()'s
-    own RLS-scoped read (its "Industry can view applications for their
-    own opportunities" SELECT policy is what makes this return None,
-    not another industry's data, for an unrelated caller -- same
-    non-leaking 404 as every other Phase 1M ownership check). (4) "the
-    portfolio belongs to the student in that application" is then
-    independently re-proven by portfolio_projects/
-    portfolio_certifications' own RLS policies when
-    get_student_portfolio() reads through this SAME caller-scoped
-    client -- no service-role client is used anywhere in this route, RLS
-    alone is the complete enforcement (see
-    app.services.portfolio_service's own docstring)."""
+    """The applicant's portfolio (projects/certifications/achievements),
+    visible only through a legitimate application to one of the caller's
+    own postings -- ownership is proven by get_application() FIRST (a 404
+    for any application the caller doesn't own), then
+    portfolio_service.get_student_portfolio reads through the same
+    user-scoped client RLS already permits for a legitimate applicant."""
     client = build_user_client(current_user.access_token)
     try:
-        application = application_service.get_application(client, application_id)
+        application = application_service.get_application(
+            client, current_user.id, str(application_id)
+        )
     except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Could not load this application."
-        ) from exc
+        raise _server_error("load the application") from exc
     if application is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Application not found.")
+        raise _not_found()
 
     try:
         portfolio = portfolio_service.get_student_portfolio(client, application["student_id"])
     except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Could not load this applicant's portfolio."
-        ) from exc
+        raise _server_error("load this applicant's portfolio") from exc
     return PortfolioResponse(**portfolio)
+
+
+@router.patch("/{application_id}/status", response_model=ApplicationResponse)
+def update_application_status(
+    application_id: UUID,
+    body: ApplicationStatusUpdate,
+    current_user: CurrentUser = Depends(require_industry),
+) -> ApplicationResponse:
+    client = build_user_client(current_user.access_token)
+    try:
+        row = application_service.update_status(
+            client, current_user.id, str(application_id), body.status
+        )
+    except application_service.InvalidStatusTransitionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"An application at '{exc.current}' can't be moved to '{exc.target}'.",
+        ) from exc
+    except Exception as exc:
+        raise _server_error("update the application") from exc
+    if row is None:
+        raise _not_found()
+
+    # Best-effort: let the student know their application moved. The
+    # producer writes with the service role (student_notifications has no
+    # insert policy) and swallows its own errors -- a failed notification
+    # never turns a successful status change into an error.
+    notification_producer.emit_application_status_change(
+        student_id=row["student_id"],
+        application_id=str(application_id),
+        new_status=row["status"],
+        opportunity_title=(row.get("opportunity") or {}).get("title"),
+    )
+
+    return ApplicationResponse(**row)
+
+
+@router.post(
+    "/{application_id}/provision-workspace", response_model=ProvisionWorkspaceResponse
+)
+def provision_application_workspace(
+    application_id: UUID,
+    current_user: CurrentUser = Depends(require_industry),
+) -> ProvisionWorkspaceResponse:
+    """Idempotently (re-)provision the Internship Workspace for a SELECTED
+    application of one of the caller's own postings.
+
+    The SELECTED transition already provisions on a best-effort basis
+    (app.services.application_service); this endpoint is the explicit
+    heal / verify path for a workspace that was skipped -- e.g. the
+    industry created its internship_program only after the student was
+    selected. Returns the existing workspace when one is already present,
+    and a no-op outcome (SKIPPED_*) for an ineligible application. NEVER
+    changes the application's status.
+    """
+    client = build_user_client(current_user.access_token)
+
+    # Ownership + existence via the same ownership-checked getter the rest
+    # of this router uses -- a foreign / unknown id is a clean 404, never
+    # a smuggled provisioning attempt.
+    try:
+        application = application_service.get_application(
+            client, current_user.id, str(application_id)
+        )
+    except Exception as exc:
+        raise _server_error("load the application") from exc
+    if application is None:
+        raise _not_found()
+
+    try:
+        result = internship_workspace_service.provision_for_selection(
+            client, str(application_id)
+        )
+    except internship_workspace_service.ProvisionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
+    except Exception as exc:
+        raise _server_error("provision the internship workspace") from exc
+
+    return ProvisionWorkspaceResponse(
+        outcome=result.outcome,
+        detail=result.detail,
+        work_mode=result.work_mode,
+        workspace=(
+            InternshipWorkspaceSummary(**result.workspace) if result.workspace else None
+        ),
+    )

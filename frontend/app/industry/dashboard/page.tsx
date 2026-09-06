@@ -4,13 +4,11 @@ import { BarChart3, Briefcase, Users, type LucideIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { RecruitmentFunnel } from "@/components/industry/recruitment-funnel";
 import { StatCard, type StatCardProps } from "@/components/dashboard/stat-card";
 import { UpcomingEvents } from "@/components/dashboard/upcoming-events";
 import { createClient } from "@/lib/supabase/server";
 import { fetchProfile } from "@/lib/profile";
 import {
-  MOCK_HIRING_PIPELINE,
   MOCK_INDUSTRY_EVENTS,
   MOCK_INDUSTRY_KPIS,
   MOCK_RECENT_POSTINGS,
@@ -59,17 +57,18 @@ export default async function IndustryDashboardPage() {
             Track postings, applicants, and your hiring pipeline.
           </p>
         </div>
-        <Button render={<Link href="/industry/opportunities/new" />} nativeButton={false}>
-          Post an Opportunity
+        <Button render={<Link href="/industry/internships/create" />} nativeButton={false}>
+          Post an Internship
         </Button>
       </div>
 
       <div className="rounded-lg border border-dashed border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-muted-foreground">
         The numbers below are demo data — real postings, applicants, and matching are live under{" "}
-        <Link href="/industry/opportunities" className="underline underline-offset-2">
-          My Opportunities
+        <Link href="/industry/applicants" className="underline underline-offset-2">
+          Applicants
         </Link>
-        .
+        , <Link href="/industry/internships" className="underline underline-offset-2">Internships</Link>, and{" "}
+        <Link href="/industry/jobs" className="underline underline-offset-2">Jobs</Link>.
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -88,13 +87,11 @@ export default async function IndustryDashboardPage() {
 
       <div className="grid gap-6 xl:grid-cols-3">
         <div className="space-y-6 xl:col-span-2">
-          <RecruitmentFunnel stages={MOCK_HIRING_PIPELINE} />
-
           <Card>
             <CardHeader>
               <CardTitle>Recent Postings</CardTitle>
               <CardAction>
-                <Button variant="ghost" size="sm" render={<Link href="/industry/opportunities" />} nativeButton={false}>
+                <Button variant="ghost" size="sm" render={<Link href="/industry/internships" />} nativeButton={false}>
                   View All
                 </Button>
               </CardAction>

@@ -60,6 +60,35 @@ export interface CertificationUpdateInput {
   credential_url?: string | null;
 }
 
+export interface Achievement {
+  id: string;
+  student_id: string;
+  title: string;
+  description: string | null;
+  achievement_date: string | null;
+  issuing_organization: string | null;
+  url: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AchievementCreateInput {
+  title: string;
+  description?: string | null;
+  achievement_date?: string | null;
+  issuing_organization?: string | null;
+  url?: string | null;
+}
+
+/** Mirrors `AchievementUpdateRequest` -- every field optional, partial update. */
+export interface AchievementUpdateInput {
+  title?: string;
+  description?: string | null;
+  achievement_date?: string | null;
+  issuing_organization?: string | null;
+  url?: string | null;
+}
+
 /** Mirrors `PortfolioResponse` -- the combined view returned by both
  * GET /portfolio (student, own) and GET /applications/{id}/portfolio
  * (industry, a legitimate applicant's) -- same shape either way, RLS
@@ -68,4 +97,5 @@ export interface Portfolio {
   student_id: string;
   projects: Project[];
   certifications: Certification[];
+  achievements: Achievement[];
 }

@@ -1,12 +1,18 @@
-import { redirect } from "next/navigation";
+import { InternshipDetailView } from "@/components/industry/internships/internship-detail-view";
 
-// This route previously had zero real content. Rather than building a
-// fourth near-duplicate opportunity view (list, edit, applicants, and
-// this), it redirects to the canonical management page for one
-// opportunity -- applicants is the most useful destination for an
-// industry user clicking into one of their own postings. Editing is one
-// click away from there.
-export default async function IndustryInternshipRedirectPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function IndustryInternshipDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ edit?: string | string[] }>;
+}) {
   const { id } = await params;
-  redirect(`/industry/opportunities/${id}/applicants`);
+  const sp = await searchParams;
+
+  return (
+    <div className="mx-auto max-w-3xl">
+      <InternshipDetailView internshipId={id} initialEdit={sp.edit === "1"} />
+    </div>
+  );
 }

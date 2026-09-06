@@ -1,5 +1,8 @@
 import { api } from "@/lib/api";
 import type {
+  Achievement,
+  AchievementCreateInput,
+  AchievementUpdateInput,
   Certification,
   CertificationCreateInput,
   CertificationUpdateInput,
@@ -55,4 +58,23 @@ export function updateCertification(
 
 export function deleteCertification(certificationId: string): Promise<void> {
   return api.delete(`/api/v1/portfolio/certifications/${certificationId}`);
+}
+
+export function listMyAchievements(): Promise<{ achievements: Achievement[] }> {
+  return api.get("/api/v1/portfolio/achievements");
+}
+
+export function createAchievement(input: AchievementCreateInput): Promise<Achievement> {
+  return api.post("/api/v1/portfolio/achievements", input);
+}
+
+export function updateAchievement(
+  achievementId: string,
+  input: AchievementUpdateInput,
+): Promise<Achievement> {
+  return api.patch(`/api/v1/portfolio/achievements/${achievementId}`, input);
+}
+
+export function deleteAchievement(achievementId: string): Promise<void> {
+  return api.delete(`/api/v1/portfolio/achievements/${achievementId}`);
 }

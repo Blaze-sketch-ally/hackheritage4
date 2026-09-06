@@ -2,14 +2,14 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { OpportunityDetailView } from "@/components/opportunities/opportunity-detail-view";
+import { OpportunityDetailView } from "@/components/student/opportunities/opportunity-detail-view";
 import { createClient } from "@/lib/supabase/server";
 
-// Renders the exact same OpportunityDetailView as
-// /student/opportunities/[id] -- one detail implementation, reached via
-// three different existing/canonical URLs (see that component's own
-// docstring).
-export default async function StudentJobDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function StudentJobDetailPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -20,7 +20,13 @@ export default async function StudentJobDetailPage({ params }: { params: Promise
 
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-4">
-      <Button variant="ghost" size="sm" className="w-fit" render={<Link href="/student/jobs" />} nativeButton={false}>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="w-fit"
+        render={<Link href="/student/jobs" />}
+        nativeButton={false}
+      >
         <ArrowLeft /> Back to Jobs
       </Button>
       <OpportunityDetailView opportunityId={id} />

@@ -239,6 +239,7 @@ def test_mentee_bundle_never_includes_answer_or_application_fields():
         ],
         "projects": [],
         "certifications": [],
+        "achievements": [],
     }
     with (
         authenticated_as("FACULTY", user_id="faculty-1"),
@@ -609,7 +610,10 @@ def test_get_mentee_bundle_never_queries_assessment_answers_or_applications():
     mock_client.table.return_value.select.return_value.eq.return_value.execute.return_value.data = []
     mock_client.table.return_value.select.return_value.eq.return_value.order.return_value.execute.return_value.data = []
 
-    with patch("app.services.portfolio_service.get_student_portfolio", return_value={"projects": [], "certifications": []}):
+    with patch(
+        "app.services.portfolio_service.get_student_portfolio",
+        return_value={"projects": [], "certifications": [], "achievements": []},
+    ):
         service.get_mentee_bundle(mock_client, "faculty-1", "mentorship-1")
 
     queried_tables = {call.args[0] for call in mock_client.table.call_args_list}
