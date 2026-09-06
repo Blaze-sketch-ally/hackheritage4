@@ -525,24 +525,32 @@ def test_submission_reviews_are_the_source_of_truth_and_immutable():
 def test_phase6_needs_no_new_migration_submission_reviews_already_has_the_columns():
     """The Phase 6 review flow (verdict + feedback + score, append-only, one
     row per decision, reviewer forced to auth.uid()) is fully served by the
-    submission_reviews table + trigger + RLS already in migration 062. No
-    new migration exists, and 062 itself is untouched.
+    submission_reviews table + trigger + RLS already in migration 062 --
+    no SEPARATE migration was needed just to add review columns to it, and
+    062 itself does not redefine/duplicate the table a second time.
 
-    This repo's own migration sequence continues past 062 for unrelated,
-    already-existing history (this integration pass adopted these
-    migrations under this repo's own numbering, not the source branch's --
-    see 060's own header) -- so the real assertion is "nothing newer than
-    062 was added BY THIS review feature", i.e. 062 is still this repo's
-    tip, not "no migration >= 40 exists" (which was only true relative to
-    the source branch's own, much shorter sequence)."""
+    This repo's own migration sequence legitimately continues past 062
+    (this same integration pass also adopted unrelated features --
+    interviews, student learning -- afterward, at 063/064), so "no
+    migration newer than 062 exists at all" is not the right invariant
+    here (that was only ever true relative to the source branch's own,
+    much shorter sequence). The real, stable invariant is that
+    submission_reviews is defined exactly once, in 062, with the columns
+    Phase 6 needs already present."""
     block = _table_block(M062_C, "submission_reviews").lower()
     assert "feedback text" in block
     assert "score numeric(6, 2) check (score is null or score >= 0)" in block
     # the industry insert policy is scoped to the internship owner
     assert "public.industry_owns_workspace(s.workspace_id)" in M062_C
-    # no migration newer than 062 exists -- it is still this repo's tip.
-    later = [int(p.name[:3]) for p in MIGRATIONS_DIR.glob("[0-9][0-9][0-9]_*.sql") if int(p.name[:3]) > 62]
-    assert later == [], f"unexpected post-062 migration(s): {later}"
+    # submission_reviews is defined exactly once (in 062) -- no later
+    # migration redefines or duplicates it.
+    other_definitions = [
+        p.name
+        for p in MIGRATIONS_DIR.glob("[0-9][0-9][0-9]_*.sql")
+        if p.name != "062_workspace_submissions_completion.sql"
+        and "create table if not exists submission_reviews" in _code(p).lower()
+    ]
+    assert other_definitions == [], f"submission_reviews redefined in: {other_definitions}"
 
 
 # ============================================================

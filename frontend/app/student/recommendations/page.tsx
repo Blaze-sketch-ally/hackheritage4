@@ -1,8 +1,8 @@
 import { redirect } from "next/navigation";
-import { EventsListView } from "@/components/student/events/events-list-view";
+import { RecommendationsView } from "@/components/student/recommendations/recommendations-view";
 import { createClient } from "@/lib/supabase/server";
 
-export default async function StudentEventsPage() {
+export default async function StudentRecommendationsPage() {
   const supabase = await createClient();
   const {
     data: { user },
@@ -15,12 +15,13 @@ export default async function StudentEventsPage() {
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-6">
       <div>
-        <h1 className="text-xl font-semibold">Events</h1>
+        <h1 className="text-xl font-semibold">Recommended for you</h1>
         <p className="text-sm text-muted-foreground">
-          Workshops and sessions published by industry partners.
+          Existing opportunities and learning resources, ranked by how well they match your
+          canonical skills and target role.
         </p>
       </div>
-      <EventsListView />
+      <RecommendationsView />
     </div>
   );
 }

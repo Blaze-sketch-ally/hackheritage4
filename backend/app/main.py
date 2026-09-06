@@ -26,14 +26,18 @@ from app.api import (
     internship_programs,
     internship_workspaces,
     internships,
+    interviews,
     jobs,
     portfolio,
     questions,
+    student_events,
     student_internship_workspaces,
+    student_learning,
     student_mentorship_opportunities,
     student_mentorships,
     student_notifications,
     student_opportunities,
+    student_recommendations,
 )
 from app.core.config import settings
 
@@ -69,7 +73,11 @@ app.include_router(internship_workspaces.router, prefix="/api/v1")
 app.include_router(student_internship_workspaces.router, prefix="/api/v1")
 app.include_router(jobs.router, prefix="/api/v1")
 app.include_router(applications.router, prefix="/api/v1")
+app.include_router(interviews.router, prefix="/api/v1")
 app.include_router(student_opportunities.router, prefix="/api/v1")
+app.include_router(student_events.router, prefix="/api/v1")
+app.include_router(student_learning.router, prefix="/api/v1")
+app.include_router(student_recommendations.router, prefix="/api/v1")
 app.include_router(student_notifications.router, prefix="/api/v1")
 app.include_router(certificates.router, prefix="/api/v1")
 app.include_router(portfolio.router, prefix="/api/v1")

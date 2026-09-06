@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { Award, Briefcase, GraduationCap, Target, TrendingUp, type LucideIcon } from "lucide-react";
-import { AiRecommendations } from "@/components/student/ai-recommendations";
 import { ApplicationTracker } from "@/components/dashboard/application-tracker";
 import { Button } from "@/components/ui/button";
+import { DashboardLearning } from "@/components/student/dashboard/dashboard-learning";
+import { DashboardRecommendations } from "@/components/student/dashboard/dashboard-recommendations";
 import { ProfileCompletion } from "@/components/student/profile-completion";
 import { RecommendationTabs } from "@/components/student/recommendation-tabs";
 import { SkillOverview } from "@/components/student/skill-overview";
@@ -85,11 +86,12 @@ export default async function StudentDashboardPage() {
           <SkillOverview radar={MOCK_SKILL_RADAR} studentSkills={studentSkills} />
           <RecommendationTabs />
           <ApplicationTracker stages={MOCK_APPLICATION_STAGES} />
+          <DashboardLearning />
         </div>
         <div className="space-y-6">
           <ProfileCompletion percent={completion} />
           <UpcomingEvents events={MOCK_EVENTS} viewAllHref="/student/events" />
-          <AiRecommendations />
+          <DashboardRecommendations />
         </div>
       </div>
     </div>

@@ -2,10 +2,10 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { LearningResourceDetailView } from "@/components/student/learning/learning-resource-detail-view";
+import { EventDetailView } from "@/components/student/events/event-detail-view";
 import { createClient } from "@/lib/supabase/server";
 
-export default async function StudentLearningResourcePage({
+export default async function StudentEventDetailPage({
   params,
 }: {
   params: Promise<{ id: string }>;
@@ -19,17 +19,17 @@ export default async function StudentLearningResourcePage({
   const { id } = await params;
 
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-4">
+    <div className="mx-auto flex max-w-3xl flex-col gap-4">
       <Button
         variant="ghost"
         size="sm"
         className="w-fit"
-        render={<Link href="/student/learning" />}
+        render={<Link href="/student/events" />}
         nativeButton={false}
       >
-        <ArrowLeft /> Back to Learning
+        <ArrowLeft /> Back to Events
       </Button>
-      <LearningResourceDetailView resourceId={id} />
+      <EventDetailView eventId={id} />
     </div>
   );
 }
