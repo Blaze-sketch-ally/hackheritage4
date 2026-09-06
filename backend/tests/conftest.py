@@ -67,6 +67,8 @@ def authenticated_as(role: str | None, user_id: str = "student-1"):
         "industry_projects",
         "industry_trainings",
         "industry_workshops",
+        "institution",
+        "institution_link_requests",
         "internships",
         "jobs",
         "skills",

@@ -13,6 +13,7 @@ import {
   Compass,
   FileText,
   FolderKanban,
+  GraduationCap,
   Handshake,
   LayoutDashboard,
   type LucideIcon,
@@ -43,7 +44,12 @@ interface NavGroup {
 // Items with no href (e.g. Industry Projects) have no matching route yet
 // and are shown as "Soon" rather than linking to a page that isn't theirs.
 const NAV_GROUPS: NavGroup[] = [
-  { items: [{ label: "Dashboard", href: "/student/dashboard", icon: LayoutDashboard }] },
+  {
+    items: [
+      { label: "Dashboard", href: "/student/dashboard", icon: LayoutDashboard },
+      { label: "My Institution", href: "/student/institution", icon: GraduationCap },
+    ],
+  },
   {
     label: "Main",
     items: [

@@ -27,4 +27,14 @@ describe("InstitutionSidebar", () => {
       "/institution/students",
     );
   });
+
+  it("links Skill Gaps to /institution/skill-gaps and no longer shows Assessments", () => {
+    render(<InstitutionSidebar />);
+
+    expect(screen.getByRole("link", { name: /skill gaps/i })).toHaveAttribute(
+      "href",
+      "/institution/skill-gaps",
+    );
+    expect(screen.queryByRole("link", { name: /assessments/i })).not.toBeInTheDocument();
+  });
 });
