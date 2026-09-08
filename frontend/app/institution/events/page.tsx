@@ -1,7 +1,5 @@
+import { InstitutionEventsView } from "@/components/institution/events/events-view";
+
 export default function Page() {
-  return (
-    <div className="p-8">
-      <h1 className="text-xl font-semibold">Institution Events – Coming Soon</h1>
-    </div>
-  );
+  return <InstitutionEventsView />;
 }

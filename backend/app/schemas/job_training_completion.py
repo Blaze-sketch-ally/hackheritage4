@@ -1,5 +1,5 @@
 """Pydantic schemas for PHASE J4 -- Job Training completion + certificate
-(database/migrations/041_job_training_completion.sql:
+(database/migrations/053_job_training_completion.sql:
 `job_training_completions`, `job_training_certificates`,
 `public.verify_job_training_certificate`).
 
@@ -21,7 +21,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-# job_training_completions.completion_status CHECK (041).
+# job_training_completions.completion_status CHECK (053).
 JobTrainingCompletionStatus = Literal["PENDING", "PASSED", "FAILED"]
 # The industry's decision, as sent to the verify endpoint. 'PASS' -> the
 # row becomes PASSED and a certificate is issued; 'FAIL' -> FAILED, no

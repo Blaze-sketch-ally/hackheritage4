@@ -1,5 +1,5 @@
 """Pydantic schemas for the STUDENT side of Job Training
-(database/migrations/040_job_training.sql).
+(database/migrations/052_job_training.sql).
 
 PHASE J3 scope: a SELECTED job candidate whose industry has authored a
 job training program can list their enrollment(s) and read the PUBLISHED

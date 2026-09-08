@@ -6,6 +6,7 @@ import {
   BarChart3,
   Building2,
   CalendarDays,
+  Contact,
   FileText,
   GraduationCap,
   Handshake,
@@ -14,7 +15,6 @@ import {
   Landmark,
   Network,
   Settings,
-  Target,
   TrendingUp,
   Users,
 } from "lucide-react";
@@ -49,7 +49,6 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { label: "Departments", href: "/institution/departments", icon: Building2 },
       { label: "Students", href: "/institution/students", icon: Users },
-      { label: "Assessments", href: "/institution/assessments", icon: Target },
       { label: "Skill Gaps", href: "/institution/skill-gaps", icon: TrendingUp },
     ],
   },
@@ -59,6 +58,7 @@ const NAV_GROUPS: NavGroup[] = [
       { label: "Placements", href: "/institution/placements", icon: GraduationCap },
       { label: "Internships", href: "/institution/internships", icon: GraduationCap },
       { label: "Industry Partners", href: "/institution/industry-partners", icon: Handshake },
+      { label: "Industry Connections", href: "/institution/industry-connections", icon: Contact },
     ],
   },
   {

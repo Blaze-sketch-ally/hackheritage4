@@ -1,5 +1,5 @@
 """Business logic for provisioning and reading the per-student Internship
-Workspace (database/migrations/038_internship_workspace.sql).
+Workspace (database/migrations/050_internship_workspace.sql).
 
 PHASE 2 SCOPE: workspace PROVISIONING on the SELECTED transition, plus a
 minimal read surface. Nothing here implements acceptance, program
@@ -11,7 +11,7 @@ Every function takes an already-built Supabase client. The live path
 (application_service.update_status) and the two read endpoints pass a
 *user-scoped* client (app.core.security.build_user_client); the explicit
 one-off backfill script passes the *service-role* client. RLS
-(038_internship_workspace.sql) is the real access-control boundary in
+(050_internship_workspace.sql) is the real access-control boundary in
 both cases:
 
 * internship_workspaces INSERT policy:

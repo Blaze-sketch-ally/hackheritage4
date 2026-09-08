@@ -7,7 +7,7 @@ import {
 type Style = { className?: string; variant?: "outline" | "destructive" | "secondary" };
 
 // Covers all six workspace_status values
-// (database/migrations/038_internship_workspace.sql). The student never
+// (database/migrations/050_internship_workspace.sql). The student never
 // sets these directly except accept/decline; they are shown with a
 // friendly label.
 const STATUS_STYLE: Record<WorkspaceStatus, Style> = {

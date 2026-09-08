@@ -1,5 +1,5 @@
 """Pydantic schemas for INDUSTRY Job Training program authoring
-(database/migrations/040_job_training.sql).
+(database/migrations/052_job_training.sql).
 
 PHASE J2 scope: an industry account authors exactly one job_program for
 one of its JOB postings -- program metadata, ordered modules, learning
@@ -16,7 +16,7 @@ program grants nobody access on its own.
 
 Ownership is never accepted in a request: every endpoint derives the
 industry from the token (require_industry -> current_user.id) and RLS
-(040_job_training.sql, via public.owns_job_program + the job-ownership
+(052_job_training.sql, via public.owns_job_program + the job-ownership
 predicate) is the real access-control boundary. Shape mirrors
 app.schemas.internship_program (the internship-program authoring analog).
 """
@@ -26,7 +26,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-# database/migrations/040_job_training.sql -- CHECK value lists
+# database/migrations/052_job_training.sql -- CHECK value lists
 JobProgramStatus = Literal["DRAFT", "PUBLISHED", "ARCHIVED"]
 SkillRequirement = Literal["REQUIRED", "OPTIONAL"]
 JobProgramItemType = Literal["VIDEO", "PDF", "LINK", "TEXT"]

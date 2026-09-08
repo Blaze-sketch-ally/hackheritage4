@@ -1,5 +1,5 @@
 """API routes for the INDUSTRY side of Job Training completion
-(database/migrations/041_job_training_completion.sql).
+(database/migrations/053_job_training_completion.sql).
 
 PHASE J4: read the completion state of one of the industry's own job
 training enrollments, and perform the explicit verification (PASS / FAIL)

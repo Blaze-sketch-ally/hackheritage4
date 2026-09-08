@@ -1,5 +1,5 @@
 """API routes for the STUDENT view of their own Job Training
-(database/migrations/040_job_training.sql).
+(database/migrations/052_job_training.sql).
 
 PHASE J3: list the student's job training enrollments, and read the
 PUBLISHED program behind one enrollment (job info + program metadata +

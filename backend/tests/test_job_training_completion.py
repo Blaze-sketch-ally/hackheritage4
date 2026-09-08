@@ -1,5 +1,5 @@
 """Phase J4 -- Job Training completion + certificate
-(database/migrations/041_job_training_completion.sql).
+(database/migrations/053_job_training_completion.sql).
 
 Three surfaces:
   * INDUSTRY  GET/POST /api/v1/industry/job-training/{enrollment_id}/completion[/verify]
@@ -37,8 +37,8 @@ from tests.conftest import authenticated_as
 client = TestClient(app)
 
 MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "database" / "migrations"
-M040 = MIGRATIONS_DIR / "040_job_training.sql"
-M041 = MIGRATIONS_DIR / "041_job_training_completion.sql"
+M052 = MIGRATIONS_DIR / "052_job_training.sql"
+M053 = MIGRATIONS_DIR / "053_job_training_completion.sql"
 
 
 def _code(path: Path) -> str:
@@ -48,9 +48,9 @@ def _code(path: Path) -> str:
     )
 
 
-M041_RAW = M041.read_text(encoding="utf-8")
-M041_C = _code(M041)
-M041_L = M041_C.lower()
+M053_RAW = M053.read_text(encoding="utf-8")
+M053_C = _code(M053)
+M053_L = M053_C.lower()
 
 _EID = "11111111-1111-1111-1111-111111111111"
 _SID = "22222222-2222-2222-2222-222222222222"
@@ -62,38 +62,38 @@ _CID = "77777777-7777-7777-7777-777777777777"
 
 
 # ============================================================
-# 1. SCHEMA -- migration 041 text
+# 1. SCHEMA -- migration 053 text
 # ============================================================
 
 
-def test_migration_041_exists_and_040_unchanged_and_no_042():
-    assert M041.is_file()
+def test_migration_053_exists_and_052_unchanged_and_no_054():
+    assert M053.is_file()
     names = sorted(p.name for p in MIGRATIONS_DIR.glob("[0-9][0-9][0-9]_*.sql"))
     numbers = sorted(int(n[:3]) for n in names)
     assert numbers == list(range(numbers[0], numbers[-1] + 1)), f"gap: {numbers}"
-    assert numbers[-1] == 41, "041 must be the current tip -- no 042+"
-    assert "041_job_training_completion.sql" in names
-    # 040 still defines its own tables and was not edited
-    m040 = M040.read_text(encoding="utf-8")
-    assert "create table if not exists job_training_enrollments" in m040
+    assert numbers[-1] == 53, "053 must be the current tip -- no 054+"
+    assert "053_job_training_completion.sql" in names
+    # 052 still defines its own tables and was not edited
+    m052 = M052.read_text(encoding="utf-8")
+    assert "create table if not exists job_training_enrollments" in m052
 
 
-def test_041_is_additive_and_non_destructive():
-    assert "drop table" not in M041_L
-    assert "truncate" not in M041_L
-    for line in M041_L.splitlines():
+def test_053_is_additive_and_non_destructive():
+    assert "drop table" not in M053_L
+    assert "truncate" not in M053_L
+    for line in M053_L.splitlines():
         s = line.strip()
         if s.startswith("drop ") and "execute format(" not in s:
             assert s.startswith(("drop policy if exists", "drop trigger if exists")), s
 
 
-def test_041_creates_the_two_new_tables_with_rls():
+def test_053_creates_the_two_new_tables_with_rls():
     for t in ("job_training_completions", "job_training_certificates"):
-        assert f"create table if not exists {t}" in M041_L
-        assert f"alter table {t} enable row level security" in M041_L
+        assert f"create table if not exists {t}" in M053_L
+        assert f"alter table {t} enable row level security" in M053_L
 
 
-def test_041_does_not_touch_frozen_existing_tables():
+def test_053_does_not_touch_frozen_existing_tables():
     frozen = (
         "job_training_enrollments", "job_programs", "job_program_modules",
         "job_program_items", "job_program_skills", "job_program_assignments",
@@ -102,28 +102,28 @@ def test_041_does_not_touch_frozen_existing_tables():
         "workspace_submissions", "learning_resources", "industry_training",
     )
     for t in frozen:
-        assert f"create table if not exists {t}" not in M041_L, t
-        assert f"alter table {t} " not in M041_L, t
-        assert f"alter table public.{t} " not in M041_L, t
+        assert f"create table if not exists {t}" not in M053_L, t
+        assert f"alter table {t} " not in M053_L, t
+        assert f"alter table public.{t} " not in M053_L, t
 
 
-def test_041_never_references_student_skills_or_verification():
-    assert "student_skills" not in M041_L
-    assert "is_verified" not in M041_L
-    assert "score_assessment_attempt" not in M041_L
-    assert "assessment" not in M041_L
+def test_053_never_references_student_skills_or_verification():
+    assert "student_skills" not in M053_L
+    assert "is_verified" not in M053_L
+    assert "score_assessment_attempt" not in M053_L
+    assert "assessment" not in M053_L
 
 
-def test_041_reuses_shared_helpers_not_redefines_them():
+def test_053_reuses_shared_helpers_not_redefines_them():
     for fn in ("set_updated_at", "is_student", "is_industry"):
-        assert f"create or replace function public.{fn}" not in M041_C
-    assert "execute procedure public.set_updated_at()" in M041_C
-    assert "public.is_student(auth.uid())" in M041_C
-    assert "public.is_industry(auth.uid())" in M041_C
+        assert f"create or replace function public.{fn}" not in M053_C
+    assert "execute procedure public.set_updated_at()" in M053_C
+    assert "public.is_student(auth.uid())" in M053_C
+    assert "public.is_industry(auth.uid())" in M053_C
 
 
 def test_completion_table_shape_and_constraints():
-    block = M041_L.split("create table if not exists job_training_completions", 1)[1].split(");", 1)[0]
+    block = M053_L.split("create table if not exists job_training_completions", 1)[1].split(");", 1)[0]
     assert "enrollment_id uuid not null references job_training_enrollments (id) on delete cascade" in block
     assert "student_id uuid not null references profiles (id) on delete cascade" in block
     assert "industry_id uuid not null references profiles (id) on delete restrict" in block
@@ -137,7 +137,7 @@ def test_completion_table_shape_and_constraints():
 
 
 def test_certificate_table_shape_and_constraints():
-    block = M041_L.split("create table if not exists job_training_certificates", 1)[1].split(");", 1)[0]
+    block = M053_L.split("create table if not exists job_training_certificates", 1)[1].split(");", 1)[0]
     assert "completion_id uuid not null references job_training_completions (id) on delete restrict" in block
     assert "certificate_number text not null" in block
     assert "details jsonb not null default '{}'::jsonb" in block
@@ -147,9 +147,9 @@ def test_certificate_table_shape_and_constraints():
 
 
 def test_completion_identity_is_trigger_derived_and_gated():
-    assert "create or replace function public.set_job_training_completion_derived_ids" in M041_C
-    assert "before insert on job_training_completions" in M041_C
-    body = M041_C.split("function public.set_job_training_completion_derived_ids", 1)[1].split("$$", 2)[1]
+    assert "create or replace function public.set_job_training_completion_derived_ids" in M053_C
+    assert "before insert on job_training_completions" in M053_C
+    body = M053_C.split("function public.set_job_training_completion_derived_ids", 1)[1].split("$$", 2)[1]
     assert "from public.job_training_enrollments e" in body
     assert "v_enrollment_status = 'REVOKED'" in body
     assert "v_opportunity_type is distinct from 'JOB'" in body
@@ -161,9 +161,9 @@ def test_completion_identity_is_trigger_derived_and_gated():
 
 
 def test_completion_verifier_trigger_stamps_and_freezes_identity():
-    assert "create or replace function public.set_job_training_completion_verifier" in M041_C
-    assert "before insert or update on job_training_completions" in M041_C
-    body = M041_C.split("function public.set_job_training_completion_verifier", 1)[1].split("$$", 2)[1]
+    assert "create or replace function public.set_job_training_completion_verifier" in M053_C
+    assert "before insert or update on job_training_completions" in M053_C
+    body = M053_C.split("function public.set_job_training_completion_verifier", 1)[1].split("$$", 2)[1]
     for col in ("enrollment_id", "student_id", "industry_id", "job_id", "program_id"):
         assert f"new.{col} is distinct from old.{col}" in body
     assert "new.completion_status in ('PASSED', 'FAILED')" in body
@@ -172,27 +172,27 @@ def test_completion_verifier_trigger_stamps_and_freezes_identity():
 
 
 def test_certificate_requires_passed_and_is_immutable():
-    assert "create or replace function public.set_job_training_certificate_derived_ids" in M041_C
-    d_body = M041_C.split("function public.set_job_training_certificate_derived_ids", 1)[1].split("$$", 2)[1]
+    assert "create or replace function public.set_job_training_certificate_derived_ids" in M053_C
+    d_body = M053_C.split("function public.set_job_training_certificate_derived_ids", 1)[1].split("$$", 2)[1]
     assert "v_completion_status is distinct from 'PASSED'" in d_body
-    assert "a certificate can only be issued for a passed job training completion" in M041_L
+    assert "a certificate can only be issued for a passed job training completion" in M053_L
 
-    assert "create or replace function public.prevent_job_training_certificate_tamper" in M041_C
-    t_body = M041_C.split("function public.prevent_job_training_certificate_tamper", 1)[1].split("$$", 2)[1]
+    assert "create or replace function public.prevent_job_training_certificate_tamper" in M053_C
+    t_body = M053_C.split("function public.prevent_job_training_certificate_tamper", 1)[1].split("$$", 2)[1]
     for frozen in ("completion_id", "certificate_number", "issued_at", "details",
                    "student_id", "industry_id", "job_id", "program_id"):
         assert f"new.{frozen} is distinct from old.{frozen}" in t_body
 
 
 def test_certificate_number_is_server_generated_in_the_job_namespace():
-    assert "create or replace function public.generate_job_training_certificate_number" in M041_C
-    body = M041_C.split("function public.generate_job_training_certificate_number", 1)[1].split("$$", 2)[1]
+    assert "create or replace function public.generate_job_training_certificate_number" in M053_C
+    body = M053_C.split("function public.generate_job_training_certificate_number", 1)[1].split("$$", 2)[1]
     assert "'AIC-JOB-' || to_char(now(), 'YYYY') || '-'" in body
     assert "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567" in body
     assert "for v_i in 1..13 loop" in body
     assert "gen_random_bytes" not in body
-    assert "AIC-INT-" not in M041_C  # distinct namespace from internships
-    assert "revoke all on function public.generate_job_training_certificate_number() from authenticated" in M041_C
+    assert "AIC-INT-" not in M053_C  # distinct namespace from internships
+    assert "revoke all on function public.generate_job_training_certificate_number() from authenticated" in M053_C
 
 
 def test_helpers_are_security_definer_with_pinned_search_path():
@@ -200,23 +200,23 @@ def test_helpers_are_security_definer_with_pinned_search_path():
                "set_job_training_completion_derived_ids", "set_job_training_completion_verifier",
                "generate_job_training_certificate_number", "set_job_training_certificate_derived_ids",
                "prevent_job_training_certificate_tamper", "verify_job_training_certificate"):
-        sig = M041_C.split(f"create or replace function public.{fn}", 1)[1].split("$$", 1)[0]
+        sig = M053_C.split(f"create or replace function public.{fn}", 1)[1].split("$$", 1)[0]
         assert "security definer" in sig, fn
         assert "set search_path = ''" in sig, fn
 
 
 def test_language_sql_helpers_defined_after_the_tables_they_read():
-    # industry/student ownership helpers read job_training_enrollments (040)
+    # industry/student ownership helpers read job_training_enrollments (052)
     # -> fine (created earlier / lower migration).
-    # verify_job_training_certificate reads job_training_certificates (041)
+    # verify_job_training_certificate reads job_training_certificates (053)
     # -> must be created AFTER that table.
-    i_table = M041_C.find("create table if not exists job_training_certificates")
-    i_fn = M041_C.find("create or replace function public.verify_job_training_certificate")
+    i_table = M053_C.find("create table if not exists job_training_certificates")
+    i_fn = M053_C.find("create or replace function public.verify_job_training_certificate")
     assert i_table != -1 and i_fn != -1 and i_table < i_fn
 
 
 def test_completion_rls_no_student_write_no_delete():
-    section = M041_L.split("alter table job_training_completions enable row level security", 1)[1]
+    section = M053_L.split("alter table job_training_completions enable row level security", 1)[1]
     section = section.split("create table if not exists job_training_certificates", 1)[0]
     assert "for delete" not in section
     for verb in ("select", "insert", "update"):
@@ -231,7 +231,7 @@ def test_completion_rls_no_student_write_no_delete():
 
 
 def test_certificate_rls_student_read_only_no_anon_table_policy():
-    section = M041_L.split("alter table job_training_certificates enable row level security", 1)[1]
+    section = M053_L.split("alter table job_training_certificates enable row level security", 1)[1]
     section = section.split("create or replace function public.verify_job_training_certificate", 1)[0]
     assert "for delete" not in section
     assert "students can view their own job training certificate" in section
@@ -244,7 +244,7 @@ def test_certificate_rls_student_read_only_no_anon_table_policy():
 
 
 def test_public_verifier_returns_only_safe_fields():
-    after = M041_C.split("create or replace function public.verify_job_training_certificate", 1)[1]
+    after = M053_C.split("create or replace function public.verify_job_training_certificate", 1)[1]
     sig = after.split("$$", 1)[0]
     body = after.split("$$", 2)[1]
     cols = re.search(r"returns table \(([^)]*)\)", sig, re.DOTALL).group(1)
@@ -256,26 +256,26 @@ def test_public_verifier_returns_only_safe_fields():
                  "c.job_id", "c.program_id", "c.enrollment_id", "c.completion_id",
                  "verification_notes", "verified_by"):
         assert leak not in projection, leak
-    assert "revoke all on function public.verify_job_training_certificate(text) from public" in M041_C
+    assert "revoke all on function public.verify_job_training_certificate(text) from public" in M053_C
     assert ("grant execute on function public.verify_job_training_certificate(text) "
-            "to anon, authenticated") in M041_C
+            "to anon, authenticated") in M053_C
 
 
-def test_041_makes_no_notification_check_change_and_no_new_app_status():
-    # 040 already widened student_notifications; 041 must not touch it.
-    assert "alter table public.student_notifications" not in M041_L
-    assert "add constraint student_notifications" not in M041_L
-    assert "alter table applications" not in M041_L
+def test_053_makes_no_notification_check_change_and_no_new_app_status():
+    # 052 already widened student_notifications; 053 must not touch it.
+    assert "alter table public.student_notifications" not in M053_L
+    assert "add constraint student_notifications" not in M053_L
+    assert "alter table applications" not in M053_L
     for invented in ("'training'", "'training_completed'", "'certified'"):
-        assert invented not in M041_L
+        assert invented not in M053_L
 
 
-def test_no_post_041_migration_and_internship_schema_untouched():
-    later = [int(p.name[:3]) for p in MIGRATIONS_DIR.glob("[0-9][0-9][0-9]_*.sql") if int(p.name[:3]) >= 42]
+def test_no_post_053_migration_and_internship_schema_untouched():
+    later = [int(p.name[:3]) for p in MIGRATIONS_DIR.glob("[0-9][0-9][0-9]_*.sql") if int(p.name[:3]) >= 54]
     assert later == []
     for t in ("internship_completions", "internship_certificates", "internship_workspaces"):
-        assert f"create table if not exists {t}" not in M041_L
-        assert f"alter table {t} " not in M041_L
+        assert f"create table if not exists {t}" not in M053_L
+        assert f"alter table {t} " not in M053_L
 
 
 # ============================================================
@@ -291,7 +291,7 @@ def test_no_post_041_migration_and_internship_schema_untouched():
 
 
 def _verifier_body() -> str:
-    return M041_C.split(
+    return M053_C.split(
         "function public.set_job_training_completion_verifier", 1
     )[1].split("$$", 2)[1]
 
@@ -503,7 +503,7 @@ class _Fake:
             p["industry_id"] = comp["industry_id"]
             p["job_id"] = comp["job_id"]
             p["program_id"] = comp["program_id"]
-            # emulates generate_job_training_certificate_number (041):
+            # emulates generate_job_training_certificate_number (053):
             # AIC-JOB-{YYYY}-{13 base32 chars}
             p["certificate_number"] = "AIC-JOB-2026-BCDFGHJKLMNP" + str(2 + self._cert_n % 6)
             p.setdefault("issued_at", "2026-09-10T00:00:00Z")
@@ -523,7 +523,7 @@ class _Fake:
 
         if q.table == "job_training_completions":
             for r in hits:
-                # emulates set_job_training_completion_verifier (041): PASSED
+                # emulates set_job_training_completion_verifier (053): PASSED
                 # and FAILED are terminal -- their outcome / verification can
                 # never change afterwards. Only PENDING has an outgoing edge.
                 if r["completion_status"] in ("PASSED", "FAILED") and (
@@ -1109,7 +1109,7 @@ def test_security_internship_enrollment_never_reaches_job_training_completion():
 def test_security_public_verifier_never_leaks_private_identifiers_in_migration():
     # already covered by test_public_verifier_returns_only_safe_fields; this
     # asserts the projection explicitly excludes the verification detail.
-    body = M041_C.split("create or replace function public.verify_job_training_certificate", 1)[1]
+    body = M053_C.split("create or replace function public.verify_job_training_certificate", 1)[1]
     projection = body.lower().split("select", 1)[1].split("from public.job_training_certificates", 1)[0]
     assert "verified_by" not in projection
     assert "verification_notes" not in projection

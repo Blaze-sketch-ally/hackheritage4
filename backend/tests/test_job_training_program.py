@@ -8,7 +8,7 @@ enforces the `.eq()` / `.in_()` filters the service relies on -- so an
 ownership bypass shows up as a test failure, not just an assertion on a
 mock call.
 
-RLS (040_job_training.sql, via public.owns_job_program + the
+RLS (052_job_training.sql, via public.owns_job_program + the
 job-ownership predicate) is the real access-control boundary. This suite
 verifies the Python layer's half: every read/write is scoped by the
 caller's own id and the program / module / item / assignment lineage;
@@ -132,7 +132,7 @@ class _Query:
                 r.setdefault("updated_at", "2026-09-08T00:00:00Z")
                 r.setdefault("order_index", r.get("order_index", 0))
                 if self._table == "job_program_assignments" and "program_id" not in r:
-                    # emulates set_job_program_assignment_program_id (040)
+                    # emulates set_job_program_assignment_program_id (052)
                     mod = next(
                         (
                             m
@@ -475,7 +475,7 @@ def test_reorder_modules_rejects_a_list_that_is_not_the_exact_set():
 
 
 def test_there_is_no_module_delete_helper():
-    # 040 grants no DELETE policy on job_program_modules -- hide via is_published.
+    # 052 grants no DELETE policy on job_program_modules -- hide via is_published.
     assert not hasattr(svc, "delete_module")
 
 

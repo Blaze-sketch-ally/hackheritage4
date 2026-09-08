@@ -3,7 +3,7 @@
  * same nullability.
  *
  * The Internship Workspace is the student's post-selection internship
- * offer + training container (database/migrations/038_internship_workspace.sql).
+ * offer + training container (database/migrations/050_internship_workspace.sql).
  * There is one workspace per SELECTED internship application, for
  * REMOTE/HYBRID postings only. The student can accept or decline a
  * PENDING_ACCEPTANCE workspace and, once ACCEPTED, choose which OPTIONAL

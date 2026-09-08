@@ -1,5 +1,5 @@
 """Pydantic schemas for Phase 7 -- internship completion + certificate
-(database/migrations/039_workspace_submissions_completion.sql:
+(database/migrations/051_workspace_submissions_completion.sql:
 `internship_completions`, `internship_certificates`,
 `public.verify_internship_certificate`).
 

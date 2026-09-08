@@ -49,6 +49,8 @@ interface NavGroup {
 // GET /api/v1/student/job-training once): the "Job Training" item shows
 // ONLY when the student has at least one accessible enrollment. This is
 // UX only — the route and the backend still enforce access on their own.
+// "My Institution" is always shown; /student/institution renders its own
+// empty state for a student not yet linked to an institution.
 function navGroups(hasJobTraining: boolean): NavGroup[] {
   const mainItems: NavItem[] = [
     { label: "Skills & Assessment", href: "/student/skills", icon: Target },
@@ -73,7 +75,12 @@ function navGroups(hasJobTraining: boolean): NavGroup[] {
   ];
 
   return [
-  { items: [{ label: "Dashboard", href: "/student/dashboard", icon: LayoutDashboard }] },
+  {
+    items: [
+      { label: "Dashboard", href: "/student/dashboard", icon: LayoutDashboard },
+      { label: "My Institution", href: "/student/institution", icon: GraduationCap },
+    ],
+  },
   {
     label: "Main",
     items: mainItems,

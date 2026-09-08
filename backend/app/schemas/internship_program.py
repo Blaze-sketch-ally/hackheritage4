@@ -1,5 +1,5 @@
 """Pydantic schemas for INDUSTRY internship-program authoring
-(database/migrations/037_internship_program.sql).
+(database/migrations/049_internship_program.sql).
 
 Phase 4 scope: an industry account authors exactly one internship_program
 per internship posting -- program metadata, ordered modules, module
@@ -20,7 +20,7 @@ still have no schema here and are never written.
 
 Ownership is never accepted in a request: every endpoint derives the
 industry from the token (require_industry -> current_user.id) and RLS
-(037_internship_program.sql, via public.owns_internship_program) is the
+(049_internship_program.sql, via public.owns_internship_program) is the
 real access-control boundary.
 """
 
@@ -29,13 +29,13 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-# database/migrations/037_internship_program.sql -- CHECK value lists
+# database/migrations/049_internship_program.sql -- CHECK value lists
 ProgramStatus = Literal["DRAFT", "PUBLISHED", "ARCHIVED"]
 SkillRequirement = Literal["REQUIRED", "OPTIONAL"]
 ModuleItemType = Literal["VIDEO", "PDF", "LINK", "TEXT"]
 AssignmentType = Literal["ASSIGNMENT", "QUIZ", "PROJECT"]
 SubmissionKind = Literal["LINK", "REPO", "FILE", "TEXT", "MIXED"]
-# database/migrations/039_workspace_submissions_completion.sql
+# database/migrations/051_workspace_submissions_completion.sql
 SubmissionStatus = Literal[
     "SUBMITTED", "UNDER_REVIEW", "REVISION_REQUESTED", "ACCEPTED", "REJECTED"
 ]

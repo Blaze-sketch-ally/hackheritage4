@@ -1,5 +1,5 @@
 """API routes for INDUSTRY Job Training program authoring
-(database/migrations/040_job_training.sql).
+(database/migrations/052_job_training.sql).
 
 Nested under a job: /api/v1/jobs/{job_id}/training-program. Mirrors
 app.api.internship_programs (the internship-program authoring analog).

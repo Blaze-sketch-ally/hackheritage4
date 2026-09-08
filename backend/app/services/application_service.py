@@ -212,10 +212,10 @@ def update_status(
     # On the SELECTED transition, provision the student's post-selection
     # training container -- branched by opportunity type, each a parallel,
     # independent side effect:
-    #   * INTERNSHIP -> Internship Workspace (Phase 2, 038_internship_workspace.sql)
+    #   * INTERNSHIP -> Internship Workspace (Phase 2, 050_internship_workspace.sql)
     #                   -- one per application, REMOTE/HYBRID internships that
     #                   have an internship_program.
-    #   * JOB        -> Job Training enrollment (Phase J3, 040_job_training.sql)
+    #   * JOB        -> Job Training enrollment (Phase J3, 052_job_training.sql)
     #                   -- one per application, jobs that have a job_program.
     # The two systems never overlap: a JOB never gets a workspace, an
     # INTERNSHIP never gets a job training enrollment.

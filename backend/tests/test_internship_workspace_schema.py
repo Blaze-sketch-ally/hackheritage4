@@ -1,6 +1,10 @@
 """Schema guard for PHASE 1 of the Internship Workspace domain
-(database/migrations/037_internship_program.sql,
-038_internship_workspace.sql, 039_workspace_submissions_completion.sql).
+(database/migrations/049_internship_program.sql,
+050_internship_workspace.sql, 051_workspace_submissions_completion.sql).
+Renumbered from 037/038/039 when merging with the institution-tenancy
+lineage (arunangshu-part1), which had already claimed 037-039/040-048 on
+an unrelated feature -- content and dependency order unchanged, only the
+migration numbers moved to slot after the existing 048 tip.
 
 Same convention as tests/test_learning_schema.py /
 tests/test_industry_record_no_hard_delete.py /
@@ -15,9 +19,12 @@ import re
 from pathlib import Path
 
 MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "database" / "migrations"
-M037 = MIGRATIONS_DIR / "037_internship_program.sql"
-M038 = MIGRATIONS_DIR / "038_internship_workspace.sql"
-M039 = MIGRATIONS_DIR / "039_workspace_submissions_completion.sql"
+# Variable names kept as M037/M038/M039 (matching the domain's own Phase 1/2/3
+# ordering) even though the on-disk migration numbers are now 049/050/051 --
+# see the module docstring for why.
+M037 = MIGRATIONS_DIR / "049_internship_program.sql"
+M038 = MIGRATIONS_DIR / "050_internship_workspace.sql"
+M039 = MIGRATIONS_DIR / "051_workspace_submissions_completion.sql"
 
 PROGRAM_TABLES = (
     "internship_programs",
@@ -200,7 +207,7 @@ def test_no_historical_migration_was_modified():
 
 
 def test_phase1_migrations_are_additive_and_non_destructive():
-    for name, sql in (("037", M037_L), ("038", M038_L), ("039", M039_L)):
+    for name, sql in (("049", M037_L), ("050", M038_L), ("051", M039_L)):
         assert "drop table" not in sql, f"{name} must not drop a table"
         assert "truncate" not in sql, f"{name} must not truncate"
         for line in sql.splitlines():
@@ -447,7 +454,7 @@ def test_student_program_content_policies_are_added_in_038_and_require_published
 
 
 def test_phase1_never_references_student_skills_or_verification():
-    for name, sql in (("037", M037_L), ("038", M038_L), ("039", M039_L)):
+    for name, sql in (("049", M037_L), ("050", M038_L), ("051", M039_L)):
         assert "student_skills" not in sql, f"{name} must not reference student_skills"
         assert "is_verified" not in sql, f"{name} must not touch skill verification"
         assert "score_assessment_attempt" not in sql
@@ -521,32 +528,37 @@ def test_submission_reviews_are_the_source_of_truth_and_immutable():
 def test_phase6_needs_no_new_migration_submission_reviews_already_has_the_columns():
     """The Phase 6 review flow (verdict + feedback + score, append-only, one
     row per decision, reviewer forced to auth.uid()) is fully served by the
-    submission_reviews table + trigger + RLS already in migration 039. No
-    new migration exists, and 039 itself is untouched."""
+    submission_reviews table + trigger + RLS already in migration 039 (on
+    disk as 051 -- see module docstring). No new migration exists for it,
+    and 039/051 itself is untouched."""
     block = _table_block(M039_C, "submission_reviews").lower()
     assert "feedback text" in block
     assert "score numeric(6, 2) check (score is null or score >= 0)" in block
     # the industry insert policy is scoped to the internship owner
     assert "public.industry_owns_workspace(s.workspace_id)" in M039_C
-    # A later migration may exist for OTHER domains (040 = Job Training is a
-    # separate feature), but no post-039 migration may add to, or alter,
-    # the internship-workspace schema -- the Phase 6 review flow still needs
-    # no new migration of its own.
+    # The Internship Workspace schema lives ENTIRELY in its own three
+    # migrations -- on disk 049/050/051 (renumbered from 037/038/039 when
+    # this chain was slotted after the institution-tenancy lineage, which
+    # claimed 037-048; Job Training is yet another separate feature). NO
+    # OTHER migration -- institution-tenancy, Job Training, or anything
+    # added later -- may create or alter an internship-workspace table.
+    # The Phase 6 review flow still needs no new migration of its own.
     _internship_workspace_tables = (
         "internship_programs", "program_modules", "module_items", "program_skills",
         "program_assignments", "internship_workspaces", "workspace_skill_selections",
         "workspace_submissions", "submission_reviews", "internship_completions",
         "internship_certificates", "stipend_disbursements",
     )
+    _iw_chain = {"049", "050", "051"}
     for p in MIGRATIONS_DIR.glob("[0-9][0-9][0-9]_*.sql"):
-        if int(p.name[:3]) < 40:
+        if p.name[:3] in _iw_chain:
             continue
-        later_sql = p.read_text(encoding="utf-8").lower()
+        other_sql = p.read_text(encoding="utf-8").lower()
         for t in _internship_workspace_tables:
-            assert f"create table if not exists {t}" not in later_sql, (
+            assert f"create table if not exists {t}" not in other_sql, (
                 f"{p.name} must not create internship-workspace table {t}"
             )
-            assert f"alter table {t} " not in later_sql, (
+            assert f"alter table {t} " not in other_sql, (
                 f"{p.name} must not alter internship-workspace table {t}"
             )
 

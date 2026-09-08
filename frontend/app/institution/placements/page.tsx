@@ -1,7 +1,5 @@
+import { PlacementList } from "@/components/institution/placements/placement-list";
+
 export default function Page() {
-  return (
-    <div className="p-8">
-      <h1 className="text-xl font-semibold">Institution Placements – Coming Soon</h1>
-    </div>
-  );
+  return <PlacementList />;
 }

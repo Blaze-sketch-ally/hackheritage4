@@ -3,7 +3,7 @@
  * same nullability.
  *
  * Phase 7: internship completion + certificate
- * (database/migrations/039_workspace_submissions_completion.sql --
+ * (database/migrations/051_workspace_submissions_completion.sql --
  * internship_completions, internship_certificates,
  * public.verify_internship_certificate). "Requirements met" is always
  * computed live on the backend from program_assignments.is_required +

@@ -1,7 +1,5 @@
+import { InstitutionStudentsView } from "@/components/institution/students/institution-students-view";
+
 export default function Page() {
-  return (
-    <div className="p-8">
-      <h1 className="text-xl font-semibold">Institution Students – Coming Soon</h1>
-    </div>
-  );
+  return <InstitutionStudentsView />;
 }

@@ -5,7 +5,7 @@ Route tests mock the service and use tests.conftest.authenticated_as
 Service tests drive provision_for_selection() and the two list functions
 with a small purpose-built fake Supabase client -- no live project.
 
-RLS is the real access-control boundary (038_internship_workspace.sql,
+RLS is the real access-control boundary (050_internship_workspace.sql,
 verified live in Phase 1): a student can never read another student's
 workspace, an industry can never read another industry's, and workspace
 access never depends on internships.status. This suite verifies the

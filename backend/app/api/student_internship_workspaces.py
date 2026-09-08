@@ -1,5 +1,5 @@
 """API routes for the STUDENT view of their own Internship Workspaces
-(database/migrations/038_internship_workspace.sql).
+(database/migrations/050_internship_workspace.sql).
 
 PHASE 3: list, detail (with the PUBLISHED program preview), accept,
 decline, optional-skill selection.

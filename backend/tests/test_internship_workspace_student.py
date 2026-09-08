@@ -7,7 +7,7 @@ functions with a small purpose-built fake Supabase client -- no live
 project.
 
 RLS + the DB triggers enforce_workspace_status_transitions and
-enforce_workspace_skill_selectable (038_internship_workspace.sql, applied
+enforce_workspace_skill_selectable (050_internship_workspace.sql, applied
 + verified live in Phase 1) are the real access-control boundary: a
 student can never read/write another student's workspace, and the only
 student transition allowed is PENDING_ACCEPTANCE -> ACCEPTED|DECLINED.

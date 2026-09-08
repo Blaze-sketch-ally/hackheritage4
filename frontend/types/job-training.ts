@@ -4,7 +4,7 @@
  *
  * Job Training is the post-selection experience for a student SELECTED for
  * a JOB whose industry has authored a training program
- * (database/migrations/040_job_training.sql). It is COMPLETELY separate
+ * (database/migrations/052_job_training.sql). It is COMPLETELY separate
  * from:
  *   - the universal Learning & Courses catalog (/student/learning), and
  *   - the Internship Workspace (/student/my-internships), which is what a

@@ -7,7 +7,7 @@ functions with a small in-memory fake Supabase client that enforces the
 `.eq()` filters the service relies on -- so an ownership bypass shows up
 as a test failure, not just an assertion on a mock call.
 
-RLS (037_internship_program.sql, via public.owns_internship_program +
+RLS (049_internship_program.sql, via public.owns_internship_program +
 the internship-ownership predicate) is the real access-control boundary,
 applied + verified live in Phase 1. This suite verifies the Python
 layer's half: every read/write is scoped by the caller's own id and the

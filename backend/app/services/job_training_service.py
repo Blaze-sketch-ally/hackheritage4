@@ -1,13 +1,13 @@
 """Business logic for the STUDENT side of Job Training:
 
   * PROVISIONING an enrollment when a JOB application reaches SELECTED
-    (database/migrations/040_job_training.sql), and
+    (database/migrations/052_job_training.sql), and
   * READING the student's own enrollments and one enrollment's PUBLISHED
     program (job + modules + published items + published assignments +
     skills).
 
 PHASE J3 delivered provisioning + student reads. PHASE J4 adds the END of
-the lifecycle (database/migrations/041_job_training_completion.sql):
+the lifecycle (database/migrations/053_job_training_completion.sql):
   * get_student_completion / get_industry_completion -- read-only summary
   * get_student_certificate                          -- read-only
   * verify_completion                                -- the industry's
@@ -38,7 +38,7 @@ Client handling mirrors internship_workspace_service:
   * The explicit operator backfill script passes the *service-role*
     client.
   * The student read functions ALWAYS use a user-scoped client. RLS
-    (040_job_training.sql) is the real boundary:
+    (052_job_training.sql) is the real boundary:
       - "Students can view their own job training enrollment"
         (auth.uid() = student_id)
       - "Students can view published job programs for their enrollment"
@@ -479,7 +479,7 @@ def get_student_program(
 # ============================================================
 # PHASE J4 -- completion + certificate
 # ============================================================
-# job_training_completions / job_training_certificates (041) are ONLY ever
+# job_training_completions / job_training_certificates (053) are ONLY ever
 # written here, and ONLY by the industry that owns the enrollment (the
 # user-scoped client is the caller; RLS + the DB triggers are the real
 # boundary). Nothing here stores a progress percentage -- there is none.
@@ -862,7 +862,7 @@ def verify_completion(
         certificate = _get_or_create_certificate(client, completion, enrollment)
 
     # Enrollment lifecycle: any decided completion ends the engagement.
-    # ACTIVE -> COMPLETED. enforce_job_training_enrollment_transitions (040)
+    # ACTIVE -> COMPLETED. enforce_job_training_enrollment_transitions (052)
     # allows this for an industry caller; a student caller could never do
     # it. Best-effort: the completion + certificate are already recorded.
     if enrollment["enrollment_status"] == "ACTIVE":

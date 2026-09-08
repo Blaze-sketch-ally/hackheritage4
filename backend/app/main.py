@@ -14,6 +14,8 @@ from app.api import (
     industry_projects,
     industry_trainings,
     industry_workshops,
+    institution,
+    institution_link_requests,
     internship_programs,
     internship_workspaces,
     internships,
@@ -23,6 +25,7 @@ from app.api import (
     skill_gap,
     skills,
     student_events,
+    student_institution,
     student_internship_workspaces,
     student_job_training,
     student_learning,
@@ -56,6 +59,8 @@ app.include_router(industry_mentorship_opportunities.router, prefix="/api/v1")
 app.include_router(industry_projects.router, prefix="/api/v1")
 app.include_router(industry_trainings.router, prefix="/api/v1")
 app.include_router(industry_workshops.router, prefix="/api/v1")
+app.include_router(institution.router, prefix="/api/v1")
+app.include_router(institution_link_requests.router, prefix="/api/v1")
 app.include_router(internship_programs.router, prefix="/api/v1")
 app.include_router(internship_workspaces.router, prefix="/api/v1")
 app.include_router(internships.router, prefix="/api/v1")
@@ -65,6 +70,7 @@ app.include_router(jobs.router, prefix="/api/v1")
 app.include_router(skills.router, prefix="/api/v1")
 app.include_router(skill_gap.router, prefix="/api/v1")
 app.include_router(student_events.router, prefix="/api/v1")
+app.include_router(student_institution.router, prefix="/api/v1")
 app.include_router(student_internship_workspaces.router, prefix="/api/v1")
 app.include_router(student_job_training.router, prefix="/api/v1")
 app.include_router(student_learning.router, prefix="/api/v1")

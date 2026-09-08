@@ -1,5 +1,5 @@
 """Pydantic schemas for Phase 8 -- internship stipend record-keeping
-(database/migrations/039_workspace_submissions_completion.sql --
+(database/migrations/051_workspace_submissions_completion.sql --
 stipend_disbursements).
 
 RECORD-KEEPING ONLY. There is no payment gateway, no bank/UPI integration,

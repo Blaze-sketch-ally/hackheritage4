@@ -1,5 +1,5 @@
 """Business logic for INDUSTRY internship-program authoring
-(database/migrations/037_internship_program.sql).
+(database/migrations/049_internship_program.sql).
 
 Every function takes an already-built *user-scoped* Supabase client
 (app.core.security.build_user_client) -- never get_supabase() /
@@ -67,7 +67,7 @@ _SUBMISSION_COLUMNS = (
     "id, workspace_id, assignment_id, attempt_number, submission_status, "
     "repo_url, live_url, attachment_url, notes, submitted_at, created_at, updated_at"
 )
-# database/migrations/039_workspace_submissions_completion.sql -- submission_reviews
+# database/migrations/051_workspace_submissions_completion.sql -- submission_reviews
 _REVIEW_COLUMNS = "id, submission_id, verdict, feedback, score, reviewer_id, created_at"
 # A review may only be recorded while the attempt is still open. Once a
 # terminal verdict lands, the submission_status cache leaves this set and

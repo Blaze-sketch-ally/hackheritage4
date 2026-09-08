@@ -1,5 +1,5 @@
 """API routes for INDUSTRY internship-program authoring
-(database/migrations/037_internship_program.sql).
+(database/migrations/049_internship_program.sql).
 
 Nested under an internship: /api/v1/internships/{internship_id}/program.
 Every route is guarded by require_industry() and every read/write goes

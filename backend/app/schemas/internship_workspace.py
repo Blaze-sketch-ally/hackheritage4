@@ -1,5 +1,5 @@
 """Pydantic schemas for the Internship Workspace read / provisioning /
-acceptance surface (database/migrations/038_internship_workspace.sql).
+acceptance surface (database/migrations/050_internship_workspace.sql).
 
 Phases 2-3 expose: a workspace summary + list, a detail view with the
 PUBLISHED program preview, the provisioning-result body, and the
@@ -18,14 +18,14 @@ schemas stay later phases.
 `student_id` / `industry_id` are never accepted in a request -- every
 endpoint derives identity from the authenticated token (require_student /
 require_industry -> current_user.id) and RLS
-(038_internship_workspace.sql) is the real access-control boundary.
+(050_internship_workspace.sql) is the real access-control boundary.
 """
 
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-# database/migrations/038_internship_workspace.sql -- CHECK value lists
+# database/migrations/050_internship_workspace.sql -- CHECK value lists
 WorkspaceStatus = Literal[
     "PENDING_ACCEPTANCE",
     "ACCEPTED",
@@ -36,7 +36,7 @@ WorkspaceStatus = Literal[
 ]
 WorkMode = Literal["REMOTE", "HYBRID"]
 SkillRequirement = Literal["REQUIRED", "OPTIONAL"]
-# database/migrations/037_internship_program.sql -- module_items.item_type
+# database/migrations/049_internship_program.sql -- module_items.item_type
 ModuleItemType = Literal["VIDEO", "PDF", "LINK", "TEXT"]
 AssignmentType = Literal["ASSIGNMENT", "QUIZ", "PROJECT"]
 SubmissionKind = Literal["LINK", "REPO", "FILE", "TEXT", "MIXED"]

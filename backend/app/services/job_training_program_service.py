@@ -1,5 +1,5 @@
 """Business logic for INDUSTRY Job Training program authoring
-(database/migrations/040_job_training.sql).
+(database/migrations/052_job_training.sql).
 
 Every function takes an already-built *user-scoped* Supabase client
 (app.core.security.build_user_client) -- never get_supabase() /
@@ -10,8 +10,8 @@ service_role -- so RLS is the real access-control boundary:
   `exists (jobs j where j.id = job_id AND j.industry_id = auth.uid()
   AND public.is_industry(auth.uid()))`.
 * job_program_modules / job_program_items / job_program_assignments:
-  routed through public.owns_job_program(program_id) (040).
-* job_program_skills: a single `for all` owner policy (040) -- so the
+  routed through public.owns_job_program(program_id) (052).
+* job_program_skills: a single `for all` owner policy (052) -- so the
   replace-set (DELETE + INSERT) below is RLS-legal, the same pattern as
   internship_program_service.set_program_skills on program_skills.
 
@@ -761,7 +761,7 @@ def set_program_skills(
     in the canonical `skills` catalog -- an unknown / made-up id is
     rejected. Unlike the internship-program analog this is NOT restricted
     to the job's recruitment skills: a Job Training program may legitimately
-    train skills beyond the screening set (040's job_program_skills.skill_id
+    train skills beyond the screening set (052's job_program_skills.skill_id
     references the `skills` catalog, deliberately 'distinct from job_skills').
     Never modifies job_skills or the referenced skill rows."""
     job, program = _require_program(client, industry_id, job_id)
@@ -809,7 +809,7 @@ def create_assignment(
         client, "job_program_assignments", "module_id", module_id
     )
     # program_id is trigger-derived (set_job_program_assignment_program_id,
-    # 040) -- deliberately NOT sent from here.
+    # 052) -- deliberately NOT sent from here.
     try:
         client.table("job_program_assignments").insert(payload).execute()
     except APIError as exc:

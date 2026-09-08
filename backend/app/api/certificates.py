@@ -1,12 +1,15 @@
 """PUBLIC certificate verification (Phase 7 internship, Phase J4 job training).
 
 No authentication. Calls ONLY the SECURITY DEFINER verifier functions
-(public.verify_internship_certificate / public.verify_job_training_certificate),
-each with a pinned empty search_path and granted to `anon` -- never a
-direct SELECT against a certificate / completion / profile / application
-table. Each function is the safety boundary: it returns exactly its
-declared public columns and nothing else -- no email, no UUIDs, no
-submission / stipend / completion detail.
+public.verify_internship_certificate
+(database/migrations/051_workspace_submissions_completion.sql) and
+public.verify_job_training_certificate
+(database/migrations/053_job_training_completion.sql) -- each with a
+pinned empty search_path and granted to `anon` -- never a direct SELECT
+against a certificate / completion / profile / internship_workspace /
+application table. Each function is the safety boundary: it returns
+exactly its declared public columns and nothing else -- no email, no
+UUIDs, no submission / stipend / completion detail.
 
 Uses app.core.security.build_anon_client() -- the anon-key client with no
 user session, matching the `anon` grant on the functions. Never
@@ -24,9 +27,9 @@ from app.schemas.job_training_completion import PublicJobTrainingCertificateResp
 
 router = APIRouter(prefix="/certificates", tags=["certificates"])
 
-# AIC-INT-{YYYY}-{13 base32 chars} (public.generate_internship_certificate_number, 039).
+# AIC-INT-{YYYY}-{13 base32 chars} (public.generate_internship_certificate_number, 051).
 _NUMBER_PATTERN = r"^AIC-INT-\d{4}-[A-Z2-7]{13}$"
-# AIC-JOB-{YYYY}-{13 base32 chars} (public.generate_job_training_certificate_number, 041).
+# AIC-JOB-{YYYY}-{13 base32 chars} (public.generate_job_training_certificate_number, 053).
 _JOB_NUMBER_PATTERN = r"^AIC-JOB-\d{4}-[A-Z2-7]{13}$"
 
 
