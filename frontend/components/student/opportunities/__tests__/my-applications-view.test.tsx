@@ -4,6 +4,7 @@ import { render, screen } from "@testing-library/react";
 const mocks = vi.hoisted(() => ({
   listMyApplications: vi.fn(),
   listMyInternshipWorkspaces: vi.fn(),
+  listMyJobTraining: vi.fn(),
 }));
 
 vi.mock("@/lib/student/opportunities", () => ({
@@ -14,6 +15,10 @@ vi.mock("@/lib/student/internship-workspace", () => ({
   listMyInternshipWorkspaces: mocks.listMyInternshipWorkspaces,
 }));
 
+vi.mock("@/lib/student/job-training", () => ({
+  listMyJobTraining: mocks.listMyJobTraining,
+}));
+
 import { MyApplicationsView } from "@/components/student/opportunities/my-applications-view";
 import { ApplicationStatusBadge } from "@/components/student/opportunities/application-status-badge";
 import { ApiError } from "@/lib/api";
@@ -21,6 +26,7 @@ import {
   STUDENT_APPLICATION_STATUSES,
   type StudentApplication,
 } from "@/types/student-opportunity";
+import type { JobTrainingEnrollmentSummary } from "@/types/job-training";
 
 function application(overrides: Partial<StudentApplication> = {}): StudentApplication {
   return {
@@ -47,8 +53,47 @@ function application(overrides: Partial<StudentApplication> = {}): StudentApplic
   };
 }
 
+function jobApplication(overrides: Partial<StudentApplication> = {}): StudentApplication {
+  return application({
+    id: "job-app",
+    opportunity_type: "JOB",
+    internship_id: null,
+    job_id: "j-1",
+    opportunity: {
+      id: "job_j-1",
+      source_type: "JOB",
+      title: "Platform Engineer",
+      industry: { id: "industry-1", company_name: "Acme", industry_sector: null, logo_url: null },
+      location: "Remote",
+      work_mode: "REMOTE",
+    },
+    ...overrides,
+  });
+}
+
+function enrollment(
+  overrides: Partial<JobTrainingEnrollmentSummary> = {},
+): JobTrainingEnrollmentSummary {
+  return {
+    enrollment_id: "enr-1",
+    application_id: "job-app",
+    job_id: "j-1",
+    job_title: "Platform Engineer",
+    program_id: "prog-1",
+    program_title: "Onboarding",
+    program_status: "PUBLISHED",
+    enrollment_status: "ACTIVE",
+    created_at: "2026-09-08T00:00:00Z",
+    completed_at: null,
+    ...overrides,
+  };
+}
+
 describe("MyApplicationsView", () => {
-  beforeEach(() => mocks.listMyInternshipWorkspaces.mockResolvedValue({ workspaces: [] }));
+  beforeEach(() => {
+    mocks.listMyInternshipWorkspaces.mockResolvedValue({ workspaces: [] });
+    mocks.listMyJobTraining.mockResolvedValue({ enrollments: [] });
+  });
   afterEach(() => vi.resetAllMocks());
 
   it("shows a loading state", () => {
@@ -74,14 +119,14 @@ describe("MyApplicationsView", () => {
     mocks.listMyApplications.mockResolvedValueOnce({
       applications: [
         application(),
-        application({ id: "app-2", status: "SELECTED", opportunity: { ...application().opportunity!, title: "Platform Eng", source_type: "JOB", id: "job_j-1" }, opportunity_type: "JOB" }),
+        jobApplication({ id: "app-2", status: "SELECTED" }),
       ],
     });
     render(<MyApplicationsView />);
 
     expect(await screen.findByText("Backend Intern")).toBeInTheDocument();
     expect(screen.getByText("Applied")).toBeInTheDocument();
-    expect(screen.getByText("Platform Eng")).toBeInTheDocument();
+    expect(screen.getByText("Platform Engineer")).toBeInTheDocument();
     expect(screen.getByText("Selected")).toBeInTheDocument();
   });
 
@@ -149,11 +194,67 @@ describe("MyApplicationsView", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows the applications list even if the workspace lookup fails", async () => {
+  it("shows the applications list even if the workspace / job-training lookup fails", async () => {
     mocks.listMyApplications.mockResolvedValueOnce({ applications: [application()] });
     mocks.listMyInternshipWorkspaces.mockRejectedValueOnce(new ApiError(500, "down"));
+    mocks.listMyJobTraining.mockRejectedValueOnce(new ApiError(500, "down"));
     render(<MyApplicationsView />);
     expect(await screen.findByText("Backend Intern")).toBeInTheDocument();
+  });
+
+  // ---- Job Training CTA (J5) ----
+
+  it("shows an Open Job Training CTA for a SELECTED job that has an enrollment", async () => {
+    mocks.listMyApplications.mockResolvedValueOnce({
+      applications: [jobApplication({ status: "SELECTED" })],
+    });
+    mocks.listMyJobTraining.mockResolvedValueOnce({ enrollments: [enrollment()] });
+    render(<MyApplicationsView />);
+    const cta = await screen.findByRole("button", { name: /open job training/i });
+    expect(cta).toHaveAttribute("href", "/student/job-training/enr-1");
+  });
+
+  it("does NOT fabricate a training CTA for a SELECTED job with no enrollment", async () => {
+    mocks.listMyApplications.mockResolvedValueOnce({
+      applications: [jobApplication({ status: "SELECTED" })],
+    });
+    mocks.listMyJobTraining.mockResolvedValueOnce({ enrollments: [] });
+    render(<MyApplicationsView />);
+    expect(
+      await screen.findByText("Job training isn't available for this role."),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /job training/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("does NOT show a training CTA for a non-selected job even if some enrollment exists", async () => {
+    mocks.listMyApplications.mockResolvedValueOnce({
+      applications: [jobApplication({ status: "SHORTLISTED" })],
+    });
+    mocks.listMyJobTraining.mockResolvedValueOnce({
+      enrollments: [enrollment({ application_id: "other" })],
+    });
+    render(<MyApplicationsView />);
+    await screen.findByText("Platform Engineer");
+    expect(screen.queryByRole("button", { name: /job training/i })).not.toBeInTheDocument();
+  });
+
+  it("never shows a Job Training CTA for a SELECTED internship", async () => {
+    mocks.listMyApplications.mockResolvedValueOnce({
+      applications: [application({ id: "int-app", status: "SELECTED" })],
+    });
+    // even if an unrelated enrollment is returned
+    mocks.listMyJobTraining.mockResolvedValueOnce({
+      enrollments: [enrollment({ application_id: "int-app" })],
+    });
+    render(<MyApplicationsView />);
+    await screen.findByText("Backend Intern");
+    expect(screen.queryByRole("button", { name: /job training/i })).not.toBeInTheDocument();
+    // the internship keeps its own (not-yet-available) workspace messaging
+    expect(
+      screen.getByText("Internship workspace is not available yet."),
+    ).toBeInTheDocument();
   });
 });
 
@@ -163,7 +264,6 @@ describe("ApplicationStatusBadge", () => {
       const { unmount } = render(<ApplicationStatusBadge status={status} />);
       unmount();
     }
-    // A friendly label is shown for the multi-word statuses.
     render(<ApplicationStatusBadge status="INTERVIEW_SCHEDULED" />);
     expect(screen.getByText("Interview Scheduled")).toBeInTheDocument();
     render(<ApplicationStatusBadge status="UNDER_REVIEW" />);

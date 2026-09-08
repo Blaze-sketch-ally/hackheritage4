@@ -11,7 +11,9 @@ import { ApplicationStatusBadge } from "@/components/student/opportunities/appli
 import { ApiError } from "@/lib/api";
 import { listMyApplications } from "@/lib/student/opportunities";
 import { listMyInternshipWorkspaces } from "@/lib/student/internship-workspace";
+import { listMyJobTraining } from "@/lib/student/job-training";
 import type { InternshipWorkspaceSummary } from "@/types/internship-workspace";
+import type { JobTrainingEnrollmentSummary } from "@/types/job-training";
 import type { SourceType, StudentApplication } from "@/types/student-opportunity";
 
 type LoadState =
@@ -21,6 +23,7 @@ type LoadState =
       status: "ready";
       applications: StudentApplication[];
       workspacesByApplication: Record<string, InternshipWorkspaceSummary>;
+      jobTrainingByApplication: Record<string, JobTrainingEnrollmentSummary>;
     };
 
 const TYPE_LABEL: Record<SourceType, string> = { JOB: "Job", INTERNSHIP: "Internship" };
@@ -30,10 +33,13 @@ const DETAIL_BASE: Record<SourceType, string> = {
 };
 
 /** GET /api/v1/student/applications -- the authenticated student's own
- * applications only. Also loads the student's internship workspaces (best
- * effort) so a SELECTED Remote/Hybrid internship can link straight to its
- * workspace. The industry-only provisioning endpoint is never called
- * here. */
+ * applications only. Also loads (best effort) the student's internship
+ * workspaces AND job training enrollments so a SELECTED application can
+ * link straight to the right place: a selected internship -> its
+ * Internship Workspace, a selected job with a training program -> its Job
+ * Training. Neither industry-only provisioning endpoint is called here.
+ * A selected job WITHOUT an enrollment shows no CTA (no fabricated
+ * "Start Training"). */
 export function MyApplicationsView() {
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [reloadKey, setReloadKey] = useState(0);
@@ -44,20 +50,26 @@ export function MyApplicationsView() {
       try {
         const { applications } = await listMyApplications();
 
-        let workspacesByApplication: Record<string, InternshipWorkspaceSummary> = {};
-        try {
-          const { workspaces } = await listMyInternshipWorkspaces();
-          workspacesByApplication = Object.fromEntries(
-            workspaces.map((w) => [w.application_id, w]),
-          );
-        } catch {
-          // The workspace CTA is an enhancement -- a failure here must
-          // never hide the applications list.
-          workspacesByApplication = {};
-        }
+        const [workspacesByApplication, jobTrainingByApplication] = await Promise.all([
+          listMyInternshipWorkspaces()
+            .then((r) =>
+              Object.fromEntries(r.workspaces.map((w) => [w.application_id, w])),
+            )
+            .catch(() => ({}) as Record<string, InternshipWorkspaceSummary>),
+          listMyJobTraining()
+            .then((r) =>
+              Object.fromEntries(r.enrollments.map((e) => [e.application_id, e])),
+            )
+            .catch(() => ({}) as Record<string, JobTrainingEnrollmentSummary>),
+        ]);
 
         if (cancelled) return;
-        setState({ status: "ready", applications, workspacesByApplication });
+        setState({
+          status: "ready",
+          applications,
+          workspacesByApplication,
+          jobTrainingByApplication,
+        });
       } catch (err) {
         if (cancelled) return;
         setState({
@@ -125,7 +137,7 @@ export function MyApplicationsView() {
               <TableHead>Company</TableHead>
               <TableHead>Applied on</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead>Internship Workspace</TableHead>
+              <TableHead>Next steps</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -156,9 +168,10 @@ export function MyApplicationsView() {
                     <ApplicationStatusBadge status={app.status} />
                   </TableCell>
                   <TableCell>
-                    <WorkspaceCell
+                    <NextStepCell
                       application={app}
                       workspace={state.workspacesByApplication[app.id]}
+                      jobTraining={state.jobTrainingByApplication[app.id]}
                     />
                   </TableCell>
                 </TableRow>
@@ -171,44 +184,69 @@ export function MyApplicationsView() {
   );
 }
 
-function WorkspaceCell({
+function NextStepCell({
   application,
   workspace,
+  jobTraining,
 }: {
   application: StudentApplication;
   workspace: InternshipWorkspaceSummary | undefined;
+  jobTraining: JobTrainingEnrollmentSummary | undefined;
 }) {
-  const isSelectedInternship =
-    application.status === "SELECTED" &&
-    (application.opportunity?.source_type ?? application.opportunity_type) === "INTERNSHIP";
+  const type = application.opportunity?.source_type ?? application.opportunity_type;
+  const isSelected = application.status === "SELECTED";
 
-  if (!isSelectedInternship) return <span className="text-muted-foreground">—</span>;
-
-  if (workspace) {
-    return (
-      <Button
-        size="sm"
-        variant="outline"
-        render={<Link href={`/student/my-internships/${workspace.id}`} />}
-        nativeButton={false}
-      >
-        Open Internship Workspace <ArrowUpRight className="size-3.5" />
-      </Button>
-    );
-  }
-
-  const workMode = application.opportunity?.work_mode;
-  if (workMode && workMode !== "REMOTE" && workMode !== "HYBRID") {
+  // ---- Selected JOB: Job Training, but ONLY when an enrollment exists ----
+  if (isSelected && type === "JOB") {
+    if (jobTraining) {
+      return (
+        <Button
+          size="sm"
+          variant="outline"
+          render={<Link href={`/student/job-training/${jobTraining.enrollment_id}`} />}
+          nativeButton={false}
+        >
+          Open Job Training <ArrowUpRight className="size-3.5" />
+        </Button>
+      );
+    }
     return (
       <span className="text-sm text-muted-foreground">
-        On-site internship — no online workspace.
+        Job training isn&apos;t available for this role.
       </span>
     );
   }
 
-  return (
-    <span className="text-sm text-muted-foreground">
-      Internship workspace is not available yet.
-    </span>
-  );
+  // ---- Selected INTERNSHIP: existing Internship Workspace behaviour ----
+  if (isSelected && type === "INTERNSHIP") {
+    if (workspace) {
+      return (
+        <Button
+          size="sm"
+          variant="outline"
+          render={<Link href={`/student/my-internships/${workspace.id}`} />}
+          nativeButton={false}
+        >
+          Open Internship Workspace <ArrowUpRight className="size-3.5" />
+        </Button>
+      );
+    }
+
+    const workMode = application.opportunity?.work_mode;
+    if (workMode && workMode !== "REMOTE" && workMode !== "HYBRID") {
+      return (
+        <span className="text-sm text-muted-foreground">
+          On-site internship — no online workspace.
+        </span>
+      );
+    }
+
+    return (
+      <span className="text-sm text-muted-foreground">
+        Internship workspace is not available yet.
+      </span>
+    );
+  }
+
+  return <span className="text-muted-foreground">—</span>;
 }

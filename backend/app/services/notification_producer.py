@@ -177,6 +177,53 @@ def emit_internship_completed(
         ).execute()
 
 
+def emit_job_training_completed(
+    *,
+    student_id: str,
+    enrollment_id: str,
+    job_title: str | None,
+    program_title: str | None,
+    outcome: str,
+    certificate_number: str | None,
+) -> None:
+    """Notify a student that the industry verified their Job Training
+    (Phase J4). The caller (the industry verify route) invokes this
+    EXACTLY ONCE -- only on the call that actually recorded the decision
+    (result["_newly_verified"]), never on a repeated/idempotent verify --
+    so this never needs its own dedup check.
+
+    Writes exactly one `student_notifications` row via the service-role
+    client (the table has no insert policy). type 'JOB_TRAINING' +
+    related_entity_type 'JOB_TRAINING_ENROLLMENT' were allowed by migration
+    040's CHECK widening; `related_entity_id` is the enrollment so the
+    frontend can link to /student/job-training/{enrollment_id}.
+    Best-effort: a failed write never turns a successful verification into
+    an error. `outcome` is 'PASSED' or 'FAILED' (the completion_status)."""
+    if not student_id or not enrollment_id or outcome not in ("PASSED", "FAILED"):
+        return
+
+    where = f' for "{job_title or program_title}"' if (job_title or program_title) else ""
+    if outcome == "PASSED":
+        number = f" ({certificate_number})" if certificate_number else ""
+        title = "Job training completed — certificate issued"
+        body = f"Your job training{where} is complete. Your certificate{number} is ready to view."
+    else:
+        title = "Update on your job training"
+        body = f"Your job training{where} has been reviewed by the company."
+
+    with contextlib.suppress(Exception):
+        get_supabase().table("student_notifications").insert(
+            {
+                "student_id": student_id,
+                "type": "JOB_TRAINING",
+                "title": title,
+                "body": body,
+                "related_entity_type": "JOB_TRAINING_ENROLLMENT",
+                "related_entity_id": enrollment_id,
+            }
+        ).execute()
+
+
 # Phase 8 -- stipend record-keeping. Only a transition meaningful to the
 # student gets a notification (approved / released / cancelled); creating
 # a PENDING record does not. RECORD-KEEPING ONLY: "released" means the

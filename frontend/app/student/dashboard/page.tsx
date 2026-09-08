@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { DashboardAiSuggestions } from "@/components/student/dashboard/dashboard-ai-suggestions";
 import { DashboardAnnouncements } from "@/components/student/dashboard/dashboard-announcements";
 import { DashboardApplications } from "@/components/student/dashboard/dashboard-applications";
+import { DashboardJobTraining } from "@/components/student/dashboard/dashboard-job-training";
 import { DashboardKpis } from "@/components/student/dashboard/dashboard-kpis";
 import { DashboardLearning } from "@/components/student/dashboard/dashboard-learning";
 import { DashboardRecommendations } from "@/components/student/dashboard/dashboard-recommendations";
@@ -57,6 +58,7 @@ export default async function StudentDashboardPage() {
       <div className="grid gap-6 xl:grid-cols-3">
         <div className="space-y-6 xl:col-span-2">
           <SkillOverview studentSkills={studentSkills} />
+          <DashboardJobTraining />
           <DashboardApplications />
           <DashboardLearning />
         </div>

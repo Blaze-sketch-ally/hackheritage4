@@ -528,9 +528,27 @@ def test_phase6_needs_no_new_migration_submission_reviews_already_has_the_column
     assert "score numeric(6, 2) check (score is null or score >= 0)" in block
     # the industry insert policy is scoped to the internship owner
     assert "public.industry_owns_workspace(s.workspace_id)" in M039_C
-    # no Phase 6 migration was added (040+ does not exist)
-    later = [int(p.name[:3]) for p in MIGRATIONS_DIR.glob("[0-9][0-9][0-9]_*.sql") if int(p.name[:3]) >= 40]
-    assert later == [], f"unexpected post-039 migration(s): {later}"
+    # A later migration may exist for OTHER domains (040 = Job Training is a
+    # separate feature), but no post-039 migration may add to, or alter,
+    # the internship-workspace schema -- the Phase 6 review flow still needs
+    # no new migration of its own.
+    _internship_workspace_tables = (
+        "internship_programs", "program_modules", "module_items", "program_skills",
+        "program_assignments", "internship_workspaces", "workspace_skill_selections",
+        "workspace_submissions", "submission_reviews", "internship_completions",
+        "internship_certificates", "stipend_disbursements",
+    )
+    for p in MIGRATIONS_DIR.glob("[0-9][0-9][0-9]_*.sql"):
+        if int(p.name[:3]) < 40:
+            continue
+        later_sql = p.read_text(encoding="utf-8").lower()
+        for t in _internship_workspace_tables:
+            assert f"create table if not exists {t}" not in later_sql, (
+                f"{p.name} must not create internship-workspace table {t}"
+            )
+            assert f"alter table {t} " not in later_sql, (
+                f"{p.name} must not alter internship-workspace table {t}"
+            )
 
 
 # ============================================================

@@ -5,6 +5,13 @@ tests.conftest.authenticated_as; service tests drive the functions with a
 MagicMock Supabase client and patched helpers -- no live project or real
 token.
 
+The "route + real service" block at the end drives the ACTUAL
+interview_service through the route with a scoped fake Supabase client
+(_ScopedFakeClient): it proves GET /api/v1/interviews succeeds without the
+fragile interviews -> applications PostgREST embed that used to 500 the
+endpoint, and that both the interview read and the opportunity-enrichment
+read are scoped to the caller's own industry_id.
+
 RLS isolation (an Industry account can never read/write another's
 interview rows) is enforced at the database layer by 030's policies
 (auth.uid() = industry_id AND public.is_industry(auth.uid())), exactly
@@ -16,6 +23,7 @@ the client, and the lifecycle/eligibility/conflict rules hold.
 """
 
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
@@ -420,3 +428,284 @@ def test_service_list_scopes_by_industry_id():
     interview_service.list_interviews(mock, "industry-42")
     mock.table.assert_called_with("interviews")
     table.select.return_value.eq.assert_called_with("industry_id", "industry-42")
+
+
+# ------------------------------------------------------------
+# Regression: the interviews read must NOT depend on a PostgREST
+# interviews -> applications embed (that relationship is not guaranteed to
+# be in the schema cache; when it was missing every interview list 500'd
+# and the Interview panel showed nothing). The opportunity is stitched on
+# from a separate, ownership-scoped `applications` read instead.
+# ------------------------------------------------------------
+
+
+def test_service_select_has_no_cross_table_embed():
+    assert "applications(" not in interview_service._SELECT
+    assert "internships(" not in interview_service._SELECT
+
+
+def test_service_list_stitches_opportunity_from_separate_applications_read():
+    mock = MagicMock()
+
+    interviews_tbl = MagicMock()
+    interviews_tbl.select.return_value.eq.return_value.order.return_value.execute.return_value.data = [
+        {"id": "iv-1", "application_id": "app-1", "industry_id": "industry-1", "status": "SCHEDULED"},
+    ]
+    applications_tbl = MagicMock()
+    applications_tbl.select.return_value.eq.return_value.in_.return_value.execute.return_value.data = [
+        {
+            "id": "app-1",
+            "opportunity_type": "JOB",
+            "internship": None,
+            "job": {"id": "job-1", "title": "Backend Engineer", "status": "PUBLISHED"},
+        },
+    ]
+    mock.table.side_effect = lambda name: {
+        "interviews": interviews_tbl,
+        "applications": applications_tbl,
+    }[name]
+
+    rows = interview_service.list_interviews(mock, "industry-1")
+
+    assert rows[0]["opportunity"] == {"id": "job-1", "title": "Backend Engineer", "status": "PUBLISHED"}
+    assert rows[0]["opportunity_type"] == "JOB"
+    # the enrichment read is scoped to the caller's own applications, both
+    # by an explicit industry_id filter and by the id list of the batch
+    applications_tbl.select.return_value.eq.assert_called_with("industry_id", "industry-1")
+    applications_tbl.select.return_value.eq.return_value.in_.assert_called_with("id", ["app-1"])
+
+
+def test_service_list_tolerates_failed_opportunity_lookup():
+    mock = MagicMock()
+    interviews_tbl = MagicMock()
+    interviews_tbl.select.return_value.eq.return_value.order.return_value.execute.return_value.data = [
+        {"id": "iv-1", "application_id": "app-1", "industry_id": "industry-1", "status": "SCHEDULED"},
+    ]
+    applications_tbl = MagicMock()
+    applications_tbl.select.return_value.eq.return_value.in_.return_value.execute.side_effect = (
+        RuntimeError("boom")
+    )
+    mock.table.side_effect = lambda name: {
+        "interviews": interviews_tbl,
+        "applications": applications_tbl,
+    }[name]
+
+    rows = interview_service.list_interviews(mock, "industry-1")
+
+    assert rows[0]["opportunity"] is None
+    assert rows[0]["opportunity_type"] is None
+
+
+# ============================================================
+# Route + REAL service: GET /api/v1/interviews must not 500 on a missing
+# PostgREST embed, and both reads must be industry-scoped
+# ============================================================
+#
+# At HEAD a8e00a0 the service did ONE query:
+#   interviews.select("... application:applications(... internships(...),
+#                       jobs(...))")
+# The interviews -> applications relationship is not guaranteed to be in
+# PostgREST's schema cache; when it was missing the query raised, the
+# route caught it as a blanket 500, and the Interview panel rendered its
+# error state -- i.e. NO candidates. These tests drive the real service
+# through the route with a scoped fake client that has no such embed
+# relationship at all, and assert the endpoint succeeds.
+
+
+class _FakeQuery:
+    """Minimal PostgREST-query stand-in: `select` is a no-op, `eq` / `in_`
+    actually filter the row list (so scoping is real), everything else
+    chains. It knows NOTHING about embeds -- a `select` string asking for a
+    nested `applications(...)` relationship simply returns the flat rows,
+    exactly as a live PostgREST would once the relationship it could not
+    resolve is gone."""
+
+    def __init__(self, rows: list[dict], *, raises: bool = False):
+        self._rows = [dict(r) for r in rows]
+        self._raises = raises
+        self._single = False
+
+    def select(self, *_args, **_kwargs):
+        return self
+
+    def eq(self, column, value):
+        self._rows = [r for r in self._rows if r.get(column) == value]
+        return self
+
+    def in_(self, column, values):
+        self._rows = [r for r in self._rows if r.get(column) in set(values)]
+        return self
+
+    def gte(self, *_args, **_kwargs):
+        return self
+
+    def order(self, *_args, **_kwargs):
+        return self
+
+    def maybe_single(self):
+        self._single = True
+        return self
+
+    def execute(self):
+        if self._raises:
+            raise RuntimeError("Could not find a relationship in the schema cache")
+        if self._single:
+            return SimpleNamespace(data=self._rows[0] if self._rows else None)
+        return SimpleNamespace(data=list(self._rows))
+
+
+class _ScopedFakeClient:
+    """A fake user-scoped Supabase client backing exactly the two tables
+    interview_service reads. `raise_on` names a table whose `.execute()`
+    should blow up (used to simulate an unavailable enrichment read)."""
+
+    def __init__(self, *, interviews: list[dict], applications: list[dict], raise_on: str = ""):
+        self._data = {"interviews": interviews, "applications": applications}
+        self._raise_on = raise_on
+
+    def table(self, name: str) -> _FakeQuery:
+        return _FakeQuery(self._data.get(name, []), raises=(name == self._raise_on))
+
+
+def _iv_db_row(**overrides) -> dict:
+    """A raw `interviews` row as the flat _SELECT returns it -- NO
+    `opportunity` / `opportunity_type` (those are stitched on by the
+    service, not columns)."""
+    row = {
+        "id": "iv-A",
+        "application_id": "app-A",
+        "industry_id": "industry-A",
+        "student_id": "student-A",
+        "scheduled_at": _future_iso(),
+        "duration_minutes": 30,
+        "mode": "ONLINE",
+        "location": None,
+        "notes": None,
+        "status": "SCHEDULED",
+        "created_at": "2026-09-01T00:00:00Z",
+        "updated_at": "2026-09-01T00:00:00Z",
+    }
+    row.update(overrides)
+    return row
+
+
+def _app_db_row(**overrides) -> dict:
+    row = {
+        "id": "app-A",
+        "industry_id": "industry-A",
+        "opportunity_type": "JOB",
+        "internship": None,
+        "job": {"id": "job-A", "title": "Platform Engineer", "status": "PUBLISHED"},
+    }
+    row.update(overrides)
+    return row
+
+
+def test_route_list_interviews_succeeds_without_the_applications_embed():
+    fake = _ScopedFakeClient(interviews=[_iv_db_row()], applications=[_app_db_row()])
+    with (
+        authenticated_as("INDUSTRY", user_id="industry-A"),
+        patch("app.api.interviews.build_user_client", return_value=fake),
+    ):
+        resp = client.get("/api/v1/interviews", headers={"Authorization": "Bearer token"})
+
+    assert resp.status_code == 200
+    body = resp.json()["interviews"]
+    assert len(body) == 1
+    assert body[0]["id"] == "iv-A"
+    assert body[0]["application_id"] == "app-A"
+    # opportunity was stitched from the SEPARATE applications read
+    assert body[0]["opportunity"] == {
+        "id": "job-A",
+        "title": "Platform Engineer",
+        "status": "PUBLISHED",
+    }
+    assert body[0]["opportunity_type"] == "JOB"
+
+
+def test_route_list_interviews_still_200_when_opportunity_enrichment_fails():
+    fake = _ScopedFakeClient(
+        interviews=[_iv_db_row()], applications=[_app_db_row()], raise_on="applications"
+    )
+    with (
+        authenticated_as("INDUSTRY", user_id="industry-A"),
+        patch("app.api.interviews.build_user_client", return_value=fake),
+    ):
+        resp = client.get("/api/v1/interviews", headers={"Authorization": "Bearer token"})
+
+    assert resp.status_code == 200
+    body = resp.json()["interviews"]
+    assert len(body) == 1
+    assert body[0]["id"] == "iv-A"
+    # enrichment failed -> the interview still lists, just without opportunity
+    assert body[0]["opportunity"] is None
+    assert body[0]["opportunity_type"] is None
+
+
+def test_route_list_interviews_is_scoped_to_the_caller_industry():
+    """Industry B asks for interviews; the store also holds an Industry A
+    interview + application. B must get ONLY its own row, and the
+    enrichment read must not surface A's application either."""
+    fake = _ScopedFakeClient(
+        interviews=[
+            _iv_db_row(id="iv-A", application_id="app-A", industry_id="industry-A"),
+            _iv_db_row(id="iv-B", application_id="app-B", industry_id="industry-B"),
+        ],
+        applications=[
+            _app_db_row(id="app-A", industry_id="industry-A"),
+            _app_db_row(
+                id="app-B",
+                industry_id="industry-B",
+                job={"id": "job-B", "title": "SRE", "status": "PUBLISHED"},
+            ),
+        ],
+    )
+    with (
+        authenticated_as("INDUSTRY", user_id="industry-B"),
+        patch("app.api.interviews.build_user_client", return_value=fake),
+    ):
+        resp = client.get("/api/v1/interviews", headers={"Authorization": "Bearer token"})
+
+    assert resp.status_code == 200
+    body = resp.json()["interviews"]
+    assert [row["id"] for row in body] == ["iv-B"]
+    assert body[0]["opportunity"] == {"id": "job-B", "title": "SRE", "status": "PUBLISHED"}
+    # nothing belonging to Industry A leaked through either read
+    assert all(row["industry_id"] == "industry-B" for row in body)
+
+
+def test_route_get_one_interview_succeeds_without_the_applications_embed():
+    iv_id = str(uuid4())
+    fake = _ScopedFakeClient(
+        interviews=[_iv_db_row(id=iv_id)], applications=[_app_db_row()]
+    )
+    with (
+        authenticated_as("INDUSTRY", user_id="industry-A"),
+        patch("app.api.interviews.build_user_client", return_value=fake),
+    ):
+        resp = client.get(
+            f"/api/v1/interviews/{iv_id}", headers={"Authorization": "Bearer token"}
+        )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["id"] == iv_id
+    assert body["opportunity_type"] == "JOB"
+    assert body["opportunity"]["title"] == "Platform Engineer"
+
+
+def test_route_get_one_interview_404_for_another_industry():
+    iv_id = str(uuid4())
+    fake = _ScopedFakeClient(
+        interviews=[_iv_db_row(id=iv_id, industry_id="industry-A")],
+        applications=[_app_db_row()],
+    )
+    with (
+        authenticated_as("INDUSTRY", user_id="industry-B"),
+        patch("app.api.interviews.build_user_client", return_value=fake),
+    ):
+        resp = client.get(
+            f"/api/v1/interviews/{iv_id}", headers={"Authorization": "Bearer token"}
+        )
+
+    assert resp.status_code == 404

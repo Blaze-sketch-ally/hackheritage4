@@ -40,9 +40,14 @@ from app.schemas.internship_workspace import (
     InternshipWorkspaceSummary,
     ProvisionWorkspaceResponse,
 )
+from app.schemas.job_training import (
+    JobTrainingEnrollmentRef,
+    ProvisionJobTrainingResponse,
+)
 from app.services import (
     application_service,
     internship_workspace_service,
+    job_training_service,
     match_service,
     notification_producer,
 )
@@ -240,5 +245,58 @@ def provision_application_workspace(
         work_mode=result.work_mode,
         workspace=(
             InternshipWorkspaceSummary(**result.workspace) if result.workspace else None
+        ),
+    )
+
+
+@router.post(
+    "/{application_id}/provision-job-training", response_model=ProvisionJobTrainingResponse
+)
+def provision_application_job_training(
+    application_id: UUID,
+    current_user: CurrentUser = Depends(require_industry),
+) -> ProvisionJobTrainingResponse:
+    """Idempotently (re-)provision the Job Training enrollment for a
+    SELECTED JOB application of one of the caller's own postings.
+
+    Parallel to /provision-workspace (internships). The SELECTED
+    transition already provisions best-effort
+    (app.services.application_service); this is the explicit heal / verify
+    path -- e.g. the industry authored its job_program only after the
+    student was selected. Returns the existing enrollment when one is
+    already present, REVOKED_BLOCKED for a revoked one (never silently
+    resurrected), and a no-op outcome (SKIPPED_*) for an ineligible
+    application (an internship, or a non-SELECTED job). NEVER changes the
+    application's status.
+
+    Authorization is by the same ownership-checked getter the rest of this
+    router uses: a foreign / unknown application is a clean 404, and a
+    student can never reach this industry-only route.
+    """
+    client = build_user_client(current_user.access_token)
+
+    try:
+        application = application_service.get_application(
+            client, current_user.id, str(application_id)
+        )
+    except Exception as exc:
+        raise _server_error("load the application") from exc
+    if application is None:
+        raise _not_found()
+
+    try:
+        result = job_training_service.provision_for_selection(client, str(application_id))
+    except job_training_service.ProvisionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
+    except Exception as exc:
+        raise _server_error("provision the job training enrollment") from exc
+
+    return ProvisionJobTrainingResponse(
+        outcome=result.outcome,
+        detail=result.detail,
+        enrollment=(
+            JobTrainingEnrollmentRef(**result.enrollment) if result.enrollment else None
         ),
     )

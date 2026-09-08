@@ -31,7 +31,7 @@ import contextlib
 
 from supabase import Client
 
-from app.services import internship_workspace_service
+from app.services import internship_workspace_service, job_training_service
 
 # Industry-driven transitions only. WITHDRAWN is never a target (student
 # action) and never a source with outgoing edges. SELECTED / REJECTED are
@@ -209,22 +209,34 @@ def update_status(
         .execute()
     )
 
-    # Phase 2: on the SELECTED transition, provision the student's
-    # Internship Workspace (038_internship_workspace.sql) -- one per
-    # application, for REMOTE/HYBRID internships that have a program.
+    # On the SELECTED transition, provision the student's post-selection
+    # training container -- branched by opportunity type, each a parallel,
+    # independent side effect:
+    #   * INTERNSHIP -> Internship Workspace (Phase 2, 038_internship_workspace.sql)
+    #                   -- one per application, REMOTE/HYBRID internships that
+    #                   have an internship_program.
+    #   * JOB        -> Job Training enrollment (Phase J3, 040_job_training.sql)
+    #                   -- one per application, jobs that have a job_program.
+    # The two systems never overlap: a JOB never gets a workspace, an
+    # INTERNSHIP never gets a job training enrollment.
+    #
     # BEST-EFFORT: a failure here never rolls back the status change --
-    #   * there is no transaction spanning the two PostgREST calls;
+    #   * there is no transaction spanning the PostgREST calls;
     #   * SELECTED is terminal, so there is no clean "undo" transition;
-    #   * provision_for_selection() is idempotent and re-runnable
-    #     (POST /api/v1/applications/{id}/provision-workspace, or the
-    #     scripts/backfill_internship_workspaces.py utility), so a miss
-    #     self-heals.
-    # Same best-effort posture as notification_producer in the route and
-    # interview_service's own application-advance. This call is READ-ONLY
-    # with respect to `applications` / `internships` -- it only inserts an
-    # internship_workspaces row.
+    #   * both provision_for_selection() functions are idempotent and
+    #     re-runnable (the /provision-workspace and /provision-job-training
+    #     heal endpoints, or the scripts/backfill_*.py utilities), so a
+    #     miss self-heals.
+    # Same best-effort posture as notification_producer in the route. Each
+    # call is READ-ONLY with respect to `applications` / `jobs` /
+    # `internships` -- it only inserts one workspace / enrollment row.
     if target_status == "SELECTED":
-        with contextlib.suppress(Exception):
-            internship_workspace_service.provision_for_selection(client, application_id)
+        opportunity_type = existing.get("opportunity_type")
+        if opportunity_type == "INTERNSHIP":
+            with contextlib.suppress(Exception):
+                internship_workspace_service.provision_for_selection(client, application_id)
+        elif opportunity_type == "JOB":
+            with contextlib.suppress(Exception):
+                job_training_service.provision_for_selection(client, application_id)
 
     return get_application(client, industry_id, application_id)
