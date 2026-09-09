@@ -14,7 +14,11 @@ from fastapi.testclient import TestClient
 
 from app.api import applications as application_routes
 from app.main import app
-from app.services import application_service
+from app.services import (
+    application_service,
+    internship_workspace_service,
+    job_training_service,
+)
 from tests.conftest import authenticated_as
 
 client = TestClient(app)
@@ -415,6 +419,135 @@ def test_update_status_rejects_backwards_transition():
         except application_service.InvalidStatusTransitionError:
             raised = True
     assert raised
+
+
+# ============================================================
+# SELECTED provisioning feedback (`provisioning` on the response)
+# ============================================================
+#
+# The SELECTED transition provisions a post-selection container and the
+# response now reports what happened so the UI can say more than "moved
+# to Selected". The backend computes the exact `message`; the frontend
+# shows it verbatim.
+
+
+def _selected_pair(**overrides):
+    """get_application side_effect for a valid INTERVIEW_SCHEDULED -> SELECTED
+    move: the pre-read (still INTERVIEW_SCHEDULED) then the post-read
+    (SELECTED)."""
+    return [
+        _row(status="INTERVIEW_SCHEDULED", **overrides),
+        _row(status="SELECTED", **overrides),
+    ]
+
+
+def test_selected_internship_reports_workspace_created():
+    supabase = MagicMock()
+    ws = internship_workspace_service.ProvisionResult(
+        "CREATED", "created", "app-1", workspace={"id": "ws-1", "internship_id": "int-1"}
+    )
+    with (
+        patch.object(application_service, "get_application", side_effect=_selected_pair()),
+        patch.object(
+            internship_workspace_service, "provision_for_selection", return_value=ws
+        ),
+    ):
+        result = application_service.update_status(supabase, "industry-1", "app-1", "SELECTED")
+    prov = result["provisioning"]
+    assert prov["kind"] == "INTERNSHIP_WORKSPACE"
+    assert prov["provisioned"] is True
+    assert prov["outcome"] == "CREATED"
+    assert prov["internship_id"] == "int-1"
+    assert "Internship Workspace" in prov["message"]
+
+
+def test_selected_job_reports_training_enrollment_created():
+    supabase = MagicMock()
+    enrollment = job_training_service.ProvisionResult(
+        "CREATED", "created", "app-1", enrollment={"id": "enr-1"}
+    )
+    overrides = {"opportunity_type": "JOB", "internship_id": None, "job_id": "job-1"}
+    with (
+        patch.object(
+            application_service, "get_application", side_effect=_selected_pair(**overrides)
+        ),
+        patch.object(
+            job_training_service, "provision_for_selection", return_value=enrollment
+        ),
+    ):
+        result = application_service.update_status(supabase, "industry-1", "app-1", "SELECTED")
+    prov = result["provisioning"]
+    assert prov["kind"] == "JOB_TRAINING"
+    assert prov["provisioned"] is True
+    assert "Job Training enrollment created" in prov["message"]
+    assert prov["internship_id"] is None
+
+
+def test_selected_job_without_published_program_reports_not_published():
+    supabase = MagicMock()
+    skipped = job_training_service.ProvisionResult(
+        "SKIPPED_NO_PROGRAM", "no program", "app-1"
+    )
+    overrides = {"opportunity_type": "JOB", "internship_id": None, "job_id": "job-1"}
+    with (
+        patch.object(
+            application_service, "get_application", side_effect=_selected_pair(**overrides)
+        ),
+        patch.object(
+            job_training_service, "provision_for_selection", return_value=skipped
+        ),
+    ):
+        result = application_service.update_status(supabase, "industry-1", "app-1", "SELECTED")
+    prov = result["provisioning"]
+    assert prov["provisioned"] is False
+    assert prov["outcome"] == "SKIPPED_NO_PROGRAM"
+    assert prov["message"] == "Selected — Job Training is not published yet."
+
+
+def test_selected_reports_failure_without_failing_the_transition():
+    supabase = MagicMock()
+    with (
+        patch.object(application_service, "get_application", side_effect=_selected_pair()),
+        patch.object(
+            internship_workspace_service,
+            "provision_for_selection",
+            side_effect=RuntimeError("boom"),
+        ),
+    ):
+        result = application_service.update_status(supabase, "industry-1", "app-1", "SELECTED")
+    assert result["status"] == "SELECTED"
+    prov = result["provisioning"]
+    assert prov["outcome"] == "FAILED"
+    assert prov["provisioned"] is False
+    assert prov["internship_id"] is None
+
+
+def test_non_selected_transition_has_no_provisioning_field():
+    supabase = MagicMock()
+    with patch.object(
+        application_service,
+        "get_application",
+        side_effect=[_row(status="SHORTLISTED"), _row(status="REJECTED")],
+    ):
+        result = application_service.update_status(supabase, "industry-1", "app-1", "REJECTED")
+    assert "provisioning" not in result
+
+
+def test_selected_provisioning_is_idempotent_already_exists_message():
+    supabase = MagicMock()
+    ws = internship_workspace_service.ProvisionResult(
+        "ALREADY_EXISTS", "exists", "app-1", workspace={"id": "ws-1", "internship_id": "int-1"}
+    )
+    with (
+        patch.object(application_service, "get_application", side_effect=_selected_pair()),
+        patch.object(
+            internship_workspace_service, "provision_for_selection", return_value=ws
+        ),
+    ):
+        result = application_service.update_status(supabase, "industry-1", "app-1", "SELECTED")
+    prov = result["provisioning"]
+    assert prov["outcome"] == "ALREADY_EXISTS"
+    assert prov["provisioned"] is True
 
 
 def test_transition_map_terminals_have_no_outgoing_edges():

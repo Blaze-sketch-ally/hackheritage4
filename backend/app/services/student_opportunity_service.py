@@ -74,6 +74,27 @@ class OpportunityNotPublishedError(Exception):
     (not PUBLISHED) -- the insert's RLS WITH CHECK rejected it."""
 
 
+class ApplicationNotWithdrawableError(Exception):
+    """The student's own application is in a status that can no longer be
+    withdrawn: SELECTED (offer in hand -- declining is the Internship
+    Workspace's job), REJECTED (industry decision, terminal), or already
+    WITHDRAWN."""
+
+    def __init__(self, current_status: str) -> None:
+        self.current_status = current_status
+        super().__init__(
+            f"An application at '{current_status}' can no longer be withdrawn."
+        )
+
+
+# Active candidate stages a student may still pull out of. Mirrors the
+# intent of application_service._STATUS_TRANSITIONS on the Industry side --
+# SELECTED / REJECTED / WITHDRAWN carry no student-initiated transition.
+WITHDRAWABLE_STATUSES = frozenset(
+    {"APPLIED", "UNDER_REVIEW", "SHORTLISTED", "INTERVIEW_SCHEDULED"}
+)
+
+
 # ---- id encoding ----
 
 
@@ -202,18 +223,69 @@ def _applied_posting_ids(client: Client, student_id: str) -> tuple[set[str], set
     return internships, jobs
 
 
+# The only two orderings a student can ask for -- a fixed whitelist, never
+# a raw column name. The API layer validates the incoming value against
+# the same set (schemas.student_opportunity.OpportunitySort).
+_SORTS = ("newest", "deadline")
+
+
+def _apply_order(query, order_by: str):
+    """Apply the DB-side ordering for one posting table's query.
+
+    * ``newest``   -> created_at DESC (the historical default).
+    * ``deadline`` -> application_deadline ASC, NULLs LAST -- "closing
+      soonest first", postings with no deadline after the dated ones.
+    """
+    if order_by == "deadline":
+        return query.order("application_deadline", desc=False, nullsfirst=False)
+    return query.order("created_at", desc=True)
+
+
+def _sort_shaped(shaped: list[dict], order_by: str) -> None:
+    """Re-sort the merged internship+job list in place, matching
+    `_apply_order` so a combined (`source_type=None`) request interleaves
+    the two DB result sets correctly. `id` is the deterministic tie-break."""
+    if order_by == "deadline":
+        shaped.sort(
+            key=lambda o: (
+                o.get("application_deadline") is None,
+                o.get("application_deadline") or "",
+                o["id"],
+            )
+        )
+    else:
+        shaped.sort(key=lambda o: (o.get("created_at") or "", o["id"]), reverse=True)
+
+
 def list_opportunities(
     client: Client,
     student_id: str,
     *,
     source_type: str | None = None,
     search: str | None = None,
+    work_mode: str | None = None,
+    order_by: str = "newest",
+    min_stipend: int | None = None,
+    min_salary: int | None = None,
 ) -> list[dict]:
-    """Published internships and/or jobs, normalized, newest first. RLS
-    already restricts every row to `status = 'PUBLISHED'`; the explicit
-    `.eq("status", "PUBLISHED")` is defence in depth."""
+    """Published internships and/or jobs, normalized, ordered per
+    `order_by`. RLS already restricts every row to `status = 'PUBLISHED'`;
+    the explicit `.eq("status", "PUBLISHED")` is defence in depth and is
+    ALWAYS applied first -- every filter below only narrows that set.
+
+    Filters (all optional, all narrowing):
+    * `search`       -> case-insensitive title match, both tables.
+    * `work_mode`    -> exact `work_mode`, both tables.
+    * `min_stipend`  -> `stipend_amount >= v`, internships only (NULL
+                        stipend is excluded -- intentional).
+    * `min_salary`   -> `salary_max >= v`, jobs only (NULL salary excluded).
+    """
     want_internships = source_type in (None, "INTERNSHIP")
     want_jobs = source_type in (None, "JOB")
+    if order_by not in _SORTS:
+        order_by = "newest"
+
+    search_term = search.strip() if search and search.strip() else None
 
     applied_internships, applied_jobs = _applied_posting_ids(client, student_id)
 
@@ -224,17 +296,27 @@ def list_opportunities(
         query = (
             client.table("internships").select(_SUMMARY_COLUMNS).eq("status", "PUBLISHED")
         )
-        if search and search.strip():
-            query = query.ilike("title", f"%{search.strip()}%")
-        for row in query.order("created_at", desc=True).execute().data or []:
+        if search_term:
+            query = query.ilike("title", f"%{search_term}%")
+        if work_mode:
+            query = query.eq("work_mode", work_mode)
+        if min_stipend is not None and min_stipend > 0:
+            query = query.gte("stipend_amount", min_stipend)
+        query = _apply_order(query, order_by)
+        for row in query.execute().data or []:
             rows.append((row, "INTERNSHIP", row["id"] in applied_internships))
             industry_ids.append(row["industry_id"])
 
     if want_jobs:
         query = client.table("jobs").select(_SUMMARY_COLUMNS).eq("status", "PUBLISHED")
-        if search and search.strip():
-            query = query.ilike("title", f"%{search.strip()}%")
-        for row in query.order("created_at", desc=True).execute().data or []:
+        if search_term:
+            query = query.ilike("title", f"%{search_term}%")
+        if work_mode:
+            query = query.eq("work_mode", work_mode)
+        if min_salary is not None and min_salary > 0:
+            query = query.gte("salary_max", min_salary)
+        query = _apply_order(query, order_by)
+        for row in query.execute().data or []:
             rows.append((row, "JOB", row["id"] in applied_jobs))
             industry_ids.append(row["industry_id"])
 
@@ -243,7 +325,7 @@ def list_opportunities(
     shaped = [
         _summary(row, kind, industries, applied=applied) for row, kind, applied in rows
     ]
-    shaped.sort(key=lambda o: o.get("created_at") or "", reverse=True)
+    _sort_shaped(shaped, order_by)
     return shaped
 
 
@@ -332,8 +414,50 @@ _APPLICATION_SELECT = (
     "job:jobs(id, title, location, work_mode, industry_id)"
 )
 
+# The student-safe interview columns surfaced on an application. NEVER
+# `notes` (Industry-private) / `industry_id` / `student_id` -- the
+# public.student_interviews RPC (054) does not return them either.
+_INTERVIEW_FIELDS = ("id", "application_id", "scheduled_at", "duration_minutes", "mode", "location", "status")
 
-def _shape_application(row: dict, industries: dict[str, dict]) -> dict:
+
+def _interview_index(client: Client, application_ids: list[str]) -> dict[str, dict]:
+    """Map application_id -> its live (SCHEDULED) interview, via ONE call
+    to the public.student_interviews SECURITY DEFINER RPC
+    (054_student_interview_visibility.sql).
+
+    NOT a nested PostgREST embed: the `interviews -> applications`
+    relationship is deliberately not something a read depends on being in
+    PostgREST's schema cache (interview_service._opportunity_index and
+    institution_student_service both stitch a separate read for the same
+    reason). The RPC re-derives `auth.uid() = student_id` +
+    `public.is_student(auth.uid())` internally, filters to
+    `status = 'SCHEDULED'`, and returns only the student-safe columns.
+
+    Best-effort enrichment, exactly like `_fetch_industries` /
+    application_service's applicant names: any failure just leaves
+    `interview` as None on every application -- it never turns a
+    successful applications read into an error.
+    """
+    ids = [i for i in dict.fromkeys(application_ids) if i]
+    if not ids:
+        return {}
+    try:
+        response = client.rpc("student_interviews", {"application_ids": ids}).execute()
+    except Exception:  # noqa: BLE001 -- interview detail is optional enrichment, never fatal
+        return {}
+    index: dict[str, dict] = {}
+    for row in response.data or []:
+        # Defence in depth: the RPC already filters to SCHEDULED, but never
+        # surface a COMPLETED/CANCELLED row even if that ever changes.
+        if row.get("status") != "SCHEDULED":
+            continue
+        index[row["application_id"]] = {k: row.get(k) for k in _INTERVIEW_FIELDS}
+    return index
+
+
+def _shape_application(
+    row: dict, industries: dict[str, dict], interviews: dict[str, dict] | None = None
+) -> dict:
     internship = row.pop("internship", None)
     job = row.pop("job", None)
     picked = internship or job
@@ -355,6 +479,10 @@ def _shape_application(row: dict, industries: dict[str, dict]) -> dict:
         ),
     }
     row["opportunity"] = opportunity
+    # None when the application has no live interview -- an
+    # INTERVIEW_SCHEDULED application can legitimately have none (manual
+    # status move, or the interview was cancelled/completed).
+    row["interview"] = (interviews or {}).get(row["id"])
     return row
 
 
@@ -379,8 +507,9 @@ def list_my_applications(client: Client, student_id: str) -> list[dict]:
         if picked and picked.get("industry_id"):
             industry_ids.append(picked["industry_id"])
     industries = _fetch_industries(client, industry_ids)
+    interviews = _interview_index(client, [row["id"] for row in rows])
 
-    return [_shape_application(row, industries) for row in rows]
+    return [_shape_application(row, industries, interviews) for row in rows]
 
 
 def _get_own_application(client: Client, student_id: str, application_id: str) -> dict | None:
@@ -401,7 +530,54 @@ def _get_own_application(client: Client, student_id: str, application_id: str) -
         if picked and picked.get("industry_id")
         else {}
     )
-    return _shape_application(row, industries)
+    interviews = _interview_index(client, [row["id"]])
+    return _shape_application(row, industries, interviews)
+
+
+def withdraw_application(client: Client, student_id: str, application_id: str) -> dict | None:
+    """Move the student's OWN application to WITHDRAWN, if it is still an
+    active candidate application.
+
+    Security: `student_id` is always the authenticated caller's id, never a
+    request field. Both the read and the write are scoped by an explicit
+    `.eq("student_id", student_id)` AND the `applications` student RLS
+    policies (`auth.uid() = student_id AND public.is_student(...)`), and the
+    `prevent_student_status_override` BEFORE-UPDATE trigger
+    (020_applications.sql) independently blocks a student from setting any
+    status other than WITHDRAWN. No service_role client is used.
+
+    Returns the updated application (same shape as `apply_to_opportunity` /
+    `list_my_applications`), or None when the caller does not own an
+    application with that id -- the route turns that into a 404, so another
+    student's application is indistinguishable from one that doesn't exist.
+
+    Raises ApplicationNotWithdrawableError (route -> 409) when the current
+    status is terminal. An already-WITHDRAWN application is NOT silently
+    re-withdrawn: it raises too, matching the Industry side's
+    InvalidStatusTransitionError semantics for a no-op transition.
+
+    Scope: touches ONLY `applications.status`. It does not cancel a
+    scheduled interview or any downstream object -- consistent with the
+    existing INTERVIEW_SCHEDULED -> REJECTED path, which also leaves the
+    interview row untouched, and there is no DB trigger cascading
+    application status onto `interviews` / workspaces.
+    """
+    existing = _get_own_application(client, student_id, application_id)
+    if existing is None:
+        return None
+
+    current = existing["status"]
+    if current not in WITHDRAWABLE_STATUSES:
+        raise ApplicationNotWithdrawableError(current)
+
+    (
+        client.table("applications")
+        .update({"status": "WITHDRAWN"})
+        .eq("id", application_id)
+        .eq("student_id", student_id)
+        .execute()
+    )
+    return _get_own_application(client, student_id, application_id)
 
 
 # ---- match (advisory) ----

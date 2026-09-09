@@ -23,6 +23,7 @@ import {
   getOpportunityMatch,
   listMyApplications,
 } from "@/lib/student/opportunities";
+import { EMPLOYMENT_TYPE_LABELS, type EmploymentType } from "@/types/job";
 import type {
   OpportunityMatch,
   StudentApplication,
@@ -30,6 +31,85 @@ import type {
 } from "@/types/student-opportunity";
 
 const TYPE_LABEL = { JOB: "Job", INTERNSHIP: "Internship" } as const;
+
+/** Currency-formatted amount (e.g. "₹15,000"), falling back to a plain
+ * "<code> <number>" if the runtime doesn't recognise the currency code.
+ * `currency` is whatever the API returned — never hardcoded. */
+function money(amount: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency,
+      maximumFractionDigits: 0,
+    }).format(amount);
+  } catch {
+    return `${currency} ${amount.toLocaleString()}`;
+  }
+}
+
+/** A job's salary shown as a range, a floor, or a ceiling — whichever the
+ * posting actually specifies. `null` when the posting lists no salary. */
+function salaryRange(min: number | null, max: number | null, currency: string): string | null {
+  if (min == null && max == null) return null;
+  if (min != null && max != null) return `${money(min, currency)} – ${money(max, currency)}`;
+  const one = (min ?? max) as number;
+  return min != null ? `${money(one, currency)} and up` : `Up to ${money(one, currency)}`;
+}
+
+/** The compensation / logistics facts a student needs but that aren't
+ * already shown as header badges (work mode, location) or in the meta row
+ * (openings, duration, deadline). Only rows the posting actually fills in
+ * are returned — no "Not set" placeholders. Every value comes straight
+ * from `StudentOpportunityDetail`; nothing here is fabricated. */
+function opportunityDetailRows(
+  opportunity: StudentOpportunityDetail,
+): Array<{ label: string; value: string }> {
+  const rows: Array<{ label: string; value: string }> = [];
+
+  if (opportunity.stipend_amount != null) {
+    rows.push({
+      label: "Stipend",
+      value: `${money(opportunity.stipend_amount, opportunity.stipend_currency ?? "INR")} / month`,
+    });
+  }
+
+  const salary = salaryRange(
+    opportunity.salary_min,
+    opportunity.salary_max,
+    opportunity.salary_currency ?? "INR",
+  );
+  if (salary) rows.push({ label: "Salary", value: salary });
+
+  if (opportunity.employment_type) {
+    rows.push({
+      label: "Employment type",
+      value:
+        EMPLOYMENT_TYPE_LABELS[opportunity.employment_type as EmploymentType] ??
+        opportunity.employment_type,
+    });
+  }
+
+  if (opportunity.experience_min_years != null) {
+    rows.push({
+      label: "Experience",
+      value:
+        opportunity.experience_min_years <= 0
+          ? "No prior experience required"
+          : `${opportunity.experience_min_years}+ year${
+              opportunity.experience_min_years === 1 ? "" : "s"
+            }`,
+    });
+  }
+
+  if (opportunity.start_date) {
+    const started = new Date(opportunity.start_date);
+    if (!Number.isNaN(started.getTime())) {
+      rows.push({ label: "Start date", value: started.toLocaleDateString() });
+    }
+  }
+
+  return rows;
+}
 
 type LoadState =
   | { status: "loading" }
@@ -152,6 +232,7 @@ export function OpportunityDetailView({ opportunityId }: { opportunityId: string
 
   const { opportunity, match, existingApplication } = state;
   const company = opportunity.industry?.company_name;
+  const detailRows = opportunityDetailRows(opportunity);
 
   return (
     <div className="grid gap-6 xl:grid-cols-3">
@@ -200,6 +281,22 @@ export function OpportunityDetailView({ opportunityId }: { opportunityId: string
                 </span>
               )}
             </div>
+
+            {detailRows.length > 0 && (
+              <div>
+                <h3 className="text-sm font-medium">Details</h3>
+                <dl className="mt-1.5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
+                  {detailRows.flatMap((row) => [
+                    <dt key={`${row.label}-label`} className="text-muted-foreground">
+                      {row.label}
+                    </dt>,
+                    <dd key={`${row.label}-value`} className="font-medium">
+                      {row.value}
+                    </dd>,
+                  ])}
+                </dl>
+              </div>
+            )}
 
             <p className="text-sm whitespace-pre-wrap text-muted-foreground">
               {opportunity.description}

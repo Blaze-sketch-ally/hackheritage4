@@ -32,6 +32,7 @@ function interview(overrides: Partial<Interview> = {}): Interview {
     application_id: "app-1",
     industry_id: "industry-1",
     student_id: "student-abcdef12",
+    student_name: null,
     scheduled_at: "2099-01-01T10:00:00.000Z",
     duration_minutes: 30,
     mode: "ONLINE",
@@ -105,6 +106,27 @@ describe("InterviewsListView", () => {
     expect(await screen.findByText("Applicant student-")).toBeInTheDocument();
     expect(screen.getByText("Backend Engineer")).toBeInTheDocument();
     expect(screen.getByText("Scheduled")).toBeInTheDocument();
+  });
+
+  it("shows the applicant's real name on a scheduled interview when resolved", async () => {
+    mocks.getInterviews.mockResolvedValueOnce({
+      interviews: [interview({ student_name: "Priya Menon" })],
+    });
+    mocks.getApplications.mockResolvedValueOnce({ applications: [] });
+    render(<InterviewsListView />);
+    expect(await screen.findByText("Priya Menon")).toBeInTheDocument();
+    expect(screen.queryByText("Applicant student-")).not.toBeInTheDocument();
+  });
+
+  it("finds a scheduled interview by the applicant's real name in search", async () => {
+    mocks.getInterviews.mockResolvedValueOnce({
+      interviews: [interview({ student_name: "Priya Menon" })],
+    });
+    mocks.getApplications.mockResolvedValueOnce({ applications: [] });
+    render(<InterviewsListView />);
+    await screen.findByText("Priya Menon");
+    await userEvent.type(screen.getByPlaceholderText(/Search by candidate/i), "priya");
+    expect(screen.getByText("Priya Menon")).toBeInTheDocument();
   });
 
   it("runs the cancel lifecycle action through a confirmation", async () => {

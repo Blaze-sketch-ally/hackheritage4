@@ -134,6 +134,9 @@ STUDENT_2 = "2436f8e9-c70f-4a10-8a5a-9ddc7706e9a8"  # student_demo_2  (STUDENT)
 DEADLINE = "2026-12-15"
 START = "2027-01-20"
 MENTOR_DEADLINE = "2026-12-15T17:00:00+00:00"
+# When a seeded PUBLISHED job training programme was "published" -- a fixed
+# past timestamp so re-runs and emit-sql are deterministic.
+JOB_PROGRAM_PUBLISHED_AT = "2026-11-03T09:00:00+00:00"
 
 BLR = "Bengaluru, Karnataka, India"
 HYD = "Hyderabad, Telangana, India"
@@ -680,6 +683,90 @@ APPLICATIONS = [
     dict(student=STUDENT_2, opportunity_type="JOB",
          posting_title="Site Reliability Engineer", status="INTERVIEW_SCHEDULED",
          cover_note="Run a home Kubernetes lab; comfortable with Linux internals, Terraform, and on-call style debugging."),
+    # SELECTED for the SRE role -> the access anchor for the seeded Job
+    # Training programme below (student_demo_2 already holds the SRE
+    # INTERVIEW_SCHEDULED slot, so this is a free (student, job) pair).
+    dict(student=STUDENT_1, opportunity_type="JOB",
+         posting_title="Site Reliability Engineer", status="SELECTED",
+         cover_note="Selected after the panel; strong Linux and Kubernetes fundamentals, keen to formalise on-call practice."),
+]
+
+# --------------------------------------------------------------------------
+# Job Training programmes (Phase J3, database/migrations/052_job_training.sql)
+# --------------------------------------------------------------------------
+# ONE published programme so the Student Job Training UI has real, canonical
+# content to show in the demo. Seeded straight into the canonical tables
+# (job_programs / job_program_modules / job_program_items /
+# job_program_skills) via PostgREST + service role -- no fake frontend data.
+#
+# The programme is built to satisfy the service-layer publish rules
+# (job_training_program_service._publish_readiness): a non-blank title, at
+# least one PUBLISHED module, and that module carrying at least one
+# PUBLISHED item. status is set to PUBLISHED with published_at, exactly as
+# publish_program() would leave it.
+#
+# A student can only SEE a published programme if they hold a non-REVOKED
+# job_training_enrollment on the same job (public.student_can_access_job_program,
+# 052). So JOB_TRAINING_ENROLLMENTS below selects student_demo_1's SELECTED
+# SRE application (APPLICATIONS, above) and provisions the enrollment -- the
+# same row the SELECTED transition creates in the product.
+#
+# NOTE / FUTURE WORK: there is no Industry-side Job Training *authoring* UI
+# yet. Programmes are created here (or directly through the job_programs /
+# _modules / _items endpoints). Building the Industry authoring surface
+# remains future work and is out of scope for this demo seed.
+JOB_PROGRAMS = [
+    dict(owner=TECHNOVA, job_title="Site Reliability Engineer",
+         title="Site Reliability Engineering Onboarding",
+         summary=("A structured ramp for a newly selected SRE: reliability "
+                  "fundamentals, the on-call workflow, and TechNova's incident "
+                  "practice. Work through every module to complete the programme."),
+         estimated_weeks=8, status="PUBLISHED",
+         modules=[
+             dict(title="Foundations of Reliability", order_index=0, is_published=True,
+                  description="SLIs, SLOs, error budgets, and how TechNova measures reliability.",
+                  items=[
+                      dict(title="Reading: implementing SLOs", item_type="LINK",
+                           content_url="https://sre.google/workbook/implementing-slos/",
+                           order_index=0, is_published=True),
+                      dict(title="TechNova reliability glossary", item_type="TEXT",
+                           content_text=(
+                               "SLI - a direct measure of service behaviour (availability, latency, "
+                               "correctness).\n"
+                               "SLO - the target for an SLI over a rolling window.\n"
+                               "Error budget - 1 minus the SLO: how much unreliability is acceptable "
+                               "before feature work pauses in favour of reliability work."),
+                           order_index=1, is_published=True),
+                  ]),
+             dict(title="Incident Response and On-Call", order_index=1, is_published=True,
+                  description="The on-call rotation, paging, and blameless postmortems.",
+                  items=[
+                      dict(title="Reading: managing incidents", item_type="LINK",
+                           content_url="https://sre.google/sre-book/managing-incidents/",
+                           order_index=0, is_published=True),
+                      dict(title="On-call first-week checklist", item_type="TEXT",
+                           content_text=(
+                               "1. Confirm pager access and the escalation contacts for your service.\n"
+                               "2. Read the last five postmortems for your service.\n"
+                               "3. Shadow one on-call handover end to end.\n"
+                               "4. Know how to open an incident channel and declare a severity."),
+                           order_index=1, is_published=True),
+                  ]),
+         ],
+         skills=[
+             dict(name="Kubernetes", requirement="REQUIRED"),
+             dict(name="Linux", requirement="REQUIRED"),
+             dict(name="Terraform", requirement="OPTIONAL"),
+         ]),
+]
+
+# Students selected for a job that has a seeded programme -- their
+# enrollment is what makes that programme visible in the Student UI.
+# job_training_enrollments derives student_id / industry_id / job_id from
+# the referenced application via a BEFORE INSERT trigger; we pass only
+# application_id.
+JOB_TRAINING_ENROLLMENTS = [
+    dict(student=STUDENT_1, opportunity_type="JOB", posting_title="Site Reliability Engineer"),
 ]
 
 # Student skills — additive. "System Design" is not in the curated skills
@@ -880,6 +967,127 @@ def run(apply: bool):
             })
         stats.bump("student_skills", created=True)
 
+    # ---- job training programmes (job_programs + modules + items + skills) ----
+    for prog in JOB_PROGRAMS:
+        owner = prog["owner"]
+        jobs_found = get(
+            f"jobs?industry_id=eq.{owner}"
+            f"&title=eq.{urllib.parse.quote(prog['job_title'])}&select=id"
+        )
+        if not jobs_found:
+            print(f"  WARN job training target job not found (seed jobs first): {prog['job_title']}")
+            stats.bump("job_programs", created=False)
+            continue
+        job_id = jobs_found[0]["id"]
+
+        existing = get(f"job_programs?job_id=eq.{job_id}&select=id")
+        if existing:
+            stats.bump("job_programs", created=False)
+            program_id = existing[0]["id"]
+        elif not apply:
+            stats.bump("job_programs", created=True)
+            program_id = None
+        else:
+            payload = {
+                "job_id": job_id,
+                "title": prog["title"],
+                "summary": prog.get("summary"),
+                "estimated_weeks": prog.get("estimated_weeks"),
+                "status": prog["status"],
+            }
+            if prog["status"] == "PUBLISHED":
+                payload["published_at"] = JOB_PROGRAM_PUBLISHED_AT
+            program_id = insert("job_programs", payload)["id"]
+            stats.bump("job_programs", created=True)
+
+        for m in prog.get("modules", []) or []:
+            module_id = None
+            if program_id is not None:
+                found_m = get(
+                    f"job_program_modules?program_id=eq.{program_id}"
+                    f"&title=eq.{urllib.parse.quote(m['title'])}&select=id"
+                )
+                if found_m:
+                    stats.bump("job_program_modules", created=False)
+                    module_id = found_m[0]["id"]
+            if module_id is None:
+                if apply and program_id is not None:
+                    module_id = insert("job_program_modules", {
+                        "program_id": program_id,
+                        "title": m["title"],
+                        "description": m.get("description"),
+                        "order_index": m.get("order_index", 0),
+                        "is_published": m.get("is_published", False),
+                    })["id"]
+                stats.bump("job_program_modules", created=True)
+
+            for it in m.get("items", []) or []:
+                if module_id is not None:
+                    found_it = get(
+                        f"job_program_items?module_id=eq.{module_id}"
+                        f"&title=eq.{urllib.parse.quote(it['title'])}&select=id"
+                    )
+                    if found_it:
+                        stats.bump("job_program_items", created=False)
+                        continue
+                if apply and module_id is not None:
+                    insert("job_program_items", {
+                        "module_id": module_id,
+                        "title": it["title"],
+                        "item_type": it["item_type"],
+                        "content_url": it.get("content_url"),
+                        "content_text": it.get("content_text"),
+                        "order_index": it.get("order_index", 0),
+                        "is_published": it.get("is_published", False),
+                    })
+                stats.bump("job_program_items", created=True)
+
+        for sk in prog.get("skills", []) or []:
+            sid = skills.get(sk["name"].lower())
+            if not sid:
+                print(f"  WARN job program skill not in catalog: {sk['name']}")
+                continue
+            if program_id is not None:
+                found_s = get(
+                    f"job_program_skills?program_id=eq.{program_id}&skill_id=eq.{sid}&select=id"
+                )
+                if found_s:
+                    stats.bump("job_program_skills", created=False)
+                    continue
+            if apply and program_id is not None:
+                insert("job_program_skills", {
+                    "program_id": program_id, "skill_id": sid,
+                    "requirement": sk["requirement"],
+                })
+            stats.bump("job_program_skills", created=True)
+
+    # ---- job training enrollments (the student's access anchor) ----
+    for e in JOB_TRAINING_ENROLLMENTS:
+        postings = get(
+            f"jobs?industry_id=eq.{TECHNOVA}"
+            f"&title=eq.{urllib.parse.quote(e['posting_title'])}&select=id"
+        )
+        if not postings:
+            print(f"  WARN job training enrollment target job not found: {e['posting_title']}")
+            stats.bump("job_training_enrollments", created=False)
+            continue
+        job_id = postings[0]["id"]
+        apps = get(
+            f"applications?student_id=eq.{e['student']}&job_id=eq.{job_id}"
+            "&status=eq.SELECTED&select=id"
+        )
+        if not apps:
+            print(f"  WARN no SELECTED job application to enroll for: {e['posting_title']}")
+            stats.bump("job_training_enrollments", created=False)
+            continue
+        app_id = apps[0]["id"]
+        if get(f"job_training_enrollments?application_id=eq.{app_id}&select=id"):
+            stats.bump("job_training_enrollments", created=False)
+            continue
+        if apply:
+            insert("job_training_enrollments", {"application_id": app_id})
+        stats.bump("job_training_enrollments", created=True)
+
     stats.report()
     if not apply:
         print("\n(check mode — nothing was written)")
@@ -960,6 +1168,58 @@ def emit_sql():
         L.append("select {st}, sk.id, {lvl}".format(st=owner_sql(s["student"]), lvl=_quote(s["proficiency_level"])))
         L.append(f"from skills sk where sk.name = {_quote(s['skill'])}")
         L.append(f"and not exists (select 1 from student_skills x where x.student_id = {owner_sql(s['student'])} and x.skill_id = sk.id);")
+        L.append("")
+
+    L.append("-- job training programmes (job_programs + modules + items + skills)")
+    L.append("-- NOTE: no Industry-side Job Training authoring UI exists yet -- that")
+    L.append("-- remains future work. Programmes are seeded here / via the API.")
+    for prog in JOB_PROGRAMS:
+        o = owner_sql(prog["owner"])
+        jt = _quote(prog["job_title"])
+        published_at = (
+            _quote(JOB_PROGRAM_PUBLISHED_AT) if prog["status"] == "PUBLISHED" else "null"
+        )
+        L.append("insert into job_programs (job_id, title, summary, estimated_weeks, status, published_at)")
+        L.append("select j.id, {ti}, {su}, {wk}, {st}, {pa}".format(
+            ti=_quote(prog["title"]), su=_quote(prog.get("summary")),
+            wk=_quote(prog.get("estimated_weeks")), st=_quote(prog["status"]), pa=published_at))
+        L.append(f"from jobs j where j.industry_id = {o} and j.title = {jt}")
+        L.append("and not exists (select 1 from job_programs p where p.job_id = j.id);")
+        for m in prog.get("modules", []) or []:
+            mt = _quote(m["title"])
+            L.append("insert into job_program_modules (program_id, title, description, order_index, is_published)")
+            L.append("select p.id, {ti}, {de}, {oi}, {pub}".format(
+                ti=mt, de=_quote(m.get("description")), oi=_quote(m.get("order_index", 0)),
+                pub=_quote(bool(m.get("is_published", False)))))
+            L.append(f"from job_programs p join jobs j on j.id = p.job_id")
+            L.append(f"where j.industry_id = {o} and j.title = {jt}")
+            L.append(f"and not exists (select 1 from job_program_modules x where x.program_id = p.id and x.title = {mt});")
+            for it in m.get("items", []) or []:
+                itt = _quote(it["title"])
+                L.append("insert into job_program_items (module_id, title, item_type, content_url, content_text, order_index, is_published)")
+                L.append("select m.id, {ti}, {ty}, {cu}, {ct}, {oi}, {pub}".format(
+                    ti=itt, ty=_quote(it["item_type"]), cu=_quote(it.get("content_url")),
+                    ct=_quote(it.get("content_text")), oi=_quote(it.get("order_index", 0)),
+                    pub=_quote(bool(it.get("is_published", False)))))
+                L.append("from job_program_modules m join job_programs p on p.id = m.program_id")
+                L.append("join jobs j on j.id = p.job_id")
+                L.append(f"where j.industry_id = {o} and j.title = {jt} and m.title = {mt}")
+                L.append(f"and not exists (select 1 from job_program_items x where x.module_id = m.id and x.title = {itt});")
+        for sk in prog.get("skills", []) or []:
+            L.append("insert into job_program_skills (program_id, skill_id, requirement)")
+            L.append("select p.id, s.id, {rq}".format(rq=_quote(sk["requirement"])))
+            L.append("from job_programs p join jobs j on j.id = p.job_id, skills s")
+            L.append(f"where j.industry_id = {o} and j.title = {jt} and s.name = {_quote(sk['name'])}")
+            L.append("and not exists (select 1 from job_program_skills x where x.program_id = p.id and x.skill_id = s.id);")
+        L.append("")
+
+    L.append("-- job training enrollments (student access anchor; derived ids set by trigger)")
+    for e in JOB_TRAINING_ENROLLMENTS:
+        L.append("insert into job_training_enrollments (application_id)")
+        L.append("select a.id from applications a join jobs j on j.id = a.job_id")
+        L.append("where a.student_id = {s} and j.industry_id = {o} and j.title = {ti} and a.status = 'SELECTED'".format(
+            s=owner_sql(e["student"]), o=owner_sql(TECHNOVA), ti=_quote(e["posting_title"])))
+        L.append("and not exists (select 1 from job_training_enrollments x where x.application_id = a.id);")
         L.append("")
 
     L.append("commit;")

@@ -13,7 +13,7 @@ import { SearchBar } from "@/components/common/search-bar";
 import { ApiError } from "@/lib/api";
 import { getApplications } from "@/lib/industry/applications";
 import { cancelInterview, completeInterview, getInterviews } from "@/lib/industry/interviews";
-import { applicantDisplayName, applicantRef, type Application } from "@/types/application";
+import { applicantDisplayName, type Application } from "@/types/application";
 import {
   INTERVIEW_STATUS_LABELS,
   INTERVIEW_STATUSES,
@@ -139,7 +139,7 @@ export function InterviewsListView() {
     return state.interviews.filter((iv) => {
       const matchesStatus = statusFilter === "all" || iv.status === statusFilter;
       const haystack =
-        `${iv.opportunity?.title ?? ""} ${applicantRef(iv.student_id)}`.toLowerCase();
+        `${iv.opportunity?.title ?? ""} ${applicantDisplayName(iv)}`.toLowerCase();
       const matchesSearch = !query || haystack.includes(query);
       return matchesStatus && matchesSearch;
     });

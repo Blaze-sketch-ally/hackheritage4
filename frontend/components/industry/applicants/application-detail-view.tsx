@@ -61,6 +61,9 @@ export function ApplicationDetailView({ applicationId }: { applicationId: string
   const [confirming, setConfirming] = useState<IndustrySettableStatus | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
+  // The internship id from a provisioned Internship Workspace, so we can
+  // link straight to it. Cleared on every new transition.
+  const [provisionedInternshipId, setProvisionedInternshipId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -90,10 +93,24 @@ export function ApplicationDetailView({ applicationId }: { applicationId: string
     setPending(true);
     setActionError(null);
     setActionSuccess(null);
+    setProvisionedInternshipId(null);
     try {
       const updated = await updateApplicationStatus(applicationId, target);
       setState({ status: "ready", application: updated });
-      setActionSuccess(`Application moved to “${APPLICATION_STATUS_LABELS[target]}”.`);
+      // On SELECTED the backend reports what it provisioned (Internship
+      // Workspace / Job Training enrollment) and hands us the exact line
+      // to show — we never re-derive provisioning state on the client.
+      const provisioning = updated.provisioning;
+      setActionSuccess(
+        provisioning?.message ?? `Application moved to “${APPLICATION_STATUS_LABELS[target]}”.`,
+      );
+      if (
+        provisioning?.kind === "INTERNSHIP_WORKSPACE" &&
+        provisioning.provisioned &&
+        provisioning.internship_id
+      ) {
+        setProvisionedInternshipId(provisioning.internship_id);
+      }
     } catch (err) {
       setActionError(
         err instanceof ApiError ? err.message : "Something went wrong. Please try again.",
@@ -151,6 +168,14 @@ export function ApplicationDetailView({ applicationId }: { applicationId: string
         <>
           <FormError message={actionError} />
           <FormSuccess message={actionSuccess} />
+          {provisionedInternshipId ? (
+            <Link
+              href={`/industry/internships/${provisionedInternshipId}/submissions`}
+              className="inline-block text-sm text-indigo-600 hover:underline dark:text-indigo-400"
+            >
+              Open Internship Workspace →
+            </Link>
+          ) : null}
 
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0 space-y-1">

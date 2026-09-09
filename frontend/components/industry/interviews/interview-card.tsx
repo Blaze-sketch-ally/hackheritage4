@@ -5,7 +5,7 @@ import { Briefcase, CalendarClock, GraduationCap, MapPin, Video } from "lucide-r
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { InterviewStatusBadge } from "@/components/industry/interviews/interview-status-badge";
-import { applicantRef, OPPORTUNITY_TYPE_LABELS } from "@/types/application";
+import { applicantDisplayName, OPPORTUNITY_TYPE_LABELS } from "@/types/application";
 import { INTERVIEW_MODE_LABELS, type Interview } from "@/types/interview";
 
 export function formatInterviewWhen(iso: string): string {
@@ -20,8 +20,9 @@ export function formatInterviewWhen(iso: string): string {
   });
 }
 
-/** One interview row for the interviews list. Candidate is shown only as
- * a privacy-safe reference (the schema exposes no student profile data). */
+/** One interview row for the interviews list. The candidate is shown by
+ * name when the ownership-scoped RPC resolved one, else the same
+ * privacy-safe "Applicant <ref>" fallback the rest of the portal uses. */
 export function InterviewCard({
   interview,
   pending,
@@ -35,7 +36,7 @@ export function InterviewCard({
   onComplete: () => void;
   onCancel: () => void;
 }) {
-  const ref = applicantRef(interview.student_id);
+  const ref = applicantDisplayName(interview);
   const opportunityTitle =
     interview.opportunity?.title ??
     (interview.opportunity_type

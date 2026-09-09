@@ -19,7 +19,7 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.services import application_service, notification_producer
+from app.services import application_service, interview_service, notification_producer
 from tests.conftest import authenticated_as
 
 client = TestClient(app)
@@ -223,3 +223,133 @@ def test_student_notification_routes_still_have_no_creation_endpoint():
         if p.startswith("/api/v1/student/notifications") and "post" in m
     }
     assert notif_posts == {"/api/v1/student/notifications/read-all"}
+
+
+# ============================================================
+# 11-15. Interview lifecycle -> Student notification
+# ============================================================
+
+
+def _interview_row(**overrides) -> dict:
+    row = {
+        "id": "iv-1",
+        "application_id": "app-1",
+        "industry_id": "industry-9",
+        "student_id": "student-77",
+        "student_name": "Priya Menon",
+        "scheduled_at": "2099-01-01T10:00:00+00:00",
+        "duration_minutes": 30,
+        "mode": "ONLINE",
+        "location": None,
+        "notes": None,
+        "status": "SCHEDULED",
+        "created_at": "2026-09-01T00:00:00Z",
+        "updated_at": "2026-09-01T00:00:00Z",
+        "opportunity": {"id": "job-1", "title": "SRE", "status": "PUBLISHED"},
+        "opportunity_type": "JOB",
+    }
+    row.update(overrides)
+    return row
+
+
+def test_emit_interview_change_writes_one_application_scoped_notification():
+    fake = MagicMock()
+    with patch.object(notification_producer, "get_supabase", return_value=fake):
+        notification_producer.emit_interview_change(
+            student_id="student-77",
+            application_id="app-1",
+            event="RESCHEDULED",
+            opportunity_title="SRE",
+        )
+    fake.table.assert_called_once_with("student_notifications")
+    payload = _insert_payload(fake)
+    assert payload["student_id"] == "student-77"
+    assert payload["type"] == "APPLICATION_STATUS"
+    assert payload["related_entity_type"] == "APPLICATION"
+    assert payload["related_entity_id"] == "app-1"
+    assert "SRE" in payload["body"]
+    assert set(payload) == {
+        "student_id", "type", "title", "body",
+        "related_entity_type", "related_entity_id",
+    }
+
+
+def test_emit_interview_change_is_a_noop_for_unknown_events_or_missing_ids():
+    fake = MagicMock()
+    with patch.object(notification_producer, "get_supabase", return_value=fake):
+        notification_producer.emit_interview_change(
+            student_id="s", application_id="a", event="POSTPONED", opportunity_title=None
+        )
+        notification_producer.emit_interview_change(
+            student_id="", application_id="a", event="CANCELLED", opportunity_title=None
+        )
+    fake.table.assert_not_called()
+
+
+def test_emit_interview_change_swallows_a_service_role_failure():
+    with patch.object(notification_producer, "get_supabase", side_effect=RuntimeError("boom")):
+        notification_producer.emit_interview_change(
+            student_id="s", application_id="a", event="CANCELLED", opportunity_title="X"
+        )  # no raise
+
+
+def test_schedule_route_emits_a_scheduled_notification_from_the_row():
+    captured = {}
+
+    def fake_emit(*, student_id, application_id, event, opportunity_title):
+        captured.update(locals())
+
+    with (
+        authenticated_as("INDUSTRY", user_id="industry-9"),
+        patch.object(interview_service, "create_interview", return_value=_interview_row()),
+        patch.object(notification_producer, "emit_interview_change", side_effect=fake_emit),
+    ):
+        resp = client.post(
+            "/api/v1/interviews",
+            json={
+                "application_id": str(uuid4()),
+                "scheduled_at": "2099-01-01T10:00:00+00:00",
+                "mode": "ONLINE",
+            },
+            headers={"Authorization": "Bearer token"},
+        )
+    assert resp.status_code == 201
+    assert captured["student_id"] == "student-77"
+    assert captured["application_id"] == "app-1"
+    assert captured["event"] == "SCHEDULED"
+    assert captured["opportunity_title"] == "SRE"
+
+
+def test_cancel_route_emits_a_cancelled_notification_and_survives_a_producer_raise():
+    with (
+        authenticated_as("INDUSTRY", user_id="industry-9"),
+        patch.object(
+            interview_service, "cancel_interview",
+            return_value=_interview_row(status="CANCELLED"),
+        ),
+        patch.object(
+            notification_producer, "emit_interview_change", side_effect=RuntimeError("x")
+        ) as emit,
+    ):
+        resp = client.post(
+            f"/api/v1/interviews/{uuid4()}/cancel",
+            headers={"Authorization": "Bearer token"},
+        )
+    assert resp.status_code == 200
+    emit.assert_called_once()
+    assert emit.call_args.kwargs["event"] == "CANCELLED"
+
+
+def test_reschedule_route_does_not_emit_when_no_fields_change():
+    with (
+        authenticated_as("INDUSTRY", user_id="industry-9"),
+        patch.object(interview_service, "reschedule_interview", return_value=_interview_row()),
+        patch.object(notification_producer, "emit_interview_change") as emit,
+    ):
+        resp = client.patch(
+            f"/api/v1/interviews/{uuid4()}",
+            json={},
+            headers={"Authorization": "Bearer token"},
+        )
+    assert resp.status_code == 200
+    emit.assert_not_called()

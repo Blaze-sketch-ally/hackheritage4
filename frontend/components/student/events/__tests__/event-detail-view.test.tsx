@@ -59,6 +59,24 @@ describe("EventDetailView", () => {
     expect(screen.queryByRole("button", { name: /register/i })).not.toBeInTheDocument();
   });
 
+  it("does not show a misleading 'Register by' deadline while registration is unavailable", async () => {
+    mocks.getEvent.mockResolvedValueOnce(detail({ registration_available: false }));
+    render(<EventDetailView eventId="e-1" />);
+    await screen.findByText("Intro to Kubernetes");
+
+    expect(screen.queryByText(/register by/i)).not.toBeInTheDocument();
+    // useful informational dates are kept
+    expect(screen.getByText(/starts/i)).toBeInTheDocument();
+  });
+
+  it("shows the 'Register by' deadline once portal registration exists", async () => {
+    mocks.getEvent.mockResolvedValueOnce(detail({ registration_available: true }));
+    render(<EventDetailView eventId="e-1" />);
+    await screen.findByText("Intro to Kubernetes");
+
+    expect(screen.getByText(/register by/i)).toBeInTheDocument();
+  });
+
   it("shows a not-found state (no retry) on a 404", async () => {
     mocks.getEvent.mockRejectedValueOnce(new ApiError(404, "This event is not available."));
     render(<EventDetailView eventId="missing" />);

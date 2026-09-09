@@ -5,6 +5,7 @@ import {
   Bell,
   BookOpen,
   Briefcase,
+  BriefcaseBusiness,
   CalendarDays,
   CheckCircle2,
   ClipboardCheck,
@@ -26,6 +27,7 @@ const TYPE_ICON: Record<NotificationType, LucideIcon> = {
   EVENT: CalendarDays,
   SYSTEM: Info,
   INTERNSHIP: Briefcase,
+  JOB_TRAINING: BriefcaseBusiness,
 };
 
 function relativeTime(iso: string | null): string {

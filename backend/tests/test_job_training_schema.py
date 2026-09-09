@@ -106,8 +106,9 @@ def test_migration_numbering_stays_contiguous_and_unique():
     assert len(numbers) == len(set(numbers)), f"duplicate migration numbers: {numbers}"
     assert numbers == list(range(numbers[0], numbers[-1] + 1)), f"gap in numbering: {numbers}"
     assert 52 in numbers
-    # 053 (Job Training completion) is the current migration tip.
-    assert numbers[-1] in (52, 53), f"unexpected migration tip: {numbers[-1]}"
+    # 053 (Job Training completion) is the Job Training migration tip.
+    # 054 (student interview visibility) is an unrelated later migration.
+    assert numbers[-1] in (52, 53, 54), f"unexpected migration tip: {numbers[-1]}"
 
 
 def test_no_historical_migration_was_modified_by_j1():

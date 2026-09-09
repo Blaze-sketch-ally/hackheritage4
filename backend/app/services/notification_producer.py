@@ -82,6 +82,67 @@ def emit_application_status_change(
         ).execute()
 
 
+# Interview lifecycle (database/migrations/030_industry_interviews.sql).
+# Scheduling already produces the "interview stage" application-status
+# notification when it advances a SHORTLISTED application; these cover the
+# events that do NOT move application status -- a reschedule and a
+# cancellation -- plus scheduling an interview for an application already
+# at INTERVIEW_SCHEDULED (where no status change fires). Routed at the
+# APPLICATION entity, not INTERVIEW: the student's interview details render
+# inline on /student/applications (there is no student interview route),
+# and APPLICATION is the related_entity_type that links there.
+_INTERVIEW_EVENT_TITLE: dict[str, str] = {
+    "SCHEDULED": "An interview has been scheduled",
+    "RESCHEDULED": "Your interview has been rescheduled",
+    "CANCELLED": "Your interview has been cancelled",
+}
+
+_INTERVIEW_EVENT_PHRASE: dict[str, str] = {
+    "SCHEDULED": "An interview has been scheduled",
+    "RESCHEDULED": "Your interview time has changed",
+    "CANCELLED": "Your scheduled interview has been cancelled",
+}
+
+
+def emit_interview_change(
+    *,
+    student_id: str,
+    application_id: str,
+    event: str,
+    opportunity_title: str | None,
+) -> None:
+    """Notify a student that the Industry side scheduled, rescheduled, or
+    cancelled an interview for their application. No-op for an unknown
+    event.
+
+    Writes exactly one `student_notifications` row via the service-role
+    client (the table has no insert policy). `related_entity_type` /
+    `related_entity_id` point at the APPLICATION -- interview details render
+    inline on /student/applications -- so the frontend can offer a "view"
+    link there. Best-effort by contract: a failed write never turns a
+    successful scheduling action into an error. The caller invokes this
+    exactly once per action, so no dedup check is needed."""
+    title = _INTERVIEW_EVENT_TITLE.get(event)
+    if title is None or not student_id or not application_id:
+        return
+
+    phrase = _INTERVIEW_EVENT_PHRASE[event]
+    where = f' for "{opportunity_title}"' if opportunity_title else ""
+    body = f"{phrase}{where}. Open your application to see the details."
+
+    with contextlib.suppress(Exception):
+        get_supabase().table("student_notifications").insert(
+            {
+                "student_id": student_id,
+                "type": "APPLICATION_STATUS",
+                "title": title,
+                "body": body,
+                "related_entity_type": "APPLICATION",
+                "related_entity_id": application_id,
+            }
+        ).execute()
+
+
 # Only a terminal review verdict is meaningful to a student. UNDER_REVIEW
 # is an internal industry step (no notification). Migration 039 widened the
 # student_notifications CHECKs to allow type 'INTERNSHIP' +

@@ -496,6 +496,58 @@ def test_service_list_tolerates_failed_opportunity_lookup():
     assert rows[0]["opportunity_type"] is None
 
 
+# ------------------------------------------------------------
+# Applicant name: the scheduled-interview view must show the same real
+# name the Applicants list shows, resolved through the SAME
+# ownership-scoped `application_applicant_names` RPC -- name only, and
+# best-effort (a lookup failure falls back to the id placeholder).
+# ------------------------------------------------------------
+
+
+def test_service_list_attaches_applicant_name_from_ownership_scoped_rpc():
+    fake = _ScopedFakeClient(
+        interviews=[_iv_db_row(id="iv-1", application_id="app-1", industry_id="industry-1")],
+        applications=[_app_db_row(id="app-1", industry_id="industry-1")],
+        applicant_names={"app-1": "Priya Menon"},
+    )
+    rows = interview_service.list_interviews(fake, "industry-1")
+    assert rows[0]["student_name"] == "Priya Menon"
+
+
+def test_service_get_attaches_applicant_name():
+    iv_id = "iv-9"
+    fake = _ScopedFakeClient(
+        interviews=[_iv_db_row(id=iv_id, application_id="app-1", industry_id="industry-1")],
+        applications=[_app_db_row(id="app-1", industry_id="industry-1")],
+        applicant_names={"app-1": "Priya Menon"},
+    )
+    row = interview_service.get_interview(fake, "industry-1", iv_id)
+    assert row["student_name"] == "Priya Menon"
+
+
+def test_service_list_tolerates_failed_applicant_name_lookup():
+    fake = _ScopedFakeClient(
+        interviews=[_iv_db_row(id="iv-1", application_id="app-1", industry_id="industry-1")],
+        applications=[_app_db_row(id="app-1", industry_id="industry-1")],
+        applicant_names={"app-1": "Priya Menon"},
+        raise_on="rpc",
+    )
+    rows = interview_service.list_interviews(fake, "industry-1")
+    assert rows[0]["student_name"] is None
+
+
+def test_service_applicant_name_rpc_is_scoped_to_owned_applications_only():
+    """The RPC only returns a name for applications the caller owns; an
+    interview whose application id is not in the owned set gets no name."""
+    fake = _ScopedFakeClient(
+        interviews=[_iv_db_row(id="iv-1", application_id="app-x", industry_id="industry-1")],
+        applications=[_app_db_row(id="app-x", industry_id="industry-1")],
+        applicant_names={},  # RPC resolves nothing for this caller
+    )
+    rows = interview_service.list_interviews(fake, "industry-1")
+    assert rows[0]["student_name"] is None
+
+
 # ============================================================
 # Route + REAL service: GET /api/v1/interviews must not 500 on a missing
 # PostgREST embed, and both reads must be industry-scoped
@@ -554,17 +606,54 @@ class _FakeQuery:
         return SimpleNamespace(data=list(self._rows))
 
 
+class _FakeRpc:
+    """Stand-in for the `application_applicant_names` SECURITY DEFINER RPC:
+    given a list of application ids it returns `{application_id,
+    student_name}` rows, but ONLY for ids in `names` (mirroring the
+    function's ownership scoping -- an application the caller does not own
+    simply yields no row). `raises=True` simulates the RPC being
+    unavailable."""
+
+    def __init__(self, params: dict, names: dict[str, str], *, raises: bool = False):
+        self._ids = list((params or {}).get("application_ids") or [])
+        self._names = names
+        self._raises = raises
+
+    def execute(self):
+        if self._raises:
+            raise RuntimeError("function public.application_applicant_names does not exist")
+        return SimpleNamespace(
+            data=[
+                {"application_id": aid, "student_name": self._names[aid]}
+                for aid in self._ids
+                if aid in self._names
+            ]
+        )
+
+
 class _ScopedFakeClient:
     """A fake user-scoped Supabase client backing exactly the two tables
-    interview_service reads. `raise_on` names a table whose `.execute()`
-    should blow up (used to simulate an unavailable enrichment read)."""
+    interview_service reads, plus the ownership-scoped applicant-name RPC.
+    `raise_on` names a table (or "rpc") whose `.execute()` should blow up
+    (used to simulate an unavailable enrichment read)."""
 
-    def __init__(self, *, interviews: list[dict], applications: list[dict], raise_on: str = ""):
+    def __init__(
+        self,
+        *,
+        interviews: list[dict],
+        applications: list[dict],
+        applicant_names: dict[str, str] | None = None,
+        raise_on: str = "",
+    ):
         self._data = {"interviews": interviews, "applications": applications}
+        self._applicant_names = applicant_names or {}
         self._raise_on = raise_on
 
     def table(self, name: str) -> _FakeQuery:
         return _FakeQuery(self._data.get(name, []), raises=(name == self._raise_on))
+
+    def rpc(self, name: str, params: dict) -> _FakeRpc:
+        return _FakeRpc(params, self._applicant_names, raises=(self._raise_on == "rpc"))
 
 
 def _iv_db_row(**overrides) -> dict:
@@ -709,3 +798,62 @@ def test_route_get_one_interview_404_for_another_industry():
         )
 
     assert resp.status_code == 404
+
+
+def test_route_list_interviews_includes_applicant_name_and_nothing_else():
+    fake = _ScopedFakeClient(
+        interviews=[_iv_db_row(id="iv-A", application_id="app-A", industry_id="industry-A")],
+        applications=[_app_db_row(id="app-A", industry_id="industry-A")],
+        applicant_names={"app-A": "Priya Menon"},
+    )
+    with (
+        authenticated_as("INDUSTRY", user_id="industry-A"),
+        patch("app.api.interviews.build_user_client", return_value=fake),
+    ):
+        resp = client.get("/api/v1/interviews", headers={"Authorization": "Bearer token"})
+
+    assert resp.status_code == 200
+    body = resp.json()["interviews"][0]
+    assert body["student_name"] == "Priya Menon"
+    # only the NAME is exposed -- no email / phone / avatar / profile fields
+    assert "email" not in body
+    assert "phone" not in body
+    assert "avatar_url" not in body
+
+
+def test_route_get_one_interview_includes_applicant_name():
+    iv_id = str(uuid4())
+    fake = _ScopedFakeClient(
+        interviews=[_iv_db_row(id=iv_id, application_id="app-A", industry_id="industry-A")],
+        applications=[_app_db_row(id="app-A", industry_id="industry-A")],
+        applicant_names={"app-A": "Priya Menon"},
+    )
+    with (
+        authenticated_as("INDUSTRY", user_id="industry-A"),
+        patch("app.api.interviews.build_user_client", return_value=fake),
+    ):
+        resp = client.get(
+            f"/api/v1/interviews/{iv_id}", headers={"Authorization": "Bearer token"}
+        )
+
+    assert resp.status_code == 200
+    assert resp.json()["student_name"] == "Priya Menon"
+
+
+def test_route_list_interviews_still_200_when_applicant_name_rpc_unavailable():
+    fake = _ScopedFakeClient(
+        interviews=[_iv_db_row(id="iv-A", application_id="app-A", industry_id="industry-A")],
+        applications=[_app_db_row(id="app-A", industry_id="industry-A")],
+        applicant_names={"app-A": "Priya Menon"},
+        raise_on="rpc",
+    )
+    with (
+        authenticated_as("INDUSTRY", user_id="industry-A"),
+        patch("app.api.interviews.build_user_client", return_value=fake),
+    ):
+        resp = client.get("/api/v1/interviews", headers={"Authorization": "Bearer token"})
+
+    assert resp.status_code == 200
+    body = resp.json()["interviews"][0]
+    assert body["id"] == "iv-A"
+    assert body["student_name"] is None

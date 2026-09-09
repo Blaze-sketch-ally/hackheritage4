@@ -27,8 +27,6 @@ with REJECTED reachable from any active stage and WITHDRAWN owned by the
 student. `_STATUS_TRANSITIONS` below is that pipeline, enforced here.
 """
 
-import contextlib
-
 from supabase import Client
 
 from app.services import internship_workspace_service, job_training_service
@@ -230,13 +228,96 @@ def update_status(
     # Same best-effort posture as notification_producer in the route. Each
     # call is READ-ONLY with respect to `applications` / `jobs` /
     # `internships` -- it only inserts one workspace / enrollment row.
+    provisioning: dict | None = None
     if target_status == "SELECTED":
         opportunity_type = existing.get("opportunity_type")
         if opportunity_type == "INTERNSHIP":
-            with contextlib.suppress(Exception):
-                internship_workspace_service.provision_for_selection(client, application_id)
+            provisioning = _provision_internship_workspace(client, application_id)
         elif opportunity_type == "JOB":
-            with contextlib.suppress(Exception):
-                job_training_service.provision_for_selection(client, application_id)
+            provisioning = _provision_job_training(client, application_id)
 
-    return get_application(client, industry_id, application_id)
+    row = get_application(client, industry_id, application_id)
+    if row is not None and provisioning is not None:
+        row["provisioning"] = provisioning
+    return row
+
+
+# The status change has already committed by the time these run: a
+# provisioning failure must NEVER turn a successful SELECTED transition
+# into an error (SELECTED is terminal, there is no clean undo, and both
+# provision_for_selection() calls are idempotent heal-on-retry). So every
+# path here is wrapped and the worst case is a "could not be set up
+# automatically" message plus provisioned=False -- the recruiter still
+# sees the candidate move to Selected. The message strings are the single
+# source of truth for what the UI shows; the frontend never re-derives
+# provisioning state.
+_INTERNSHIP_WORKSPACE_MESSAGES: dict[str, str] = {
+    "CREATED": "Selected — Internship Workspace created.",
+    "ALREADY_EXISTS": "Selected — Internship Workspace is ready.",
+    "SKIPPED_WORK_MODE": (
+        "Selected. This on-site internship does not use an Internship Workspace."
+    ),
+    "SKIPPED_NO_PROGRAM": (
+        "Selected. Set up this internship's program to open the Internship Workspace."
+    ),
+}
+
+_JOB_TRAINING_MESSAGES: dict[str, str] = {
+    "CREATED": "Selected — Job Training enrollment created.",
+    "ALREADY_EXISTS": "Selected — Job Training enrollment is ready.",
+    "SKIPPED_NO_PROGRAM": "Selected — Job Training is not published yet.",
+    "REVOKED_BLOCKED": (
+        "Selected. This candidate's Job Training enrollment was revoked and was not "
+        "recreated."
+    ),
+}
+
+
+def _provision_internship_workspace(client: Client, application_id: str) -> dict:
+    kind = "INTERNSHIP_WORKSPACE"
+    try:
+        result = internship_workspace_service.provision_for_selection(client, application_id)
+    except Exception:  # noqa: BLE001 -- provisioning never fails the status change
+        return {
+            "kind": kind,
+            "outcome": "FAILED",
+            "provisioned": False,
+            "message": (
+                "Selected. The Internship Workspace could not be set up automatically — "
+                "retry from this application."
+            ),
+            "internship_id": None,
+        }
+    provisioned = result.outcome in ("CREATED", "ALREADY_EXISTS")
+    workspace = result.workspace or {}
+    return {
+        "kind": kind,
+        "outcome": result.outcome,
+        "provisioned": provisioned,
+        "message": _INTERNSHIP_WORKSPACE_MESSAGES.get(result.outcome, "Selected."),
+        "internship_id": workspace.get("internship_id") if provisioned else None,
+    }
+
+
+def _provision_job_training(client: Client, application_id: str) -> dict:
+    kind = "JOB_TRAINING"
+    try:
+        result = job_training_service.provision_for_selection(client, application_id)
+    except Exception:  # noqa: BLE001 -- provisioning never fails the status change
+        return {
+            "kind": kind,
+            "outcome": "FAILED",
+            "provisioned": False,
+            "message": (
+                "Selected. The Job Training enrollment could not be set up automatically — "
+                "retry from this application."
+            ),
+            "internship_id": None,
+        }
+    return {
+        "kind": kind,
+        "outcome": result.outcome,
+        "provisioned": result.outcome in ("CREATED", "ALREADY_EXISTS"),
+        "message": _JOB_TRAINING_MESSAGES.get(result.outcome, "Selected."),
+        "internship_id": None,
+    }

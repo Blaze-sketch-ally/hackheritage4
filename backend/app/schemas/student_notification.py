@@ -19,7 +19,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 # student_notifications.type CHECK -- 035, widened by migration 039
-# (+ 'INTERNSHIP').
+# (+ 'INTERNSHIP') and migration 052 (+ 'JOB_TRAINING').
 NotificationType = Literal[
     "APPLICATION_STATUS",
     "INTERVIEW",
@@ -29,10 +29,12 @@ NotificationType = Literal[
     "EVENT",
     "SYSTEM",
     "INTERNSHIP",
+    "JOB_TRAINING",
 ]
 
 # student_notifications.related_entity_type CHECK -- 035, widened by
-# migration 039 (+ 'INTERNSHIP_WORKSPACE').
+# migration 039 (+ 'INTERNSHIP_WORKSPACE') and migration 052
+# (+ 'JOB_TRAINING_ENROLLMENT').
 RelatedEntityType = Literal[
     "APPLICATION",
     "INTERVIEW",
@@ -41,6 +43,7 @@ RelatedEntityType = Literal[
     "MENTORSHIP",
     "EVENT",
     "INTERNSHIP_WORKSPACE",
+    "JOB_TRAINING_ENROLLMENT",
 ]
 
 

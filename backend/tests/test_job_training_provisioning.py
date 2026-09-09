@@ -520,22 +520,34 @@ def test_non_selected_job_transition_provisions_neither():
 
 def test_source_has_exactly_one_guarded_call_per_provisioning_service():
     """No unconditional internship_workspace_service.provision_for_selection
-    remains anywhere in application_service: the SELECTED hook has exactly
-    one call to each provisioning service, each under its own
-    opportunity_type guard."""
+    remains anywhere in application_service: there is exactly one call to
+    each provisioning service in the module, and the SELECTED hook
+    dispatches to each under its own opportunity_type guard (internship
+    branch before job branch)."""
     import inspect
 
     src = inspect.getsource(application_service)
     assert src.count("internship_workspace_service.provision_for_selection(") == 1
     assert src.count("job_training_service.provision_for_selection(") == 1
 
-    hook = src.split('if target_status == "SELECTED":', 1)[1]
+    # The SELECTED hook branches on opportunity_type: internship provisioning
+    # dispatched first, job provisioning second. The single call to each
+    # provisioning service lives in its dispatched helper (wrapped so a
+    # provisioning failure never fails the status change).
+    hook = src.split('if target_status == "SELECTED":', 1)[1].split("\n\n", 1)[0]
     int_guard = hook.index('if opportunity_type == "INTERNSHIP":')
-    int_call = hook.index("internship_workspace_service.provision_for_selection(")
+    int_dispatch = hook.index("_provision_internship_workspace(")
     job_guard = hook.index('elif opportunity_type == "JOB":')
-    job_call = hook.index("job_training_service.provision_for_selection(")
-    # order: INTERNSHIP guard -> internship call -> JOB guard -> job call
-    assert int_guard < int_call < job_guard < job_call
+    job_dispatch = hook.index("_provision_job_training(")
+    assert int_guard < int_dispatch < job_guard < job_dispatch
+
+    int_helper = src.split("def _provision_internship_workspace(", 1)[1].split("\ndef ", 1)[0]
+    job_helper = src.split("def _provision_job_training(", 1)[1].split("\ndef ", 1)[0]
+    assert "internship_workspace_service.provision_for_selection(" in int_helper
+    assert "job_training_service.provision_for_selection(" in job_helper
+    # each provisioning call is wrapped so it cannot fail the transition
+    assert "try:" in int_helper and "except" in int_helper
+    assert "try:" in job_helper and "except" in job_helper
 
 
 # ============================================================

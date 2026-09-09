@@ -12,10 +12,13 @@ from the client either -- it only changes through the explicit lifecycle
 endpoints. `extra="forbid"` on the write models is what structurally
 rejects an attempt to smuggle any of these in.
 
-Applicant identity: exactly like application responses, an interview
-response carries the candidate only as `student_id` (a uuid). The schema
-gives Industry no path to an applicant's name/email/profile, and this
-module adds none.
+Applicant identity: an interview response carries the candidate as
+`student_id` (a uuid) plus, when it can be resolved, `student_name` --
+the applicant's `full_name` only, and only for applications the caller
+owns. `student_name` comes from the same ownership-scoped
+`application_applicant_names` SECURITY DEFINER RPC (036) that the
+Applicants list uses; it is best-effort enrichment (null when the RPC is
+unavailable) and exposes no email / phone / avatar / profile.
 """
 
 from datetime import datetime
@@ -80,6 +83,11 @@ class InterviewResponse(BaseModel):
     application_id: str
     industry_id: str
     student_id: str
+    # The applicant's full name, resolved through the ownership-scoped
+    # application_applicant_names RPC (036). Name only -- no email / phone
+    # / avatar. Null when the RPC could not resolve it; the UI then falls
+    # back to the "Applicant <ref>" placeholder.
+    student_name: str | None = None
     scheduled_at: str
     duration_minutes: int
     mode: str

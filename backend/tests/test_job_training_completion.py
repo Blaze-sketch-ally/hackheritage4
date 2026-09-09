@@ -71,7 +71,12 @@ def test_migration_053_exists_and_052_unchanged_and_no_054():
     names = sorted(p.name for p in MIGRATIONS_DIR.glob("[0-9][0-9][0-9]_*.sql"))
     numbers = sorted(int(n[:3]) for n in names)
     assert numbers == list(range(numbers[0], numbers[-1] + 1)), f"gap: {numbers}"
-    assert numbers[-1] == 53, "053 must be the current tip -- no 054+"
+    # 053 is the Job Training completion tip. The only migration allowed
+    # past it is 054 (student interview visibility -- an unrelated feature
+    # that adds one read-only RPC and touches no job-training object).
+    assert numbers[-1] in (53, 54), "no Job Training migration may follow 053"
+    if numbers[-1] == 54:
+        assert "054_student_interview_visibility.sql" in names
     assert "053_job_training_completion.sql" in names
     # 052 still defines its own tables and was not edited
     m052 = M052.read_text(encoding="utf-8")
@@ -271,8 +276,17 @@ def test_053_makes_no_notification_check_change_and_no_new_app_status():
 
 
 def test_no_post_053_migration_and_internship_schema_untouched():
-    later = [int(p.name[:3]) for p in MIGRATIONS_DIR.glob("[0-9][0-9][0-9]_*.sql") if int(p.name[:3]) >= 54]
-    assert later == []
+    later = sorted(
+        p.name for p in MIGRATIONS_DIR.glob("[0-9][0-9][0-9]_*.sql") if int(p.name[:3]) >= 54
+    )
+    # 054 (student interview visibility) is the only permitted later
+    # migration -- it is a read-only RPC and must not touch job-training
+    # or internship schema.
+    assert later in ([], ["054_student_interview_visibility.sql"]), later
+    for name in later:
+        body = (MIGRATIONS_DIR / name).read_text(encoding="utf-8").lower()
+        for frozen in ("job_training", "internship_completions", "internship_certificates"):
+            assert frozen not in body, (name, frozen)
     for t in ("internship_completions", "internship_certificates", "internship_workspaces"):
         assert f"create table if not exists {t}" not in M053_L
         assert f"alter table {t} " not in M053_L

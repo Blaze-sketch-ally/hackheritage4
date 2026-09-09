@@ -547,6 +547,12 @@ from jobs o
 where o.industry_id = (select id from profiles where username = 'technova_demo') and o.title = 'Site Reliability Engineer'
 and not exists (select 1 from applications x where x.student_id = (select id from profiles where username = 'student_demo_2') and x.job_id = o.id);
 
+insert into applications (student_id, opportunity_type, job_id, status, cover_note)
+select (select id from profiles where username = 'student_demo_1'), 'JOB', o.id, 'SELECTED', 'Selected after the panel; strong Linux and Kubernetes fundamentals, keen to formalise on-call practice.'
+from jobs o
+where o.industry_id = (select id from profiles where username = 'technova_demo') and o.title = 'Site Reliability Engineer'
+and not exists (select 1 from applications x where x.student_id = (select id from profiles where username = 'student_demo_1') and x.job_id = o.id);
+
 -- student_skills (additive)
 insert into student_skills (student_id, skill_id, proficiency_level)
 select (select id from profiles where username = 'student_demo_1'), sk.id, 'Intermediate'
@@ -567,5 +573,73 @@ insert into student_skills (student_id, skill_id, proficiency_level)
 select (select id from profiles where username = 'student_demo_2'), sk.id, 'Intermediate'
 from skills sk where sk.name = 'Apache Spark'
 and not exists (select 1 from student_skills x where x.student_id = (select id from profiles where username = 'student_demo_2') and x.skill_id = sk.id);
+
+-- job training programmes (job_programs + modules + items + skills)
+-- NOTE: no Industry-side Job Training authoring UI exists yet -- that
+-- remains future work. Programmes are seeded here / via the API.
+insert into job_programs (job_id, title, summary, estimated_weeks, status, published_at)
+select j.id, 'Site Reliability Engineering Onboarding', 'A structured ramp for a newly selected SRE: reliability fundamentals, the on-call workflow, and TechNova''s incident practice. Work through every module to complete the programme.', 8, 'PUBLISHED', '2026-11-03T09:00:00+00:00'
+from jobs j where j.industry_id = (select id from profiles where username = 'technova_demo') and j.title = 'Site Reliability Engineer'
+and not exists (select 1 from job_programs p where p.job_id = j.id);
+insert into job_program_modules (program_id, title, description, order_index, is_published)
+select p.id, 'Foundations of Reliability', 'SLIs, SLOs, error budgets, and how TechNova measures reliability.', 0, true
+from job_programs p join jobs j on j.id = p.job_id
+where j.industry_id = (select id from profiles where username = 'technova_demo') and j.title = 'Site Reliability Engineer'
+and not exists (select 1 from job_program_modules x where x.program_id = p.id and x.title = 'Foundations of Reliability');
+insert into job_program_items (module_id, title, item_type, content_url, content_text, order_index, is_published)
+select m.id, 'Reading: implementing SLOs', 'LINK', 'https://sre.google/workbook/implementing-slos/', null, 0, true
+from job_program_modules m join job_programs p on p.id = m.program_id
+join jobs j on j.id = p.job_id
+where j.industry_id = (select id from profiles where username = 'technova_demo') and j.title = 'Site Reliability Engineer' and m.title = 'Foundations of Reliability'
+and not exists (select 1 from job_program_items x where x.module_id = m.id and x.title = 'Reading: implementing SLOs');
+insert into job_program_items (module_id, title, item_type, content_url, content_text, order_index, is_published)
+select m.id, 'TechNova reliability glossary', 'TEXT', null, 'SLI - a direct measure of service behaviour (availability, latency, correctness).
+SLO - the target for an SLI over a rolling window.
+Error budget - 1 minus the SLO: how much unreliability is acceptable before feature work pauses in favour of reliability work.', 1, true
+from job_program_modules m join job_programs p on p.id = m.program_id
+join jobs j on j.id = p.job_id
+where j.industry_id = (select id from profiles where username = 'technova_demo') and j.title = 'Site Reliability Engineer' and m.title = 'Foundations of Reliability'
+and not exists (select 1 from job_program_items x where x.module_id = m.id and x.title = 'TechNova reliability glossary');
+insert into job_program_modules (program_id, title, description, order_index, is_published)
+select p.id, 'Incident Response and On-Call', 'The on-call rotation, paging, and blameless postmortems.', 1, true
+from job_programs p join jobs j on j.id = p.job_id
+where j.industry_id = (select id from profiles where username = 'technova_demo') and j.title = 'Site Reliability Engineer'
+and not exists (select 1 from job_program_modules x where x.program_id = p.id and x.title = 'Incident Response and On-Call');
+insert into job_program_items (module_id, title, item_type, content_url, content_text, order_index, is_published)
+select m.id, 'Reading: managing incidents', 'LINK', 'https://sre.google/sre-book/managing-incidents/', null, 0, true
+from job_program_modules m join job_programs p on p.id = m.program_id
+join jobs j on j.id = p.job_id
+where j.industry_id = (select id from profiles where username = 'technova_demo') and j.title = 'Site Reliability Engineer' and m.title = 'Incident Response and On-Call'
+and not exists (select 1 from job_program_items x where x.module_id = m.id and x.title = 'Reading: managing incidents');
+insert into job_program_items (module_id, title, item_type, content_url, content_text, order_index, is_published)
+select m.id, 'On-call first-week checklist', 'TEXT', null, '1. Confirm pager access and the escalation contacts for your service.
+2. Read the last five postmortems for your service.
+3. Shadow one on-call handover end to end.
+4. Know how to open an incident channel and declare a severity.', 1, true
+from job_program_modules m join job_programs p on p.id = m.program_id
+join jobs j on j.id = p.job_id
+where j.industry_id = (select id from profiles where username = 'technova_demo') and j.title = 'Site Reliability Engineer' and m.title = 'Incident Response and On-Call'
+and not exists (select 1 from job_program_items x where x.module_id = m.id and x.title = 'On-call first-week checklist');
+insert into job_program_skills (program_id, skill_id, requirement)
+select p.id, s.id, 'REQUIRED'
+from job_programs p join jobs j on j.id = p.job_id, skills s
+where j.industry_id = (select id from profiles where username = 'technova_demo') and j.title = 'Site Reliability Engineer' and s.name = 'Kubernetes'
+and not exists (select 1 from job_program_skills x where x.program_id = p.id and x.skill_id = s.id);
+insert into job_program_skills (program_id, skill_id, requirement)
+select p.id, s.id, 'REQUIRED'
+from job_programs p join jobs j on j.id = p.job_id, skills s
+where j.industry_id = (select id from profiles where username = 'technova_demo') and j.title = 'Site Reliability Engineer' and s.name = 'Linux'
+and not exists (select 1 from job_program_skills x where x.program_id = p.id and x.skill_id = s.id);
+insert into job_program_skills (program_id, skill_id, requirement)
+select p.id, s.id, 'OPTIONAL'
+from job_programs p join jobs j on j.id = p.job_id, skills s
+where j.industry_id = (select id from profiles where username = 'technova_demo') and j.title = 'Site Reliability Engineer' and s.name = 'Terraform'
+and not exists (select 1 from job_program_skills x where x.program_id = p.id and x.skill_id = s.id);
+
+-- job training enrollments (student access anchor; derived ids set by trigger)
+insert into job_training_enrollments (application_id)
+select a.id from applications a join jobs j on j.id = a.job_id
+where a.student_id = (select id from profiles where username = 'student_demo_1') and j.industry_id = (select id from profiles where username = 'technova_demo') and j.title = 'Site Reliability Engineer' and a.status = 'SELECTED'
+and not exists (select 1 from job_training_enrollments x where x.application_id = a.id);
 
 commit;

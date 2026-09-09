@@ -116,7 +116,12 @@ export function MentorshipDetailView({ mentorshipId }: { mentorshipId: string })
                 Starts {new Date(mentorship.start_date).toLocaleDateString()}
               </span>
             )}
-            {mentorship.application_deadline && (
+            {/* "Apply by" implies an action the student can take. Only
+                show it once portal mentorship requests actually exist
+                (requests_available). Until then it would be misleading, so
+                it is hidden -- the explanatory notice below covers the
+                "contact the organiser" path. */}
+            {mentorship.application_deadline && mentorship.requests_available && (
               <span className="flex items-center gap-1">
                 <CalendarDays className="size-3.5" aria-hidden="true" />
                 Apply by {new Date(mentorship.application_deadline).toLocaleDateString()}
@@ -143,9 +148,9 @@ export function MentorshipDetailView({ mentorshipId }: { mentorshipId: string })
         <div className="flex items-start gap-2 rounded-lg border border-border/60 bg-muted/40 px-3 py-2.5 text-sm text-muted-foreground">
           <Info className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
           <span>
-            Sending a mentorship request from the portal isn&apos;t available yet. Use the
-            application deadline and eligibility details above, and contact the organiser directly
-            if you&apos;d like to take part.
+            Sending a mentorship request from the portal isn&apos;t available yet. Review the
+            eligibility details above and contact the organiser directly if you&apos;d like to take
+            part.
           </span>
         </div>
       )}

@@ -161,6 +161,39 @@ def _shape(row: dict, opportunity_index: dict[str, dict] | None = None) -> dict:
     return row
 
 
+def _attach_applicant_names(client: Client, rows: list[dict]) -> list[dict]:
+    """Best-effort attach `student_name` to each interview row via the
+    public.application_applicant_names RPC (036) -- the same
+    ownership-scoped SECURITY DEFINER function application_service uses.
+    It is scoped to the exact ownership predicate of `applications`' own
+    RLS SELECT policy, so it can only ever name applicants for
+    applications the caller owns, and it returns the applicant's
+    `full_name` only -- never email / phone / avatar / anything else.
+
+    Never raises: a lookup failure just leaves `student_name` as None on
+    every row, so the scheduled-interview card falls back to the existing
+    "Applicant <ref>" placeholder exactly as before. Keyed on
+    `application_id` (each interview references exactly one application).
+    """
+    if not rows:
+        return rows
+    names: dict[str, str | None] = {}
+    try:
+        application_ids = list(
+            dict.fromkeys(row["application_id"] for row in rows if row.get("application_id"))
+        )
+        if application_ids:
+            response = client.rpc(
+                "application_applicant_names", {"application_ids": application_ids}
+            ).execute()
+            names = {r["application_id"]: r["student_name"] for r in (response.data or [])}
+    except Exception:  # noqa: BLE001 -- names are optional enrichment, never fatal
+        names = {}
+    for row in rows:
+        row["student_name"] = names.get(row.get("application_id"))
+    return rows
+
+
 def list_interviews(
     client: Client,
     industry_id: str,
@@ -182,7 +215,7 @@ def list_interviews(
     response = query.order("scheduled_at", desc=False).execute()
     rows = response.data or []
     index = _opportunity_index(client, industry_id, [row["application_id"] for row in rows])
-    return [_shape(row, index) for row in rows]
+    return _attach_applicant_names(client, [_shape(row, index) for row in rows])
 
 
 def get_interview(client: Client, industry_id: str, interview_id: str) -> dict | None:
@@ -202,7 +235,7 @@ def get_interview(client: Client, industry_id: str, interview_id: str) -> dict |
         return None
     row = dict(row)
     index = _opportunity_index(client, industry_id, [row["application_id"]])
-    return _shape(row, index)
+    return _attach_applicant_names(client, [_shape(row, index)])[0]
 
 
 def _live_interviews_for_conflict(

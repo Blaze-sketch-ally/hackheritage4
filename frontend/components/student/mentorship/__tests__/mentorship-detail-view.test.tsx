@@ -61,6 +61,24 @@ describe("MentorshipDetailView", () => {
     expect(screen.queryByRole("button", { name: /request mentorship/i })).not.toBeInTheDocument();
   });
 
+  it("does not show a misleading 'Apply by' deadline while requests are unavailable", async () => {
+    mocks.getMentorship.mockResolvedValueOnce(detail({ requests_available: false }));
+    render(<MentorshipDetailView mentorshipId="m-1" />);
+    await screen.findByText("Cloud-Native Engineering Mentorship");
+
+    expect(screen.queryByText(/apply by/i)).not.toBeInTheDocument();
+    // useful informational dates are kept
+    expect(screen.getByText(/starts/i)).toBeInTheDocument();
+  });
+
+  it("shows the 'Apply by' deadline once portal requests exist", async () => {
+    mocks.getMentorship.mockResolvedValueOnce(detail({ requests_available: true }));
+    render(<MentorshipDetailView mentorshipId="m-1" />);
+    await screen.findByText("Cloud-Native Engineering Mentorship");
+
+    expect(screen.getByText(/apply by/i)).toBeInTheDocument();
+  });
+
   it("shows a not-found state (no retry) on a 404", async () => {
     mocks.getMentorship.mockRejectedValueOnce(
       new ApiError(404, "This mentorship opportunity is not available."),

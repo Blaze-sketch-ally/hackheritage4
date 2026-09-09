@@ -28,6 +28,13 @@ from pydantic import BaseModel, ConfigDict, Field
 # Mirrors applications.opportunity_type / the INTERNSHIP-xor-JOB split.
 SourceType = Literal["INTERNSHIP", "JOB"]
 
+# Browse-list filter/sort inputs. `OpportunityWorkMode` mirrors the
+# `internships.work_mode` / `jobs.work_mode` CHECK (018/019); `OpportunitySort`
+# is a fixed whitelist -- the browse endpoint never accepts a raw
+# order-by column name. Both are validated by FastAPI (422 on a bad value).
+OpportunityWorkMode = Literal["ONSITE", "REMOTE", "HYBRID"]
+OpportunitySort = Literal["newest", "deadline"]
+
 # database/migrations/020_applications.sql -- applications.status CHECK.
 # The student frontend renders all seven; the values are never redefined.
 StudentApplicationStatus = Literal[
@@ -137,6 +144,29 @@ class StudentApplicationOpportunity(BaseModel):
     work_mode: str | None = None
 
 
+class StudentApplicationInterview(BaseModel):
+    """The student's own LIVE (SCHEDULED) interview for an application,
+    read through the public.student_interviews SECURITY DEFINER RPC
+    (database/migrations/054_student_interview_visibility.sql).
+
+    Only the student-safe columns are here: `interviews.notes` is
+    Industry-private preparation notes and has no path to this schema or
+    that RPC. Null on `StudentApplicationResponse.interview` when the
+    application has no live interview -- INTERVIEW_SCHEDULED can exist
+    without one (a manual status move, or a cancelled/completed
+    interview). Mode/status values mirror
+    database/migrations/030_industry_interviews.sql and
+    frontend/types/interview.ts."""
+
+    id: str
+    application_id: str
+    scheduled_at: str
+    duration_minutes: int
+    mode: str
+    location: str | None = None
+    status: str
+
+
 class StudentApplicationResponse(BaseModel):
     """A row from the existing `applications` table, student's own only.
     Same columns as the Industry response, minus nothing -- the student
@@ -154,6 +184,11 @@ class StudentApplicationResponse(BaseModel):
     created_at: str | None = None
     updated_at: str | None = None
     opportunity: StudentApplicationOpportunity | None = None
+    # The student's live interview, when one exists. Stitched on by
+    # student_opportunity_service via the public.student_interviews RPC --
+    # never a nested PostgREST embed. Null when the application has no
+    # SCHEDULED interview.
+    interview: StudentApplicationInterview | None = None
 
 
 class StudentApplicationListResponse(BaseModel):

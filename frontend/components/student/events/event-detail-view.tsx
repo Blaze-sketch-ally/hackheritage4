@@ -118,7 +118,12 @@ export function EventDetailView({ eventId }: { eventId: string }) {
                 {event.capacity} place{event.capacity === 1 ? "" : "s"}
               </span>
             )}
-            {event.application_deadline && (
+            {/* "Register by" implies an action the student can take. Only
+                show it once portal registration actually exists
+                (registration_available). Until then it would be
+                misleading, so it is hidden -- the explanatory notice
+                below covers the "contact the organiser" path. */}
+            {event.application_deadline && event.registration_available && (
               <span className="flex items-center gap-1">
                 <CalendarDays className="size-3.5" aria-hidden="true" />
                 Register by {new Date(event.application_deadline).toLocaleDateString()}
