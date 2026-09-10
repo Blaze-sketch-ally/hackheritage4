@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { AppHeader } from "@/components/layout/app-header";
 import { FacultySidebar } from "@/components/faculty/faculty-sidebar";
+import { NotificationBell } from "@/components/faculty/notifications/notification-bell";
 import { FacultyCapabilitiesProvider } from "@/lib/faculty/capabilities";
 import type { Profile } from "@/types/user";
 
@@ -43,6 +44,7 @@ export function FacultyShell({ profile, children }: { profile: Profile; children
             profileHref="/faculty/profile"
             settingsHref="/faculty/settings"
             searchPlaceholder="Search questions, assessments..."
+            notificationBell={<NotificationBell />}
           />
           <main className="min-w-0 flex-1 p-4 sm:p-6 lg:p-8">{children}</main>
         </div>

@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { BookOpen, Briefcase, Sparkles, TrendingUp } from "lucide-react";
+import { BookOpen, Briefcase, ClipboardList, Sparkles, TrendingUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ErrorState } from "@/components/common/error-state";
+import { AssessmentRecommendationCard } from "@/components/student/recommendations/assessment-recommendation-card";
 import { LearningRecommendationCard } from "@/components/student/recommendations/learning-recommendation-card";
 import { OpportunityRecommendationCard } from "@/components/student/recommendations/opportunity-recommendation-card";
 import { ApiError } from "@/lib/api";
@@ -76,6 +77,29 @@ export function RecommendationsView() {
           <TrendingUp className="size-3.5" /> View your Skill Gap
         </Button>
       </div>
+
+      <section aria-labelledby="rec-assessments-heading" className="flex flex-col gap-3">
+        <h2
+          id="rec-assessments-heading"
+          className="flex items-center gap-2 text-base font-semibold"
+        >
+          <ClipboardList className="size-4 text-muted-foreground" aria-hidden="true" />
+          Recommended assessments
+        </h2>
+        {data.assessments.length === 0 ? (
+          <EmptySection
+            message="No recommended assessments yet."
+            hint="Assessments mapped to your Skill Gap will show up here."
+            links={[{ href: "/student/assessment", label: "Browse assessments" }]}
+          />
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {data.assessments.map((item) => (
+              <AssessmentRecommendationCard key={item.id} item={item} />
+            ))}
+          </div>
+        )}
+      </section>
 
       <section aria-labelledby="rec-opportunities-heading" className="flex flex-col gap-3">
         <h2
@@ -161,7 +185,7 @@ function EmptySection({
 function RecommendationsSkeleton() {
   return (
     <div className="flex flex-col gap-6" aria-busy="true" aria-label="Loading recommendations">
-      {[0, 1].map((section) => (
+      {[0, 1, 2].map((section) => (
         <div key={section} className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {[0, 1, 2].map((i) => (
             <Card key={i} className="animate-pulse">

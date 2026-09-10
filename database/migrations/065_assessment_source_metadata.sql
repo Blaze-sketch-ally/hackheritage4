@@ -1,0 +1,73 @@
+-- Migration: 065_assessment_source_metadata
+-- Purpose: Phase 3E -- per the approved Phase 3E audit, adds one small,
+-- additive, NOT NULL/defaulted metadata column so QA/test-fixture
+-- assessments can be explicitly and permanently distinguished from real
+-- production assessments at the database level, rather than by a
+-- title-string convention (`__QA_<run_id>`, tests/integration/conftest.py)
+-- that is a debugging aid, not an isolation mechanism.
+--
+-- ============================================================
+-- WHY THIS EXISTS (see the Phase 3E audit report for the full writeup)
+-- ============================================================
+-- tests/integration/conftest.py's LiveFixtures.create_assessment()
+-- creates real rows in the real assessments table (is_active=true, no
+-- other flag) and relies on LiveFixtures.cleanup() -- ordinary pytest
+-- fixture teardown, run after the test function returns -- to delete
+-- them. That teardown is never reached if the test process is
+-- interrupted or crashes before returning (e.g. a live test hung waiting
+-- on an async AI-evaluation step). The audit found exactly this: 3
+-- active QA-titled assessments currently live in the real catalog,
+-- confirmed being served as real "Recommended Assessments" to real
+-- student accounts. Fixing LiveFixtures.cleanup() cannot fix "the
+-- process never got there" -- only an explicit, queryable, database-
+-- enforced distinction can make student-facing catalog discovery
+-- immune to an interrupted test run, regardless of why cleanup didn't
+-- happen.
+--
+-- ============================================================
+-- WHAT THIS DOES NOT DO
+-- ============================================================
+-- Does NOT touch assessment_attempts, assessment_questions, or any
+-- historical relationship -- a QA assessment (and any attempt against
+-- it) remains exactly as retrievable/deletable as before. Does NOT
+-- backfill the 3 currently-known residual QA rows to source = 'QA' --
+-- per the Phase 3E brief, an automatic title-pattern backfill inside a
+-- migration is exactly the "classify by title in code" approach this
+-- change exists to replace; a human reviewing the audit's named IDs and
+-- running an explicit, narrowly-scoped UPDATE (or simply deactivating
+-- them) is a separate, deliberate operational action, not a side effect
+-- of this schema change. See the Phase 3E implementation report for the
+-- exact manual SQL. Does NOT change RLS: the existing "Authenticated
+-- users can view active assessments" policy (004_assessments.sql) is
+-- unaffected -- source-based isolation is enforced by the application
+-- query filter in assessment_service.list_active_assessments(), exactly
+-- like this project's existing "is_active is RLS-enforced AND
+-- explicit-filtered again in the service layer, as defense in depth"
+-- pattern already used throughout that file. RLS was inspected and
+-- found to need no change: it already permits an authenticated reader to
+-- see any is_active=true row regardless of source, and always has --
+-- source narrows what the SERVICE layer chooses to return, not what RLS
+-- allows to be read, matching how is_active's own "defense in depth"
+-- explicit .eq() already works there.
+
+alter table assessments
+  add column if not exists source text not null default 'PRODUCTION'
+    check (source in ('PRODUCTION', 'QA'));
+
+-- Every existing row (all 15+ currently-active assessments, the 3 known
+-- residual QA rows included) is backfilled by the column default alone,
+-- with no separate UPDATE statement -- deliberately: this migration
+-- takes no position on which existing rows are QA vs. production by
+-- inspecting their titles, so every pre-existing row becomes
+-- 'PRODUCTION' here. The 3 known QA rows staying 'PRODUCTION' until a
+-- human explicitly reclassifies/removes them is the correct, honest
+-- behavior for THIS migration -- it only makes the distinction possible
+-- going forward, it does not retroactively guess it. See the Phase 3E
+-- implementation report for the exact manual reclassification/cleanup
+-- SQL for those 3 rows, to be reviewed and run separately by a human.
+
+-- No index change: assessments_active_skill_id_idx (004_assessments.sql)
+-- already narrows to is_active = true, and the table is small
+-- (catalog-sized, not per-student-sized) -- the existing index remains
+-- correct and sufficient for the new (is_active AND source) filter
+-- without adding a second moving part to this migration.

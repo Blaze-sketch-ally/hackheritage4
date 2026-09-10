@@ -15,10 +15,12 @@ from app.schemas.faculty_profile import (
     FacultyProfileUpdate,
     compute_completeness,
 )
+from app.schemas.faculty_recommendation import FacultyTasksResponse
 from app.services import (
     faculty_mentor_permission_service,
     faculty_permission_service,
     faculty_profile_service,
+    faculty_recommendation_service,
 )
 
 router = APIRouter(prefix="/faculty", tags=["faculty"])
@@ -80,6 +82,31 @@ def get_faculty_profile(
     if row is None:
         return FacultyProfileResponse(id=current_user.id, completeness=0.0)
     return FacultyProfileResponse(**row, completeness=compute_completeness(row))
+
+
+@router.get("/tasks", response_model=FacultyTasksResponse)
+def get_faculty_tasks(
+    current_user: CurrentUser = Depends(require_faculty),
+) -> FacultyTasksResponse:
+    """Deterministic, permission-aware "what needs my attention" surface:
+    pending question reviews (only if the caller holds assessment_reviewer),
+    pending evaluations (only if the caller holds assessment_evaluator),
+    and mentorships awaiting the caller's decision/activation. See
+    app.services.faculty_recommendation_service's own module docstring
+    for the full reuse/ranking rationale -- no new score is invented, no
+    LLM call is made, and every item is something the caller could
+    already see via the existing question bank / evaluation / mentorship
+    endpoints."""
+    try:
+        client = build_user_client(current_user.access_token)
+        capabilities = faculty_permission_service.get_effective_capabilities(client)
+        tasks = faculty_recommendation_service.get_faculty_tasks(client, current_user.id, capabilities)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not load your Faculty tasks.",
+        ) from exc
+    return FacultyTasksResponse(**tasks)
 
 
 @router.put("/profile", response_model=FacultyProfileResponse)

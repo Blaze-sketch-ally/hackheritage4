@@ -12,7 +12,7 @@ directly, matching the existing pattern in test_career_roles.py.
 """
 
 from decimal import Decimal
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 from app.services import (
@@ -197,6 +197,127 @@ def test_results_are_sorted_by_priority_then_skill_name():
     # skill-apple is a gap in both roles (HIGH), skill-zebra in only one (LOW-ish).
     assert result[0]["skill_id"] == "skill-apple"
     assert result[-1]["skill_id"] == "skill-zebra"
+
+
+def test_gap_entry_status_reflects_gap_alignment():
+    """Phase 3D: each recommendation carries the underlying AlignmentStatus
+    ('GAP' here, since the skill was assessed but scored below the
+    required level) as an additive 'status' field -- used downstream by
+    recommend_assessments to pick SKILL_GAP vs NOT_ASSESSED without
+    recomputing alignment."""
+    with (
+        patch.object(
+            career_role_service, "list_career_roles", return_value=[{"id": _ROLE_1}]
+        ),
+        patch.object(
+            career_role_service,
+            "get_career_role_requirements",
+            return_value=[_req("skill-gap", "Python", "80")],
+        ),
+        patch.object(
+            assessment_service,
+            "get_student_skill_scores",
+            return_value={"skill-gap": Decimal(40)},
+        ),
+    ):
+        result = skill_recommendation_service.get_aggregate_skill_gaps(None, "student-1")
+    assert len(result) == 1
+    assert result[0]["status"] == "GAP"
+
+
+def test_gap_entry_status_reflects_not_assessed_alignment():
+    """A skill the student has never been assessed for at all -> 'status'
+    is 'NOT_ASSESSED', not 'GAP'."""
+    with (
+        patch.object(
+            career_role_service, "list_career_roles", return_value=[{"id": _ROLE_1}]
+        ),
+        patch.object(
+            career_role_service,
+            "get_career_role_requirements",
+            return_value=[_req("skill-unassessed", "Docker", "50")],
+        ),
+        patch.object(assessment_service, "get_student_skill_scores", return_value={}),
+    ):
+        result = skill_recommendation_service.get_aggregate_skill_gaps(None, "student-1")
+    assert len(result) == 1
+    assert result[0]["status"] == "NOT_ASSESSED"
+
+
+def test_pending_evaluation_does_not_fabricate_a_strong_skill_from_raw_percentage():
+    """Phase 3D / Phase 3A integration regression: a COMPLETED attempt with
+    a fabricated-looking raw percentage=100 but evaluation_status=PENDING
+    must NOT make its skill look STRONG here -- get_aggregate_skill_gaps
+    (unmocked) calls the real, unmocked assessment_service.get_student_skill_scores,
+    so this proves the whole chain (which recommend_assessments and
+    recommend_learning both consume via `analysis`) still honors the
+    Phase 3A eligibility contract rather than reading raw percentage."""
+    mock_client = MagicMock()
+    response = MagicMock()
+    response.data = [
+        {
+            "percentage": "100.00",
+            "evaluation_status": "PENDING",
+            "final_percentage": None,
+            "assessment": {"skill_id": "skill-1"},
+        }
+    ]
+    (
+        mock_client.table.return_value.select.return_value.eq.return_value.eq.return_value.execute
+    ).return_value = response
+
+    with (
+        patch.object(
+            career_role_service, "list_career_roles", return_value=[{"id": _ROLE_1}]
+        ),
+        patch.object(
+            career_role_service,
+            "get_career_role_requirements",
+            return_value=[_req("skill-1", "Python", "80")],
+        ),
+    ):
+        result = skill_recommendation_service.get_aggregate_skill_gaps(mock_client, "student-1")
+
+    # The PENDING attempt contributes nothing, so skill-1 is NOT_ASSESSED
+    # (never STRONG, despite the raw 100% sitting unused in that row).
+    assert len(result) == 1
+    assert result[0]["skill_id"] == "skill-1"
+    assert result[0]["status"] == "NOT_ASSESSED"
+
+
+def test_finalized_evaluation_changes_the_gap_state_via_final_percentage():
+    """Once the same attempt's AI evaluation finalizes (COMPLETE,
+    final_percentage=63.64, below the 80 required level), the skill
+    becomes a GAP -- proving the pipeline reacts to the Phase 3A-corrected
+    final_percentage, not a stale/cached value."""
+    mock_client = MagicMock()
+    response = MagicMock()
+    response.data = [
+        {
+            "percentage": "100.00",
+            "evaluation_status": "COMPLETE",
+            "final_percentage": "63.64",
+            "assessment": {"skill_id": "skill-1"},
+        }
+    ]
+    (
+        mock_client.table.return_value.select.return_value.eq.return_value.eq.return_value.execute
+    ).return_value = response
+
+    with (
+        patch.object(
+            career_role_service, "list_career_roles", return_value=[{"id": _ROLE_1}]
+        ),
+        patch.object(
+            career_role_service,
+            "get_career_role_requirements",
+            return_value=[_req("skill-1", "Python", "80")],
+        ),
+    ):
+        result = skill_recommendation_service.get_aggregate_skill_gaps(mock_client, "student-1")
+
+    assert len(result) == 1
+    assert result[0]["status"] == "GAP"
 
 
 def test_never_writes_anything():

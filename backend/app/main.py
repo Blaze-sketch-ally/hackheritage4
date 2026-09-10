@@ -14,7 +14,9 @@ from app.api import (
     faculty_engagements,
     faculty_evaluations,
     faculty_mentorships,
+    faculty_notifications,
     faculty_opportunities,
+    faculty_reconciliation,
     industry,
     industry_collaborations,
     industry_faculty_opportunities,
@@ -61,6 +63,8 @@ app.include_router(faculty_opportunities.router, prefix="/api/v1")
 app.include_router(faculty_engagements.router, prefix="/api/v1")
 app.include_router(faculty_evaluations.router, prefix="/api/v1")
 app.include_router(faculty_mentorships.router, prefix="/api/v1")
+app.include_router(faculty_notifications.router, prefix="/api/v1")
+app.include_router(faculty_reconciliation.router, prefix="/api/v1")
 app.include_router(student_mentorships.router, prefix="/api/v1")
 app.include_router(student_mentorship_opportunities.router, prefix="/api/v1")
 app.include_router(admin_mentorships.router, prefix="/api/v1")

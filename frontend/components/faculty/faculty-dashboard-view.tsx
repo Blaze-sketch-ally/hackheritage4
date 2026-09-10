@@ -2,7 +2,18 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { AlertCircle, Briefcase, ClipboardCheck, Inbox, LayoutGrid, RefreshCw, User } from "lucide-react";
+import {
+  AlertCircle,
+  Briefcase,
+  ClipboardCheck,
+  Inbox,
+  LayoutGrid,
+  ListChecks,
+  RefreshCw,
+  ShieldAlert,
+  User,
+  Users,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,8 +28,10 @@ import {
 } from "@/lib/faculty/capabilities";
 import { getFacultyProfile } from "@/lib/faculty/profile";
 import { listFacultyOpportunities } from "@/lib/faculty/opportunities";
+import { getFacultyTasks } from "@/lib/faculty/tasks";
 import { getIncomingCollaborations } from "@/lib/industry/collaborations";
 import type { FacultyProfile } from "@/types/faculty-profile";
+import type { FacultyTasks } from "@/types/faculty-tasks";
 
 /** Phase 1 (Faculty Dashboard Architecture): this is now the Faculty
  * Connect dashboard -- the general-Faculty experience every FACULTY user
@@ -44,6 +57,7 @@ type LoadState =
       profile: FacultyProfile;
       opportunityCount: number;
       pendingApplicationCount: number;
+      tasks: FacultyTasks;
     };
 
 export function FacultyDashboardView() {
@@ -55,10 +69,11 @@ export function FacultyDashboardView() {
     let cancelled = false;
     async function load() {
       try {
-        const [profile, { opportunities }, { collaborations }] = await Promise.all([
+        const [profile, { opportunities }, { collaborations }, tasks] = await Promise.all([
           getFacultyProfile(),
           listFacultyOpportunities(),
           getIncomingCollaborations({ status: "SENT" }),
+          getFacultyTasks(),
         ]);
         if (cancelled) return;
         setState({
@@ -66,6 +81,7 @@ export function FacultyDashboardView() {
           profile,
           opportunityCount: opportunities.length,
           pendingApplicationCount: collaborations.length,
+          tasks,
         });
       } catch (err) {
         if (cancelled) return;
@@ -109,7 +125,7 @@ export function FacultyDashboardView() {
     );
   }
 
-  const { profile, opportunityCount, pendingApplicationCount } = state;
+  const { profile, opportunityCount, pendingApplicationCount, tasks } = state;
   const capabilities = capabilityState.status === "ready" ? capabilityState.capabilities : null;
   const showWorkspaceSwitcher =
     capabilities !== null && (hasQuestionStudioAccess(capabilities) || hasEvaluationWorkspaceAccess(capabilities));
@@ -119,6 +135,8 @@ export function FacultyDashboardView() {
       <ProfileSummaryCard profile={profile} />
 
       {showWorkspaceSwitcher && capabilities !== null && <WorkspaceSwitcherCard capabilities={capabilities} />}
+
+      <FacultyTasksCard tasks={tasks} />
 
       <div className="grid gap-4 sm:grid-cols-2">
         <StatCard
@@ -215,6 +233,82 @@ function WorkspaceSwitcherCard({ capabilities }: { capabilities: readonly Assess
             nativeButton={false}
           >
             <ClipboardCheck className="size-3.5" /> Evaluation Workspace
+          </Button>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Deterministic "what needs my attention" surface (GET /faculty/tasks) --
+ * no LLM call, no invented relevance score. Renders nothing at all when
+ * every category is empty, rather than an empty "0 pending" card that
+ * would just take up space for no reason. Each row links to the actual
+ * existing page that owns the action (Question Studio / Evaluation
+ * Workspace / Mentorship) -- this card never duplicates those pages'
+ * own functionality, only surfaces a ranked pointer into them. */
+function FacultyTasksCard({ tasks }: { tasks: FacultyTasks }) {
+  const { pending_reviews, pending_evaluations, mentorship_attention, pending_reconciliations } = tasks;
+  const total =
+    pending_reviews.length + pending_evaluations.length + mentorship_attention.length + pending_reconciliations.length;
+  if (total === 0) return null;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Needs Your Attention</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {pending_reviews.length > 0 && (
+          <Button
+            variant="outline"
+            className="w-full justify-start"
+            render={<Link href="/faculty/questions" />}
+            nativeButton={false}
+          >
+            <ListChecks /> Questions awaiting your review
+            <Badge variant="secondary" className="ml-auto">
+              {pending_reviews.length}
+            </Badge>
+          </Button>
+        )}
+        {pending_evaluations.length > 0 && (
+          <Button
+            variant="outline"
+            className="w-full justify-start"
+            render={<Link href="/faculty/evaluation-workspace" />}
+            nativeButton={false}
+          >
+            <ClipboardCheck /> Evaluations awaiting your marks
+            <Badge variant="secondary" className="ml-auto">
+              {pending_evaluations.length}
+            </Badge>
+          </Button>
+        )}
+        {mentorship_attention.length > 0 && (
+          <Button
+            variant="outline"
+            className="w-full justify-start"
+            render={<Link href="/faculty/mentorship" />}
+            nativeButton={false}
+          >
+            <Users /> Mentorships awaiting your action
+            <Badge variant="secondary" className="ml-auto">
+              {mentorship_attention.length}
+            </Badge>
+          </Button>
+        )}
+        {pending_reconciliations.length > 0 && (
+          <Button
+            variant="outline"
+            className="w-full justify-start"
+            render={<Link href="/faculty/reconciliation" />}
+            nativeButton={false}
+          >
+            <ShieldAlert /> Evaluations requiring reconciliation
+            <Badge variant="secondary" className="ml-auto">
+              {pending_reconciliations.length}
+            </Badge>
           </Button>
         )}
       </CardContent>

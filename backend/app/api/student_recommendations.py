@@ -24,6 +24,7 @@ from app.schemas.student_learning import (
     MatchedGapSkill,
 )
 from app.schemas.student_recommendation import (
+    RecommendedAssessment,
     RecommendedOpportunity,
     RecommendedTargetRole,
     StudentRecommendationsResponse,
@@ -51,7 +52,7 @@ def get_recommendations(
         default=student_recommendation_service.DEFAULT_LIMIT,
         ge=1,
         le=student_recommendation_service.MAX_LIMIT,
-        description="Max items per section (opportunities, learning).",
+        description="Max items per section (assessments, opportunities, learning).",
     ),
     current_user: CurrentUser = Depends(require_student),
 ) -> StudentRecommendationsResponse:
@@ -59,6 +60,9 @@ def get_recommendations(
     try:
         mode, job_role, analysis = student_recommendation_service.resolve_context(
             client, current_user.id
+        )
+        assessments = student_recommendation_service.recommend_assessments(
+            client, current_user.id, analysis, limit=limit
         )
         opportunities = student_recommendation_service.recommend_opportunities(
             client, current_user.id, limit=limit
@@ -79,6 +83,7 @@ def get_recommendations(
             if job_role
             else None
         ),
+        assessments=[RecommendedAssessment(**item) for item in assessments],
         opportunities=[RecommendedOpportunity(**item) for item in opportunities],
         learning=[
             LearningRecommendation(

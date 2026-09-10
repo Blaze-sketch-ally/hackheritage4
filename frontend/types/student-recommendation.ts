@@ -15,6 +15,20 @@ export interface RecommendedTargetRole {
   name: string;
 }
 
+export interface RecommendedAssessment {
+  id: string;
+  title: string;
+  skill_id: string;
+  skill_name: string;
+  difficulty: string;
+  duration_minutes: number | null;
+  /** Mirrors the underlying AlignmentStatus the Skill Gap entry came from. */
+  reason_type: "SKILL_GAP" | "NOT_ASSESSED";
+  /** The Skill Gap engine's own explanation string -- never hardcoded here. */
+  reason: string;
+  priority: "HIGH" | "MEDIUM" | "LOW";
+}
+
 export interface RecommendedOpportunity {
   type: "INTERNSHIP" | "JOB";
   /** Existing prefixed id: `internship_<uuid>` / `job_<uuid>`. */
@@ -37,6 +51,7 @@ export interface RecommendedOpportunity {
 export interface StudentRecommendationsResponse {
   mode: RecommendationMode;
   target_role: RecommendedTargetRole | null;
+  assessments: RecommendedAssessment[];
   opportunities: RecommendedOpportunity[];
   learning: LearningRecommendation[];
 }

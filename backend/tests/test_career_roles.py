@@ -322,6 +322,118 @@ def test_skill_scores_complete_with_null_final_percentage_safely_excluded():
 
 
 # ============================================================
+# get_completed_assessment_ids (Phase 3D, assessment_service.py)
+# ============================================================
+
+
+def _attempt_row(assessment_id: str, evaluation_status: str = "NOT_REQUIRED"):
+    return {"assessment_id": assessment_id, "evaluation_status": evaluation_status}
+
+
+def _mock_attempt_rows(mock_client, rows):
+    response = MagicMock()
+    response.data = rows
+    (
+        mock_client.table.return_value.select.return_value.eq.return_value.eq.return_value.execute
+    ).return_value = response
+
+
+def test_completed_assessment_ids_includes_not_required_eligible_attempt():
+    mock_client = MagicMock()
+    _mock_attempt_rows(mock_client, [_attempt_row("a-1", "NOT_REQUIRED")])
+
+    ids = assessment_service.get_completed_assessment_ids(mock_client, "student-1")
+
+    mock_client.table.assert_called_with("assessment_attempts")
+    assert ids == {"a-1"}
+
+
+def test_completed_assessment_ids_includes_complete_evaluation():
+    mock_client = MagicMock()
+    _mock_attempt_rows(mock_client, [_attempt_row("a-1", "COMPLETE")])
+
+    ids = assessment_service.get_completed_assessment_ids(mock_client, "student-1")
+
+    assert ids == {"a-1"}
+
+
+def test_completed_assessment_ids_excludes_pending_evaluation():
+    """A retake is still schema-legal, so an assessment whose only
+    attempt is still under AI evaluation must not be treated as
+    'already completed' -- it should remain recommendable."""
+    mock_client = MagicMock()
+    _mock_attempt_rows(mock_client, [_attempt_row("a-1", "PENDING")])
+
+    ids = assessment_service.get_completed_assessment_ids(mock_client, "student-1")
+
+    assert ids == set()
+
+
+def test_completed_assessment_ids_excludes_partial_evaluation():
+    mock_client = MagicMock()
+    _mock_attempt_rows(mock_client, [_attempt_row("a-1", "PARTIAL")])
+
+    ids = assessment_service.get_completed_assessment_ids(mock_client, "student-1")
+
+    assert ids == set()
+
+
+def test_completed_assessment_ids_excludes_needs_reconciliation():
+    mock_client = MagicMock()
+    _mock_attempt_rows(mock_client, [_attempt_row("a-1", "NEEDS_RECONCILIATION")])
+
+    ids = assessment_service.get_completed_assessment_ids(mock_client, "student-1")
+
+    assert ids == set()
+
+
+def test_completed_assessment_ids_excludes_unrecognized_or_null_status():
+    mock_client = MagicMock()
+    _mock_attempt_rows(mock_client, [_attempt_row("a-1", None)])
+
+    ids = assessment_service.get_completed_assessment_ids(mock_client, "student-1")
+
+    assert ids == set()
+
+
+def test_completed_assessment_ids_empty_when_no_completed_attempts():
+    mock_client = MagicMock()
+    _mock_attempt_rows(mock_client, [])
+
+    ids = assessment_service.get_completed_assessment_ids(mock_client, "student-1")
+
+    assert ids == set()
+
+
+def test_completed_assessment_ids_deduplicates_multiple_eligible_attempts():
+    """Multiple eligible COMPLETED attempts for the same assessment (a
+    retake that succeeded twice) still yield one id, not a duplicate."""
+    mock_client = MagicMock()
+    _mock_attempt_rows(
+        mock_client,
+        [_attempt_row("a-1", "NOT_REQUIRED"), _attempt_row("a-1", "COMPLETE")],
+    )
+
+    ids = assessment_service.get_completed_assessment_ids(mock_client, "student-1")
+
+    assert ids == {"a-1"}
+
+
+def test_completed_assessment_ids_only_filters_completed_status():
+    """The .eq('status', 'COMPLETED') filter itself is what keeps
+    IN_PROGRESS/ABANDONED attempts out -- verify it is actually applied,
+    matching the same defense-in-depth pattern as
+    test_skill_scores_only_from_completed_attempts."""
+    mock_client = MagicMock()
+    _mock_attempt_rows(mock_client, [_attempt_row("a-1", "NOT_REQUIRED")])
+
+    assessment_service.get_completed_assessment_ids(mock_client, "student-1")
+
+    status_filter_call = mock_client.table.return_value.select.return_value.eq.call_args_list[0]
+    assert status_filter_call.args == ("student_id", "student-1")
+
+
+# ============================================================
 # career_role_service
 # ============================================================
 

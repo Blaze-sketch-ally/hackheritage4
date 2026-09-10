@@ -49,7 +49,7 @@ from app.schemas.question_bank import (
     QuestionUpdateRequest,
     ReviewDecisionRequest,
 )
-from app.services import question_bank_service
+from app.services import faculty_notification_producer, question_bank_service
 
 router = APIRouter(prefix="/questions", tags=["questions"])
 
@@ -262,6 +262,12 @@ def _review(
         ) from exc
     if updated is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found.")
+    faculty_notification_producer.emit_review_decision(
+        author_id=updated["created_by"],
+        question_id=str(updated["id"]),
+        decision=decision,
+        updated_at=updated.get("updated_at"),
+    )
     row = question_bank_service.get_my_question(client, question_id)
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found.")

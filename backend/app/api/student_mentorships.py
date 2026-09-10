@@ -21,6 +21,7 @@ from app.schemas.faculty_student_mentorship import (
     FacultyStudentMentorshipResponse,
     UpdateMentorshipStatusRequest,
 )
+from app.services import faculty_notification_producer
 from app.services import faculty_student_mentorship_service as service
 
 router = APIRouter(prefix="/student/mentorships", tags=["student-mentorships"])
@@ -62,6 +63,9 @@ def request_mentorship(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except Exception as exc:
         raise _server_error("create this mentorship request") from exc
+    faculty_notification_producer.emit_mentorship_request(
+        faculty_id=row["faculty_id"], student_id=current_user.id, mentorship_id=row["id"]
+    )
     return FacultyStudentMentorshipResponse(**row)
 
 
@@ -97,4 +101,10 @@ def update_mentorship_status(
         raise _server_error("update this mentorship") from exc
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mentorship not found.")
+    faculty_notification_producer.emit_mentorship_status_change(
+        faculty_id=row["faculty_id"],
+        student_id=current_user.id,
+        mentorship_id=row["id"],
+        new_status=row["status"],
+    )
     return FacultyStudentMentorshipResponse(**row)

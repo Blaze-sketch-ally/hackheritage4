@@ -31,12 +31,18 @@ export function AppHeader({
   profileHref,
   settingsHref,
   searchPlaceholder = "Search...",
+  notificationBell,
 }: {
   profile: Profile;
   onMenuClick: () => void;
   profileHref: string;
   settingsHref: string;
   searchPlaceholder?: string;
+  /** A real, role-specific notification bell (e.g. Faculty's). Omit to
+   * keep the existing disabled placeholder unchanged -- Industry and
+   * Institution have no notification system yet, so they must not
+   * suddenly show a bell that does nothing real. */
+  notificationBell?: React.ReactNode;
 }) {
   const router = useRouter();
   const displayName = profile.full_name || profile.username || "User";
@@ -71,10 +77,12 @@ export function AppHeader({
       </div>
 
       <div className="flex flex-1 items-center justify-end gap-1.5 sm:flex-none">
-        <Button variant="ghost" size="icon" aria-label="Notifications" className="relative" disabled>
-          <Bell />
-          <span className="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-indigo-500" aria-hidden="true" />
-        </Button>
+        {notificationBell ?? (
+          <Button variant="ghost" size="icon" aria-label="Notifications" className="relative" disabled>
+            <Bell />
+            <span className="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-indigo-500" aria-hidden="true" />
+          </Button>
+        )}
 
         <DropdownMenu>
           <DropdownMenuTrigger className="flex items-center gap-2 rounded-lg py-1 pr-1.5 pl-1 hover:bg-muted focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50">

@@ -81,6 +81,15 @@ export function hasEvaluationWorkspaceAccess(capabilities: readonly AssessmentCa
   return hasAssessmentCapability(capabilities, "assessment_evaluator");
 }
 
+/** Faculty Assessment Governance audit: the read-only reconciliation
+ * visibility workspace (/faculty/reconciliation) is shown only to a
+ * caller who currently holds assessment_moderator -- assessment_lead
+ * grants nothing yet (Lead remains fully dormant, exactly as the
+ * backend/RLS already treat it; see that phase's audit report). */
+export function hasReconciliationAccess(capabilities: readonly AssessmentCapability[]): boolean {
+  return hasAssessmentCapability(capabilities, "assessment_moderator");
+}
+
 /** Single shared fetch of the caller's capabilities for the whole Faculty
  * section of the app (sidebar + whichever dashboard is on screen), so
  * navigating between Faculty Connect / Question Studio / Evaluation

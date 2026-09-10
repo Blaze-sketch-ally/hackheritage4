@@ -19,10 +19,31 @@ from postgrest.exceptions import APIError
 
 from app.main import app
 from app.schemas.faculty_permissions import AssessmentCapability
-from app.services import evaluation_service, faculty_permission_service
+from app.services import (
+    evaluation_service,
+    faculty_notification_producer,
+    faculty_permission_service,
+)
 from tests.conftest import authenticated_as
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def _mock_evaluator_assignment_notifications():
+    """create_assignment/revoke_assignment call
+    faculty_notification_producer.emit_evaluation_assigned/emit_evaluation_revoked
+    after a successful action. None of the tests in this file are about
+    notification behaviour -- that is tests/test_faculty_notifications.py's
+    job -- so both are mocked out file-wide here to avoid an unmocked
+    real Supabase call (matching the existing pattern in
+    tests/test_internship_completion.py for
+    app.services.notification_producer)."""
+    with (
+        patch.object(faculty_notification_producer, "emit_evaluation_assigned"),
+        patch.object(faculty_notification_producer, "emit_evaluation_revoked"),
+    ):
+        yield
 
 
 # ============================================================
@@ -164,6 +185,31 @@ def test_create_assignment_success():
     assert mock_create.call_args.args[-1] == "admin-1"
 
 
+def test_create_assignment_notifies_the_evaluator():
+    row = {
+        "id": str(uuid4()),
+        "evaluator_id": str(uuid4()),
+        "attempt_id": str(uuid4()),
+        "question_id": str(uuid4()),
+        "status": "ACTIVE",
+        "created_at": "2026-01-01T00:00:00Z",
+        "revoked_at": None,
+    }
+    with (
+        authenticated_as("ADMIN", user_id="admin-1"),
+        patch("app.api.admin_evaluator_assignments.get_supabase", return_value=MagicMock()),
+        patch.object(evaluation_service, "admin_create_assignment", return_value=row),
+        patch.object(faculty_notification_producer, "emit_evaluation_assigned") as mock_emit,
+    ):
+        response = client.post(
+            "/api/v1/admin/evaluator-assignments",
+            json={"evaluator_id": row["evaluator_id"], "attempt_id": row["attempt_id"], "question_id": row["question_id"]},
+            headers={"Authorization": "Bearer token"},
+        )
+    assert response.status_code == 201
+    mock_emit.assert_called_once_with(evaluator_id=row["evaluator_id"], assignment_id=row["id"])
+
+
 def test_create_assignment_returns_422_when_evaluator_ineligible():
     with (
         authenticated_as("ADMIN", user_id="admin-1"),
@@ -256,6 +302,30 @@ def test_revoke_assignment_success():
     assert response.status_code == 200
     assert response.json()["status"] == "REVOKED"
     assert mock_revoke.call_args.args[-1] == "admin-1"
+
+
+def test_revoke_assignment_notifies_the_evaluator():
+    row = {
+        "id": str(uuid4()),
+        "evaluator_id": str(uuid4()),
+        "attempt_id": str(uuid4()),
+        "question_id": str(uuid4()),
+        "status": "REVOKED",
+        "created_at": "2026-01-01T00:00:00Z",
+        "revoked_at": "2026-01-02T00:00:00Z",
+    }
+    with (
+        authenticated_as("ADMIN", user_id="admin-1"),
+        patch("app.api.admin_evaluator_assignments.get_supabase", return_value=MagicMock()),
+        patch.object(evaluation_service, "admin_revoke_assignment", return_value=row),
+        patch.object(faculty_notification_producer, "emit_evaluation_revoked") as mock_emit,
+    ):
+        response = client.post(
+            f"/api/v1/admin/evaluator-assignments/{row['id']}/revoke",
+            headers={"Authorization": "Bearer token"},
+        )
+    assert response.status_code == 200
+    mock_emit.assert_called_once_with(evaluator_id=row["evaluator_id"], assignment_id=row["id"])
 
 
 def test_revoke_assignment_returns_404_when_not_found():

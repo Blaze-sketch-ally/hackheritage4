@@ -130,6 +130,15 @@ class LiveFixtures:
                 "title": f"__QA_{self.run_id}{title_suffix}",
                 "difficulty": "Beginner",
                 "is_active": True,
+                # Phase 3E (065_assessment_source_metadata.sql): the
+                # database-enforced isolation mechanism -- not the
+                # '__QA_' title, which remains only a human-debugging
+                # convention. assessment_service.list_active_assessments()
+                # filters source = 'PRODUCTION', so this fixture is
+                # invisible to student-facing discovery even if this
+                # test's cleanup() is never reached (e.g. the process is
+                # interrupted before teardown runs).
+                "source": "QA",
             }
         ).execute().data[0]
         self.assessment_ids.append(row["id"])

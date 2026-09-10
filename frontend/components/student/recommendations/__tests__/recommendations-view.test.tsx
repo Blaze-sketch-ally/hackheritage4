@@ -9,10 +9,26 @@ vi.mock("@/lib/student/recommendations", () => ({ getRecommendations: mocks.getR
 import { RecommendationsView } from "@/components/student/recommendations/recommendations-view";
 import { ApiError } from "@/lib/api";
 import type {
+  RecommendedAssessment,
   RecommendedOpportunity,
   StudentRecommendationsResponse,
 } from "@/types/student-recommendation";
 import type { LearningRecommendation } from "@/types/student-learning";
+
+function assessment(overrides: Partial<RecommendedAssessment> = {}): RecommendedAssessment {
+  return {
+    id: "22222222-2222-2222-2222-222222222222",
+    title: "Python Fundamentals",
+    skill_id: "s1",
+    skill_name: "Python",
+    difficulty: "Beginner",
+    duration_minutes: 30,
+    reason_type: "NOT_ASSESSED",
+    reason: "You have not demonstrated this skill yet.",
+    priority: "HIGH",
+    ...overrides,
+  };
+}
 
 function opp(overrides: Partial<RecommendedOpportunity> = {}): RecommendedOpportunity {
   return {
@@ -58,6 +74,7 @@ function response(overrides: Partial<StudentRecommendationsResponse> = {}): Stud
   return {
     mode: "AGGREGATE",
     target_role: null,
+    assessments: [],
     opportunities: [],
     learning: [],
     ...overrides,
@@ -71,6 +88,37 @@ describe("RecommendationsView", () => {
     mocks.getRecommendations.mockReturnValue(new Promise(() => {}));
     render(<RecommendationsView />);
     expect(screen.getByLabelText("Loading recommendations")).toBeInTheDocument();
+  });
+
+  it("renders assessment recommendations with skill, priority, and reason", async () => {
+    mocks.getRecommendations.mockResolvedValueOnce(
+      response({ assessments: [assessment()] }),
+    );
+    render(<RecommendationsView />);
+
+    expect(await screen.findByText("Python Fundamentals")).toBeInTheDocument();
+    expect(screen.getByText("Python")).toBeInTheDocument();
+    expect(screen.getByText("Not yet assessed")).toBeInTheDocument();
+    expect(screen.getByText(/You have not demonstrated this skill yet\./i)).toBeInTheDocument();
+  });
+
+  it("links assessment cards to the canonical /student/assessment/[id] route", async () => {
+    mocks.getRecommendations.mockResolvedValueOnce(
+      response({ assessments: [assessment()] }),
+    );
+    const { container } = render(<RecommendationsView />);
+    await screen.findByText("Python Fundamentals");
+    expect(
+      container.querySelector(
+        'a[href="/student/assessment/22222222-2222-2222-2222-222222222222"]',
+      ),
+    ).not.toBeNull();
+  });
+
+  it("shows a truthful empty state for assessments", async () => {
+    mocks.getRecommendations.mockResolvedValueOnce(response());
+    render(<RecommendationsView />);
+    expect(await screen.findByText("No recommended assessments yet.")).toBeInTheDocument();
   });
 
   it("renders opportunity recommendations with a truthful skill-count explanation", async () => {
@@ -96,7 +144,8 @@ describe("RecommendationsView", () => {
   it("shows separate truthful empty states per section", async () => {
     mocks.getRecommendations.mockResolvedValueOnce(response());
     render(<RecommendationsView />);
-    expect(await screen.findByText("No recommended opportunities yet.")).toBeInTheDocument();
+    expect(await screen.findByText("No recommended assessments yet.")).toBeInTheDocument();
+    expect(screen.getByText("No recommended opportunities yet.")).toBeInTheDocument();
     expect(screen.getByText("No recommended learning resources yet.")).toBeInTheDocument();
   });
 

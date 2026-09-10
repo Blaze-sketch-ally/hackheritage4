@@ -23,6 +23,8 @@ _BUILD_USER_CLIENT_MODULES = (
     "app.api.faculty_engagements",
     "app.api.faculty_evaluations",
     "app.api.faculty_mentorships",
+    "app.api.faculty_notifications",
+    "app.api.faculty_reconciliation",
     "app.api.student_mentorships",
     "app.api.student_mentorship_opportunities",
     "app.api.admin_mentorships",

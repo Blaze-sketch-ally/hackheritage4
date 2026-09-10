@@ -1,4 +1,5 @@
-"""Aggregate Student opportunity + learning recommendations (Phase S7).
+"""Aggregate Student assessment + opportunity + learning recommendations
+(Phase S7, assessments added in Phase 3D).
 
 Adopted from a collaborator branch during a cross-branch integration pass
 and adapted: the source branch's `resolve_context` dispatched on its own
@@ -9,31 +10,42 @@ app.services.skill_recommendation_service's own docstring), so
 module's `get_aggregate_skill_gaps` instead -- identical adaptation to
 app.api.student_learning's GET /student/learning/recommended.
 
-A thin ADAPTER/COMPOSER over three canonical, UNCHANGED-here sources. It
+A thin ADAPTER/COMPOSER over four canonical, UNCHANGED-here sources. It
 recomputes no gap, invents no score, and writes nothing:
 
   1. app.services.skill_recommendation_service
      -- the ONE source of the student's aggregate skill-gap context (see
         above). `resolve_context` below is the only place this module
-        touches it.
+        touches it; `recommend_assessments` and `recommend_learning` both
+        consume its output via `analysis`, not a second computation.
 
-  2. app.services.student_opportunity_service (+ app.services.match_service)
+  2. app.services.assessment_service
+     -- `list_active_assessments` for the assessment catalog and
+        `get_completed_assessment_ids` (Phase 3D, same NOT_REQUIRED/
+        COMPLETE eligibility contract as `get_student_skill_scores`) to
+        avoid recommending an assessment the student already has
+        trustworthy evidence for. No skill score is read directly here --
+        `get_student_skill_scores` is only ever reached transitively, via
+        skill_recommendation_service.
+
+  3. app.services.student_opportunity_service (+ app.services.match_service)
      -- `list_opportunities` for the published internship/job set;
         `compute_opportunity_match` (which is the canonical deterministic
         `match_service.compute_match` scorer) for each one's skill match.
         No new matching algorithm is written here.
 
-  3. app.services.learning_recommendation_service
+  4. app.services.learning_recommendation_service
      -- `get_recommended_resources` reused verbatim: the canonical Skill
         Gap -> learning_resource_skills -> learning_resources mapping.
 
-Dependency direction is one-way (this module imports the three services;
+Dependency direction is one-way (this module imports the four services;
 none imports it), so no cycle is possible.
 """
 
 from supabase import Client
 
 from app.services import (
+    assessment_service,
     learning_recommendation_service,
     skill_recommendation_service,
     student_opportunity_service,
@@ -41,9 +53,16 @@ from app.services import (
 
 # Safe bounded page sizes -- a recommendation surface never needs more,
 # and this stops a client asking for an unbounded scan. Applied per
-# section (opportunities and learning each capped independently).
+# section (assessments, opportunities, and learning each capped
+# independently).
 DEFAULT_LIMIT = 6
 MAX_LIMIT = 20
+
+# Same 3-tier ranking convention as skill_recommendation_service's own
+# _PRIORITY_RANK -- duplicated here (not imported) because it is a plain
+# display-ordering constant, not gap-computation logic; this module must
+# still never recompute alignment or skill-gap priority itself.
+_PRIORITY_RANK = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}
 
 
 def clamp_limit(limit: int | None) -> int:
@@ -70,6 +89,84 @@ def resolve_context(client: Client, student_id: str) -> tuple[str, dict | None, 
     student_skills."""
     gap_skills = skill_recommendation_service.get_aggregate_skill_gaps(client, student_id)
     return "AGGREGATE", None, {"recommendations": gap_skills}
+
+
+def _duration_sort_key(duration_minutes: int | None) -> tuple[int, int]:
+    """Deterministic total order for a nullable duration: every known
+    duration sorts before every null one (so a quicker path to closing a
+    high-priority gap is preferred when priority ties), and nulls among
+    themselves compare equal -- never left to Python/DB-dependent None
+    comparison behavior."""
+    if duration_minutes is None:
+        return (1, 0)
+    return (0, duration_minutes)
+
+
+def recommend_assessments(
+    client: Client, student_id: str, analysis: dict, *, limit: int | None = None
+) -> list[dict]:
+    """Active assessments that would give the student fresh evidence for a
+    skill the aggregate Skill Gap already flagged as GAP or NOT_ASSESSED.
+
+    Reuses `analysis["recommendations"]` (skill_recommendation_service's
+    own output, computed once per request by resolve_context) verbatim --
+    this function recomputes no alignment and invents no second skill-gap
+    engine. It also invents no numeric match/recommendation score: ranking
+    is priority, then duration, then title, exactly like the gap list
+    itself.
+
+    An assessment is excluded once the student already has an ELIGIBLE
+    completed attempt for it (assessment_service.get_completed_assessment_ids
+    -- the same NOT_REQUIRED/COMPLETE eligibility contract as
+    get_student_skill_scores). A retake is schema-legal, so an assessment
+    whose only attempt(s) are PENDING/PARTIAL/NEEDS_RECONCILIATION is still
+    offered -- the student has not yet produced trustworthy evidence for
+    that skill.
+    """
+    cap = clamp_limit(limit)
+    gap_skills = analysis.get("recommendations", [])
+    if not gap_skills:
+        return []
+
+    assessments_by_skill: dict[str, list[dict]] = {}
+    for assessment in assessment_service.list_active_assessments(client):
+        assessments_by_skill.setdefault(assessment["skill_id"], []).append(assessment)
+
+    completed_ids = assessment_service.get_completed_assessment_ids(client, student_id)
+
+    items: list[dict] = []
+    for gap in gap_skills:
+        skill_id = gap["skill_id"]
+        for assessment in assessments_by_skill.get(skill_id, []):
+            if assessment["id"] in completed_ids:
+                # Already has trustworthy evidence for this exact assessment.
+                continue
+            items.append(
+                {
+                    "id": assessment["id"],
+                    "title": assessment["title"],
+                    "skill_id": skill_id,
+                    "skill_name": gap.get("skill_name", ""),
+                    "difficulty": assessment["difficulty"],
+                    "duration_minutes": assessment.get("duration_minutes"),
+                    "reason_type": (
+                        "SKILL_GAP" if gap.get("status") == "GAP" else "NOT_ASSESSED"
+                    ),
+                    "reason": gap.get("reason", ""),
+                    "priority": gap.get("priority", "LOW"),
+                    "_duration_sort": _duration_sort_key(assessment.get("duration_minutes")),
+                }
+            )
+
+    # Reverse precedence order (stable sorts): title, then duration, then
+    # priority last -- priority is the primary key.
+    items.sort(key=lambda it: (it["title"] or "").lower())
+    items.sort(key=lambda it: it["_duration_sort"])
+    items.sort(key=lambda it: _PRIORITY_RANK[it["priority"]])
+
+    for it in items:
+        it.pop("_duration_sort", None)
+    return items[:cap]
 
 
 def recommend_opportunities(client: Client, student_id: str, *, limit: int | None = None) -> list[dict]:

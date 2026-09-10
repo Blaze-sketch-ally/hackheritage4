@@ -26,6 +26,7 @@ describe("FacultySidebar", () => {
       ["Opportunities", "/faculty/opportunities"],
       ["Applications", "/faculty/applications"],
       ["Mentorship", "/faculty/mentorship"],
+      ["Notifications", "/faculty/notifications"],
       ["Profile", "/faculty/profile"],
       ["Settings", "/faculty/settings"],
     ] as const) {
@@ -130,5 +131,33 @@ describe("FacultySidebar", () => {
 
     expect(screen.queryByText("Question Studio")).not.toBeInTheDocument();
     expect(screen.queryByText("Evaluation Workspace")).not.toBeInTheDocument();
+  });
+
+  it("shows Reconciliation for a Faculty member holding assessment_moderator", () => {
+    useFacultyCapabilitiesContext.mockReturnValue({
+      status: "ready",
+      capabilities: ["assessment_moderator"],
+    });
+    render(<FacultySidebar />);
+
+    expect(screen.getByText("Reconciliation")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Cases" })).toHaveAttribute("href", "/faculty/reconciliation");
+  });
+
+  it("does not grant Reconciliation access from assessment_lead alone", () => {
+    useFacultyCapabilitiesContext.mockReturnValue({
+      status: "ready",
+      capabilities: ["assessment_lead"],
+    });
+    render(<FacultySidebar />);
+
+    expect(screen.queryByText("Reconciliation")).not.toBeInTheDocument();
+  });
+
+  it("shows no Reconciliation link for plain Faculty with no capability", () => {
+    useFacultyCapabilitiesContext.mockReturnValue({ status: "ready", capabilities: [] });
+    render(<FacultySidebar />);
+
+    expect(screen.queryByText("Reconciliation")).not.toBeInTheDocument();
   });
 });

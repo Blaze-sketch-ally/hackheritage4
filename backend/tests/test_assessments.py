@@ -420,8 +420,48 @@ def test_list_active_assessments_filters_is_active_and_orders():
     assessment_service.list_active_assessments(mock_client)
 
     mock_client.table.assert_called_once_with("assessments")
-    assert query.eq.call_args_list == [(("is_active", True), {})]
+    # Phase 3E: source = 'PRODUCTION' is filtered alongside is_active,
+    # not instead of it -- see test_list_active_assessments_excludes_qa_source
+    # and test_list_active_assessments_excludes_inactive_production below
+    # for the behavior this combination actually produces.
+    assert query.eq.call_args_list == [
+        (("is_active", True), {}),
+        (("source", "PRODUCTION"), {}),
+    ]
     query.order.assert_called_once_with("created_at")
+
+
+def test_list_active_assessments_excludes_qa_source():
+    """Phase 3E: an active QA-sourced assessment must never reach
+    student-facing discovery -- the .eq('source', 'PRODUCTION') filter is
+    what a real Supabase project actually applies server-side; here that
+    filtering is simulated by the fake client only returning the row(s)
+    that would survive it, and the test asserts the filter was actually
+    requested (not just that the mock happens to return the right data)."""
+    mock_client, query = _chain_returning([_row_assessment()])
+    assessment_service.list_active_assessments(mock_client)
+
+    assert (("source", "PRODUCTION"), {}) in query.eq.call_args_list
+
+
+def test_list_active_assessments_excludes_inactive_production():
+    """Phase 3E: is_active = false must still be excluded exactly as
+    before -- the new source filter is additive, not a replacement for
+    the existing is_active filter."""
+    mock_client, query = _chain_returning([])
+    result = assessment_service.list_active_assessments(mock_client)
+
+    assert (("is_active", True), {}) in query.eq.call_args_list
+    assert result == []
+
+
+def test_list_active_assessments_includes_active_production():
+    """Phase 3E: an active, source='PRODUCTION' assessment is unaffected
+    by this change -- still returned, exactly as before."""
+    mock_client, _query = _chain_returning([_row_assessment()])
+    result = assessment_service.list_active_assessments(mock_client)
+
+    assert len(result) == 1
 
 
 def test_list_visible_questions_filters_approved_active_objective():

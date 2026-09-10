@@ -56,6 +56,22 @@ def _opp(**overrides):
     return row
 
 
+def _assessment(**overrides):
+    row = {
+        "id": "a-1",
+        "title": "Python Fundamentals",
+        "skill_id": "s1",
+        "skill_name": "Python",
+        "difficulty": "Beginner",
+        "duration_minutes": 30,
+        "reason_type": "NOT_ASSESSED",
+        "reason": "You have not demonstrated this skill yet.",
+        "priority": "HIGH",
+    }
+    row.update(overrides)
+    return row
+
+
 def _learning_entry(**overrides):
     entry = {
         "resource": {
@@ -99,24 +115,29 @@ def test_forbids_non_student_roles():
 # ============================================================
 
 
-def _patched(*, mode="AGGREGATE", job_role=None, opportunities=None, learning=None):
+def _patched(*, mode="AGGREGATE", job_role=None, assessments=None, opportunities=None, learning=None):
     return (
         patch.object(svc, "resolve_context", return_value=(mode, job_role, {"recommendations": []})),
+        patch.object(svc, "recommend_assessments", return_value=assessments or []),
         patch.object(svc, "recommend_opportunities", return_value=opportunities or []),
         patch.object(svc, "recommend_learning", return_value=learning or []),
     )
 
 
-def test_returns_grouped_opportunities_and_learning():
-    ctx, opps, learn = _patched(
+def test_returns_grouped_assessments_opportunities_and_learning():
+    ctx, assess, opps, learn = _patched(
+        assessments=[_assessment()],
         opportunities=[_opp(), _opp(id="job_22222222-2222-2222-2222-222222222222", type="JOB", title="Platform Engineer")],
         learning=[_learning_entry()],
     )
-    with authenticated_as("STUDENT", user_id="s-1"), ctx, opps, learn:
+    with authenticated_as("STUDENT", user_id="s-1"), ctx, assess, opps, learn:
         resp = client.get(_URL, headers={"Authorization": "Bearer token"})
     assert resp.status_code == 200
     body = resp.json()
     assert body["mode"] == "AGGREGATE"
+    assert body["assessments"][0]["title"] == "Python Fundamentals"
+    assert body["assessments"][0]["reason_type"] == "NOT_ASSESSED"
+    assert body["assessments"][0]["priority"] == "HIGH"
     assert [o["type"] for o in body["opportunities"]] == ["INTERNSHIP", "JOB"]
     assert body["opportunities"][0]["match_band"] == "GOOD"
     assert body["opportunities"][0]["matched_skill_count"] == 3
@@ -130,8 +151,8 @@ def test_returns_grouped_opportunities_and_learning():
 def test_aggregate_mode_always_has_a_null_target_role():
     """This project has no persisted target-role concept -- target_role
     is always null, mode is always AGGREGATE."""
-    ctx, opps, learn = _patched()
-    with authenticated_as("STUDENT"), ctx, opps, learn:
+    ctx, assess, opps, learn = _patched()
+    with authenticated_as("STUDENT"), ctx, assess, opps, learn:
         resp = client.get(_URL, headers={"Authorization": "Bearer token"})
     assert resp.status_code == 200
     body = resp.json()
@@ -140,21 +161,54 @@ def test_aggregate_mode_always_has_a_null_target_role():
 
 
 def test_completely_empty_is_honest_not_fabricated():
-    ctx, opps, learn = _patched()
-    with authenticated_as("STUDENT"), ctx, opps, learn:
+    ctx, assess, opps, learn = _patched()
+    with authenticated_as("STUDENT"), ctx, assess, opps, learn:
         resp = client.get(_URL, headers={"Authorization": "Bearer token"})
     body = resp.json()
+    assert body["assessments"] == []
     assert body["opportunities"] == []
     assert body["learning"] == []
 
 
 def test_response_never_exposes_a_probability_or_percentage_field():
-    ctx, opps, learn = _patched(opportunities=[_opp()])
-    with authenticated_as("STUDENT"), ctx, opps, learn:
+    ctx, assess, opps, learn = _patched(opportunities=[_opp()])
+    with authenticated_as("STUDENT"), ctx, assess, opps, learn:
         resp = client.get(_URL, headers={"Authorization": "Bearer token"})
     text = resp.text.lower()
     for banned in ("probability", "confidence", "success_rate", "hiring", "percent", "ai_score"):
         assert banned not in text, banned
+
+
+def test_unexpected_assessment_recommendation_error_returns_500_not_a_crash():
+    """An unexpected failure inside recommend_assessments must not surface
+    a raw traceback, and must not prevent the route from responding at all
+    -- same generic 500-wrapping behavior the route already applies to
+    resolve_context/recommend_opportunities/recommend_learning failures."""
+    with (
+        authenticated_as("STUDENT"),
+        patch.object(svc, "resolve_context", return_value=("AGGREGATE", None, {"recommendations": []})),
+        patch.object(svc, "recommend_assessments", side_effect=RuntimeError("boom")),
+        patch.object(svc, "recommend_opportunities", return_value=[]),
+        patch.object(svc, "recommend_learning", return_value=[]),
+    ):
+        resp = client.get(_URL, headers={"Authorization": "Bearer token"})
+    assert resp.status_code == 500
+    assert "boom" not in resp.text
+
+
+def test_empty_assessment_category_does_not_affect_other_categories():
+    ctx, assess, opps, learn = _patched(
+        assessments=[],
+        opportunities=[_opp()],
+        learning=[_learning_entry()],
+    )
+    with authenticated_as("STUDENT"), ctx, assess, opps, learn:
+        resp = client.get(_URL, headers={"Authorization": "Bearer token"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["assessments"] == []
+    assert len(body["opportunities"]) == 1
+    assert len(body["learning"]) == 1
 
 
 def test_limit_is_bounded():
@@ -163,8 +217,12 @@ def test_limit_is_bounded():
         assert client.get(f"{_URL}?limit=21", headers={"Authorization": "Bearer token"}).status_code == 422
 
 
-def test_limit_is_passed_through_to_both_sections():
+def test_limit_is_passed_through_to_all_sections():
     captured = {}
+
+    def fake_assess(_c, _sid, _analysis, *, limit):
+        captured["assess"] = limit
+        return []
 
     def fake_opps(_c, _sid, *, limit):
         captured["opps"] = limit
@@ -177,12 +235,13 @@ def test_limit_is_passed_through_to_both_sections():
     with (
         authenticated_as("STUDENT"),
         patch.object(svc, "resolve_context", return_value=("AGGREGATE", None, {"recommendations": []})),
+        patch.object(svc, "recommend_assessments", side_effect=fake_assess),
         patch.object(svc, "recommend_opportunities", side_effect=fake_opps),
         patch.object(svc, "recommend_learning", side_effect=fake_learn),
     ):
         resp = client.get(f"{_URL}?limit=10", headers={"Authorization": "Bearer token"})
     assert resp.status_code == 200
-    assert captured == {"opps": 10, "learn": 10}
+    assert captured == {"assess": 10, "opps": 10, "learn": 10}
 
 
 # ============================================================
@@ -200,6 +259,7 @@ def test_context_is_resolved_from_current_user_id_only():
     with (
         authenticated_as("STUDENT", user_id="the-caller"),
         patch.object(svc, "resolve_context", side_effect=fake_ctx),
+        patch.object(svc, "recommend_assessments", return_value=[]),
         patch.object(svc, "recommend_opportunities", return_value=[]),
         patch.object(svc, "recommend_learning", return_value=[]),
     ):
@@ -343,6 +403,245 @@ def test_recommend_learning_reuses_canonical_service_verbatim():
     assert len(out) == 1
 
 
+def _catalog(**overrides):
+    row = {
+        "id": "a-1",
+        "skill_id": "s1",
+        "title": "Python Basics",
+        "difficulty": "Beginner",
+        "duration_minutes": 20,
+        "is_active": True,
+    }
+    row.update(overrides)
+    return row
+
+
+def _gap(**overrides):
+    row = {
+        "skill_id": "s1",
+        "skill_name": "Python",
+        "priority": "HIGH",
+        "reason": "A skill gap in 3 of 6 career roles in the catalog.",
+        "status": "NOT_ASSESSED",
+    }
+    row.update(overrides)
+    return row
+
+
+# ============================================================
+# 27-41. recommend_assessments (Phase 3D)
+# ============================================================
+
+
+def test_recommend_assessments_not_assessed_gap_is_recommended():
+    from app.services import assessment_service as a_svc
+
+    analysis = {"recommendations": [_gap(status="NOT_ASSESSED")]}
+    with (
+        patch.object(a_svc, "list_active_assessments", return_value=[_catalog()]),
+        patch.object(a_svc, "get_completed_assessment_ids", return_value=set()),
+    ):
+        result = svc.recommend_assessments(object(), "s-1", analysis)
+    assert len(result) == 1
+    assert result[0]["id"] == "a-1"
+    assert result[0]["reason_type"] == "NOT_ASSESSED"
+
+
+def test_recommend_assessments_gap_status_maps_to_skill_gap_reason_type():
+    from app.services import assessment_service as a_svc
+
+    analysis = {"recommendations": [_gap(status="GAP")]}
+    with (
+        patch.object(a_svc, "list_active_assessments", return_value=[_catalog()]),
+        patch.object(a_svc, "get_completed_assessment_ids", return_value=set()),
+    ):
+        result = svc.recommend_assessments(object(), "s-1", analysis)
+    assert result[0]["reason_type"] == "SKILL_GAP"
+
+
+def test_recommend_assessments_preserves_gap_reason_and_priority():
+    from app.services import assessment_service as a_svc
+
+    analysis = {"recommendations": [_gap(reason="Custom reason text.", priority="MEDIUM")]}
+    with (
+        patch.object(a_svc, "list_active_assessments", return_value=[_catalog()]),
+        patch.object(a_svc, "get_completed_assessment_ids", return_value=set()),
+    ):
+        result = svc.recommend_assessments(object(), "s-1", analysis)
+    assert result[0]["reason"] == "Custom reason text."
+    assert result[0]["priority"] == "MEDIUM"
+
+
+def test_recommend_assessments_excludes_eligible_completed_attempt():
+    """Test 5/6: whether the eligible attempt was NOT_REQUIRED or a
+    finalized AI evaluation (COMPLETE), get_completed_assessment_ids
+    already folded that into the returned set -- this function only needs
+    to honor the exclusion, not re-derive it."""
+    from app.services import assessment_service as a_svc
+
+    analysis = {"recommendations": [_gap()]}
+    with (
+        patch.object(a_svc, "list_active_assessments", return_value=[_catalog()]),
+        patch.object(a_svc, "get_completed_assessment_ids", return_value={"a-1"}),
+    ):
+        result = svc.recommend_assessments(object(), "s-1", analysis)
+    assert result == []
+
+
+def test_recommend_assessments_pending_partial_reconciliation_remain_eligible():
+    """Test 7/8/9: an assessment with only a PENDING/PARTIAL/
+    NEEDS_RECONCILIATION attempt is NOT in get_completed_assessment_ids'
+    returned set (that function's own contract), so it must still be
+    recommended -- verified here via the empty set this function receives
+    for exactly that situation."""
+    from app.services import assessment_service as a_svc
+
+    analysis = {"recommendations": [_gap()]}
+    with (
+        patch.object(a_svc, "list_active_assessments", return_value=[_catalog()]),
+        patch.object(a_svc, "get_completed_assessment_ids", return_value=set()),
+    ):
+        result = svc.recommend_assessments(object(), "s-1", analysis)
+    assert len(result) == 1
+    assert result[0]["id"] == "a-1"
+
+
+def test_recommend_assessments_inactive_assessment_not_recommended():
+    """Relies on list_active_assessments' own is_active filter -- an
+    inactive assessment simply never appears in its return value, so this
+    function needs no separate is_active check of its own."""
+    from app.services import assessment_service as a_svc
+
+    analysis = {"recommendations": [_gap()]}
+    with (
+        patch.object(a_svc, "list_active_assessments", return_value=[]),
+        patch.object(a_svc, "get_completed_assessment_ids", return_value=set()),
+    ):
+        result = svc.recommend_assessments(object(), "s-1", analysis)
+    assert result == []
+
+
+def test_recommend_assessments_ranks_priority_then_duration_then_title():
+    from app.services import assessment_service as a_svc
+
+    analysis = {
+        "recommendations": [
+            _gap(skill_id="s1", skill_name="Python", priority="HIGH"),
+            _gap(skill_id="s2", skill_name="SQL", priority="MEDIUM"),
+        ]
+    }
+    catalog = [
+        _catalog(id="py-slow", skill_id="s1", title="Python Intermediate", duration_minutes=30),
+        _catalog(id="py-fast", skill_id="s1", title="Python Basics", duration_minutes=20),
+        _catalog(id="sql-1", skill_id="s2", title="SQL Basics", duration_minutes=15),
+    ]
+    with (
+        patch.object(a_svc, "list_active_assessments", return_value=catalog),
+        patch.object(a_svc, "get_completed_assessment_ids", return_value=set()),
+    ):
+        result = svc.recommend_assessments(object(), "s-1", analysis)
+    assert [r["id"] for r in result] == ["py-fast", "py-slow", "sql-1"]
+
+
+def test_recommend_assessments_null_duration_sorts_deterministically_last():
+    from app.services import assessment_service as a_svc
+
+    analysis = {"recommendations": [_gap(skill_id="s1", skill_name="Python", priority="HIGH")]}
+    catalog = [
+        _catalog(id="no-duration", skill_id="s1", title="A Assessment", duration_minutes=None),
+        _catalog(id="has-duration", skill_id="s1", title="Z Assessment", duration_minutes=10),
+    ]
+    with (
+        patch.object(a_svc, "list_active_assessments", return_value=catalog),
+        patch.object(a_svc, "get_completed_assessment_ids", return_value=set()),
+    ):
+        result = svc.recommend_assessments(object(), "s-1", analysis)
+    assert [r["id"] for r in result] == ["has-duration", "no-duration"]
+
+
+def test_recommend_assessments_respects_the_limit():
+    from app.services import assessment_service as a_svc
+
+    analysis = {"recommendations": [_gap(skill_id="s1", skill_name="Python")]}
+    catalog = [_catalog(id=f"a-{i}", skill_id="s1", title=f"T{i}") for i in range(5)]
+    with (
+        patch.object(a_svc, "list_active_assessments", return_value=catalog),
+        patch.object(a_svc, "get_completed_assessment_ids", return_value=set()),
+    ):
+        result = svc.recommend_assessments(object(), "s-1", analysis, limit=2)
+    assert len(result) == 2
+
+
+def test_recommend_assessments_multiple_skills_deterministic_ordering():
+    from app.services import assessment_service as a_svc
+
+    analysis = {
+        "recommendations": [
+            _gap(skill_id="s1", skill_name="Python", priority="HIGH"),
+            _gap(skill_id="s2", skill_name="SQL", priority="MEDIUM"),
+            _gap(skill_id="s3", skill_name="React", priority="LOW"),
+        ]
+    }
+    catalog = [
+        _catalog(id="react-1", skill_id="s3", title="React Basics", duration_minutes=10),
+        _catalog(id="sql-1", skill_id="s2", title="SQL Basics", duration_minutes=10),
+        _catalog(id="py-1", skill_id="s1", title="Python Basics", duration_minutes=10),
+    ]
+    with (
+        patch.object(a_svc, "list_active_assessments", return_value=catalog),
+        patch.object(a_svc, "get_completed_assessment_ids", return_value=set()),
+    ):
+        result = svc.recommend_assessments(object(), "s-1", analysis)
+    assert [r["id"] for r in result] == ["py-1", "sql-1", "react-1"]
+
+
+def test_recommend_assessments_no_matching_assessment_returns_empty():
+    from app.services import assessment_service as a_svc
+
+    analysis = {"recommendations": [_gap(skill_id="s-no-assessment")]}
+    with (
+        patch.object(a_svc, "list_active_assessments", return_value=[_catalog(skill_id="s1")]),
+        patch.object(a_svc, "get_completed_assessment_ids", return_value=set()),
+    ):
+        result = svc.recommend_assessments(object(), "s-1", analysis)
+    assert result == []
+
+
+def test_recommend_assessments_no_gaps_returns_empty_without_querying_catalog():
+    from app.services import assessment_service as a_svc
+
+    with (
+        patch.object(a_svc, "list_active_assessments") as catalog_call,
+        patch.object(a_svc, "get_completed_assessment_ids") as completed_call,
+    ):
+        result = svc.recommend_assessments(object(), "s-1", {"recommendations": []})
+    assert result == []
+    catalog_call.assert_not_called()
+    completed_call.assert_not_called()
+
+
+def test_recommend_assessments_is_repeatable_for_the_same_input():
+    from app.services import assessment_service as a_svc
+
+    analysis = {
+        "recommendations": [
+            _gap(skill_id="s1", skill_name="Python", priority="HIGH"),
+            _gap(skill_id="s2", skill_name="SQL", priority="MEDIUM"),
+        ]
+    }
+    catalog = [
+        _catalog(id="py-1", skill_id="s1", title="Python Basics", duration_minutes=10),
+        _catalog(id="sql-1", skill_id="s2", title="SQL Basics", duration_minutes=10),
+    ]
+    with (
+        patch.object(a_svc, "list_active_assessments", return_value=catalog),
+        patch.object(a_svc, "get_completed_assessment_ids", return_value=set()),
+    ):
+        first = svc.recommend_assessments(object(), "s-1", analysis)
+        second = svc.recommend_assessments(object(), "s-1", analysis)
+    assert first == second
+
+
 def test_clamp_limit():
     assert svc.clamp_limit(None) == svc.DEFAULT_LIMIT
     assert svc.clamp_limit(0) == svc.DEFAULT_LIMIT
@@ -378,8 +677,10 @@ def test_service_does_not_reimplement_matching_or_gap_logic():
     source = inspect.getsource(svc)
     for banned in ("IMPORTANCE_WEIGHT", "LEVEL_ORDER", "readiness", "_UNVERIFIED_FACTOR", "compute_match("):
         assert banned not in source, f"composer must delegate, not reimplement ({banned})"
-    # it delegates to exactly the three canonical services
+    # it delegates to exactly the four canonical services
     assert "skill_recommendation_service" in source
+    assert "assessment_service.list_active_assessments" in source
+    assert "assessment_service.get_completed_assessment_ids" in source
     assert "student_opportunity_service.compute_opportunity_match" in source
     assert "learning_recommendation_service.get_recommended_resources" in source
 

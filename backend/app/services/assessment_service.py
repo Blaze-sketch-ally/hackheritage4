@@ -52,18 +52,30 @@ _QUESTION_COLUMNS = (
 
 
 def list_active_assessments(client: Client) -> list[dict]:
-    """All assessments visible to the caller.
+    """All PRODUCTION assessments visible to the caller.
 
     RLS ("Authenticated users can view active assessments") already
     restricts this to is_active = true for any authenticated role; the
     explicit .eq() here is defense in depth, not the only enforcement --
     STUDENT-only is enforced by require_student() at the route layer, since
     RLS itself does not gate this table by role.
+
+    Phase 3E: also filters source = 'PRODUCTION' (065_assessment_source_
+    metadata.sql) -- this is the ONE place student-facing assessment
+    discovery is assembled, so this is the ONE place that needs this
+    filter; app.services.student_recommendation_service.recommend_assessments()
+    and every other caller of this function inherit it for free and must
+    never re-filter by source or title themselves. This is enforced only
+    at the application-query level, not RLS -- RLS still permits an
+    authenticated reader to see any is_active = true row regardless of
+    source, same "explicit .eq() as defense in depth on top of RLS"
+    pattern is_active itself already uses here.
     """
     response = (
         client.table("assessments")
         .select(_ASSESSMENT_COLUMNS)
         .eq("is_active", True)
+        .eq("source", "PRODUCTION")
         .order("created_at")
         .execute()
     )
@@ -605,6 +617,40 @@ def get_student_skill_scores(client: Client, student_id: str) -> dict[str, Decim
         if skill_id not in best_by_skill or percentage > best_by_skill[skill_id]:
             best_by_skill[skill_id] = percentage
     return best_by_skill
+
+
+def get_completed_assessment_ids(client: Client, student_id: str) -> set[str]:
+    """Phase 3D: assessment_ids for which the calling student already has
+    at least one ELIGIBLE completed attempt -- the exact same eligibility
+    contract as get_student_skill_scores() above (NOT_REQUIRED and
+    COMPLETE are trustworthy; PENDING/PARTIAL/NEEDS_RECONCILIATION/an
+    unrecognized value are not, and do not count as "completed" here).
+
+    Used by app.services.student_recommendation_service.recommend_assessments()
+    to avoid recommending an assessment the student has already produced
+    trustworthy evidence for. Deliberately does NOT exclude an assessment
+    whose only attempt(s) are still pending evaluation -- 004_assessments.sql
+    has no unique(student_id, assessment_id) constraint (only a partial
+    index barring two SIMULTANEOUS IN_PROGRESS attempts), so retakes are
+    schema-legal and a student without eligible evidence yet should still
+    be offered the assessment.
+
+    One query, one client-side pass over the rows -- no N+1, mirrors
+    get_student_skill_scores()'s own shape. Uses the user-scoped client;
+    RLS ("Students can view their own attempts") is the real boundary.
+    """
+    response = (
+        client.table("assessment_attempts")
+        .select("assessment_id, evaluation_status")
+        .eq("student_id", student_id)
+        .eq("status", "COMPLETED")
+        .execute()
+    )
+    completed: set[str] = set()
+    for row in response.data or []:
+        if row.get("evaluation_status") in ("NOT_REQUIRED", "COMPLETE"):
+            completed.add(row["assessment_id"])
+    return completed
 
 
 # ------------------------------------------------------------

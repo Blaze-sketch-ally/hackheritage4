@@ -61,6 +61,12 @@ def get_aggregate_skill_gaps(client: Client, student_id: str) -> list[dict]:
 
     gap_counts: dict[str, int] = {}
     skill_names: dict[str, str] = {}
+    # Whether a skill is GAP or NOT_ASSESSED depends only on whether the
+    # student has ever been assessed for it (student_scores membership) --
+    # not on any one role's required_level -- so it is the same value for
+    # every non-STRONG result of a given skill across every role considered
+    # here. Safe to just overwrite on each sighting.
+    skill_statuses: dict[str, str] = {}
     considered_roles = 0
 
     for role in career_role_service.list_career_roles(client):
@@ -77,6 +83,7 @@ def get_aggregate_skill_gaps(client: Client, student_id: str) -> list[dict]:
                 continue
             gap_counts[result.skill_id] = gap_counts.get(result.skill_id, 0) + 1
             skill_names[result.skill_id] = result.skill_name
+            skill_statuses[result.skill_id] = result.status.value
 
     if considered_roles == 0 or not gap_counts:
         return []
@@ -95,6 +102,12 @@ def get_aggregate_skill_gaps(client: Client, student_id: str) -> list[dict]:
                     f"A skill gap in {count} of {considered_roles} {role_word} "
                     "in the catalog."
                 ),
+                # Additive field (Phase 3D): the underlying AlignmentStatus
+                # ("GAP" or "NOT_ASSESSED", STRONG is never aggregated here)
+                # -- lets a consumer (recommend_assessments) distinguish
+                # "needs better evidence" from "assessed but below bar"
+                # without recomputing alignment.
+                "status": skill_statuses[skill_id],
             }
         )
 

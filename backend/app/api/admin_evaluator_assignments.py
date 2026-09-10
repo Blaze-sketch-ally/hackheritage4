@@ -39,7 +39,11 @@ from app.schemas.evaluation import (
     EligibleEvaluatorResponse,
     EvaluatorAssignmentResponse,
 )
-from app.services import evaluation_service, faculty_permission_service
+from app.services import (
+    evaluation_service,
+    faculty_notification_producer,
+    faculty_permission_service,
+)
 
 router = APIRouter(prefix="/admin/evaluator-assignments", tags=["admin-evaluator-assignments"])
 
@@ -130,6 +134,9 @@ def create_assignment(
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
     except Exception as exc:
         raise _server_error("create this evaluator assignment") from exc
+    faculty_notification_producer.emit_evaluation_assigned(
+        evaluator_id=row["evaluator_id"], assignment_id=row["id"]
+    )
     return _to_assignment_response(row)
 
 
@@ -152,4 +159,7 @@ def revoke_assignment(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except Exception as exc:
         raise _server_error("revoke this evaluator assignment") from exc
+    faculty_notification_producer.emit_evaluation_revoked(
+        evaluator_id=row["evaluator_id"], assignment_id=row["id"]
+    )
     return _to_assignment_response(row)

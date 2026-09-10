@@ -10,6 +10,13 @@ existing canonical system and nothing new is computed:
   collaborator branch and adapted -- see that module's own docstring, and
   app.api.student_learning's identical adaptation for
   /student/learning/recommended).
+* assessment items (Phase 3D) -- `assessment_service.list_active_assessments`
+  filtered to skills the aggregate Skill Gap flagged as GAP/NOT_ASSESSED,
+  excluding assessments the student already has eligible completed
+  evidence for (`assessment_service.get_completed_assessment_ids`, the
+  same NOT_REQUIRED/COMPLETE eligibility contract as
+  `get_student_skill_scores` -- Phase 3A). No new score: ranked by
+  priority, then duration, then title.
 * opportunity items       -- `student_opportunity_service.list_opportunities`
   for the published internship/job set, ranked by
   `student_opportunity_service.compute_opportunity_match` (which is the
@@ -45,6 +52,26 @@ class RecommendedTargetRole(BaseModel):
     name: str
 
 
+class RecommendedAssessment(BaseModel):
+    """One active assessment mapped to a skill the aggregate Skill Gap
+    flagged as GAP or NOT_ASSESSED, that the student does not already have
+    eligible completed evidence for (see module docstring). `reason_type`
+    mirrors the underlying app.services.skill_alignment_service.AlignmentStatus
+    the gap came from (STRONG is never surfaced here, so only two values
+    are possible); `reason`/`priority` are the gap entry's own explanation,
+    not a duplicated business rule."""
+
+    id: str
+    title: str
+    skill_id: str
+    skill_name: str
+    difficulty: str
+    duration_minutes: int | None = None
+    reason_type: Literal["SKILL_GAP", "NOT_ASSESSED"]
+    reason: str
+    priority: Literal["HIGH", "MEDIUM", "LOW"]
+
+
 class RecommendedOpportunity(BaseModel):
     """One published internship or job the student has NOT already applied
     to, that shares at least one skill with the student's profile.
@@ -76,5 +103,6 @@ class RecommendedOpportunity(BaseModel):
 class StudentRecommendationsResponse(BaseModel):
     mode: RecommendationMode
     target_role: RecommendedTargetRole | None = None
+    assessments: list[RecommendedAssessment] = []
     opportunities: list[RecommendedOpportunity] = []
     learning: list[LearningRecommendation] = []

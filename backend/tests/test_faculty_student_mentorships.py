@@ -10,10 +10,29 @@ from fastapi.testclient import TestClient
 from postgrest.exceptions import APIError
 
 from app.main import app
+from app.services import faculty_notification_producer
 from app.services import faculty_student_mentorship_service as service
 from tests.conftest import authenticated_as
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def _mock_mentorship_notifications():
+    """request_mentorship/update_mentorship_status
+    (app.api.student_mentorships) call
+    faculty_notification_producer.emit_mentorship_request/
+    emit_mentorship_status_change after a successful action. None of the
+    tests in this file are about notification behaviour -- that is
+    tests/test_faculty_notifications.py's job -- so both are mocked out
+    file-wide here to avoid an unmocked real Supabase call (matching the
+    existing pattern in tests/test_internship_completion.py for
+    app.services.notification_producer)."""
+    with (
+        patch.object(faculty_notification_producer, "emit_mentorship_request"),
+        patch.object(faculty_notification_producer, "emit_mentorship_status_change"),
+    ):
+        yield
 
 _MENTORSHIP_ROW = {
     "id": "mentorship-1",
@@ -358,6 +377,22 @@ def test_student_can_request_a_faculty_mentor_with_no_capability_check():
     create.assert_called_once_with(create.call_args.args[0], "student-1", "faculty-1", None)
 
 
+def test_student_request_notifies_the_faculty_member():
+    row = {**_MENTORSHIP_ROW, "id": "m-new", "faculty_id": "faculty-1", "student_id": "student-1", "requested_by": "student-1"}
+    with (
+        authenticated_as("STUDENT", user_id="student-1"),
+        patch("app.api.student_mentorships.service.create_student_request", return_value=row),
+        patch.object(faculty_notification_producer, "emit_mentorship_request") as mock_emit,
+    ):
+        response = client.post(
+            "/api/v1/student/mentorships",
+            json={"target_id": "faculty-1"},
+            headers={"Authorization": "Bearer token"},
+        )
+    assert response.status_code == 201
+    mock_emit.assert_called_once_with(faculty_id="faculty-1", student_id="student-1", mentorship_id="m-new")
+
+
 def test_student_request_to_faculty_without_capability_is_403():
     with (
         authenticated_as("STUDENT", user_id="student-1"),
@@ -388,6 +423,39 @@ def test_student_duplicate_request_is_409():
             headers={"Authorization": "Bearer token"},
         )
     assert response.status_code == 409
+
+
+def test_student_status_update_notifies_the_faculty_member():
+    row = {**_MENTORSHIP_ROW, "id": "m-1", "faculty_id": "faculty-1", "status": "ACCEPTED", "requested_by": "faculty-1"}
+    with (
+        authenticated_as("STUDENT", user_id="student-1"),
+        patch("app.api.student_mentorships.service.update_status", return_value=row),
+        patch.object(faculty_notification_producer, "emit_mentorship_status_change") as mock_emit,
+    ):
+        response = client.patch(
+            "/api/v1/student/mentorships/m-1/status",
+            json={"status": "ACCEPTED"},
+            headers={"Authorization": "Bearer token"},
+        )
+    assert response.status_code == 200
+    mock_emit.assert_called_once_with(
+        faculty_id="faculty-1", student_id="student-1", mentorship_id="m-1", new_status="ACCEPTED"
+    )
+
+
+def test_student_status_update_not_found_does_not_notify():
+    with (
+        authenticated_as("STUDENT", user_id="student-1"),
+        patch("app.api.student_mentorships.service.update_status", return_value=None),
+        patch.object(faculty_notification_producer, "emit_mentorship_status_change") as mock_emit,
+    ):
+        response = client.patch(
+            "/api/v1/student/mentorships/m-1/status",
+            json={"status": "ACCEPTED"},
+            headers={"Authorization": "Bearer token"},
+        )
+    assert response.status_code == 404
+    mock_emit.assert_not_called()
 
 
 def test_student_cannot_access_another_students_mentorship():

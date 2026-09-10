@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  Bell,
   BookOpen,
   Briefcase,
   CalendarDays,
@@ -16,11 +17,17 @@ import {
   type LucideIcon,
   Presentation,
   Settings,
+  ShieldAlert,
   User,
   Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { hasEvaluationWorkspaceAccess, hasQuestionStudioAccess, useFacultyCapabilitiesContext } from "@/lib/faculty/capabilities";
+import {
+  hasEvaluationWorkspaceAccess,
+  hasQuestionStudioAccess,
+  hasReconciliationAccess,
+  useFacultyCapabilitiesContext,
+} from "@/lib/faculty/capabilities";
 
 interface NavItem {
   label: string;
@@ -39,10 +46,11 @@ interface NavGroup {
 // "Soon" badge instead of linking to a page that isn't real yet --
 // same convention already established in StudentSidebar, for the same
 // reason (don't let navigation claim a feature exists before it does).
-// Dashboard, Profile, Opportunities (F3.2), Applications (F3.2), and
-// Mentorship are real; every remaining "Engagement"/"Other" item is
-// still a static placeholder page as of this phase, so it is
-// intentionally NOT linked here even though the page file exists.
+// Dashboard, Profile, Opportunities (F3.2), Applications (F3.2),
+// Mentorship, and Notifications (Faculty Notification System) are real;
+// every remaining "Engagement"/"Other" item is still a static
+// placeholder page as of this phase, so it is intentionally NOT linked
+// here even though the page file exists.
 // "Applications" reuses the existing industry_collaborations
 // recipient-side flow (see faculty-applications-view.tsx) -- "Collaborations"
 // below stays Soon rather than becoming a second entry point to the same
@@ -76,6 +84,7 @@ const CONNECT_NAV_GROUPS: NavGroup[] = [
     items: [
       { label: "Applications", href: "/faculty/applications", icon: FileText },
       { label: "Mentorship", href: "/faculty/mentorship", icon: Users },
+      { label: "Notifications", href: "/faculty/notifications", icon: Bell },
       { label: "Calendar", icon: CalendarDays },
       { label: "Internships", icon: BookOpen },
     ],
@@ -113,6 +122,15 @@ const EVALUATION_WORKSPACE_GROUP: NavGroup = {
   items: [{ label: "Overview", href: "/faculty/evaluation-workspace", icon: ClipboardCheck }],
 };
 
+// Visible only when the caller holds assessment_moderator (Faculty
+// Assessment Governance audit). READ-ONLY: no resolve/decide action
+// exists behind this link in this phase -- see that phase's report.
+// assessment_lead grants nothing yet -- Lead remains fully dormant.
+const RECONCILIATION_GROUP: NavGroup = {
+  label: "Reconciliation",
+  items: [{ label: "Cases", href: "/faculty/reconciliation", icon: ShieldAlert }],
+};
+
 export function FacultySidebar({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const capabilityState = useFacultyCapabilitiesContext();
@@ -125,6 +143,7 @@ export function FacultySidebar({ onNavigate }: { onNavigate?: () => void }) {
   if (capabilityState.status === "ready") {
     if (hasQuestionStudioAccess(capabilityState.capabilities)) groups.push(QUESTION_STUDIO_GROUP);
     if (hasEvaluationWorkspaceAccess(capabilityState.capabilities)) groups.push(EVALUATION_WORKSPACE_GROUP);
+    if (hasReconciliationAccess(capabilityState.capabilities)) groups.push(RECONCILIATION_GROUP);
   }
 
   return (

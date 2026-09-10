@@ -1,13 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 
-const { getFacultyProfile, listFacultyOpportunities, getIncomingCollaborations, useFacultyCapabilitiesContext } =
-  vi.hoisted(() => ({
-    getFacultyProfile: vi.fn(),
-    listFacultyOpportunities: vi.fn(),
-    getIncomingCollaborations: vi.fn(),
-    useFacultyCapabilitiesContext: vi.fn(),
-  }));
+const {
+  getFacultyProfile,
+  listFacultyOpportunities,
+  getIncomingCollaborations,
+  getFacultyTasks,
+  useFacultyCapabilitiesContext,
+} = vi.hoisted(() => ({
+  getFacultyProfile: vi.fn(),
+  listFacultyOpportunities: vi.fn(),
+  getIncomingCollaborations: vi.fn(),
+  getFacultyTasks: vi.fn(),
+  useFacultyCapabilitiesContext: vi.fn(),
+}));
 
 vi.mock("@/lib/faculty/profile", () => ({
   getFacultyProfile,
@@ -19,6 +25,10 @@ vi.mock("@/lib/faculty/opportunities", () => ({
 
 vi.mock("@/lib/industry/collaborations", () => ({
   getIncomingCollaborations,
+}));
+
+vi.mock("@/lib/faculty/tasks", () => ({
+  getFacultyTasks,
 }));
 
 vi.mock("@/lib/faculty/capabilities", async () => {
@@ -50,6 +60,12 @@ describe("FacultyDashboardView", () => {
   beforeEach(() => {
     listFacultyOpportunities.mockResolvedValue({ opportunities: [] });
     getIncomingCollaborations.mockResolvedValue({ collaborations: [] });
+    getFacultyTasks.mockResolvedValue({
+      pending_reviews: [],
+      pending_evaluations: [],
+      mentorship_attention: [],
+      pending_reconciliations: [],
+    });
     useFacultyCapabilitiesContext.mockReturnValue({ status: "ready", capabilities: [] });
   });
 
@@ -162,6 +178,106 @@ describe("FacultyDashboardView", () => {
       "href",
       "/faculty/evaluation-workspace",
     );
+  });
+
+  // ============================================================
+  // Faculty Module audit: deterministic "Needs Your Attention" tasks
+  // ============================================================
+
+  it("shows no tasks card when every category is empty", async () => {
+    getFacultyProfile.mockResolvedValue(profile());
+
+    render(<FacultyDashboardView />);
+    await screen.findByText("Available Opportunities");
+
+    expect(screen.queryByText("Needs Your Attention")).not.toBeInTheDocument();
+  });
+
+  it("shows a ranked count per non-empty task category, linking to the owning page", async () => {
+    getFacultyProfile.mockResolvedValue(profile());
+    getFacultyTasks.mockResolvedValue({
+      pending_reviews: [
+        { question_id: "q1", assessment_id: "a1", question_text: "Q1", created_at: "2026-01-01T00:00:00Z" },
+      ],
+      pending_evaluations: [
+        {
+          evaluation_id: "e1",
+          attempt_id: "at1",
+          assessment_title: "Python Basics",
+          status: "ASSIGNED",
+          assigned_at: "2026-01-01T00:00:00Z",
+        },
+      ],
+      mentorship_attention: [],
+      pending_reconciliations: [],
+    });
+
+    render(<FacultyDashboardView />);
+
+    expect(await screen.findByText("Needs Your Attention")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /questions awaiting your review/i })).toHaveAttribute(
+      "href",
+      "/faculty/questions",
+    );
+    expect(screen.getByRole("button", { name: /evaluations awaiting your marks/i })).toHaveAttribute(
+      "href",
+      "/faculty/evaluation-workspace",
+    );
+    expect(screen.queryByRole("button", { name: /mentorships awaiting your action/i })).not.toBeInTheDocument();
+  });
+
+  it("shows the mentorship-attention row linking to the mentorship page", async () => {
+    getFacultyProfile.mockResolvedValue(profile());
+    getFacultyTasks.mockResolvedValue({
+      pending_reviews: [],
+      pending_evaluations: [],
+      mentorship_attention: [
+        {
+          mentorship_id: "m1",
+          student_id: "s1",
+          student_name: "Jane Doe",
+          status: "REQUESTED",
+          reason: "Awaiting your response to a student's mentorship request.",
+          updated_at: "2026-01-01T00:00:00Z",
+        },
+      ],
+      pending_reconciliations: [],
+    });
+
+    render(<FacultyDashboardView />);
+
+    expect(await screen.findByText("Needs Your Attention")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /mentorships awaiting your action/i })).toHaveAttribute(
+      "href",
+      "/faculty/mentorship",
+    );
+  });
+
+  it("shows the reconciliation row linking to the reconciliation workspace", async () => {
+    getFacultyProfile.mockResolvedValue(profile());
+    getFacultyTasks.mockResolvedValue({
+      pending_reviews: [],
+      pending_evaluations: [],
+      mentorship_attention: [],
+      pending_reconciliations: [
+        {
+          attempt_id: "at-1",
+          assessment_id: "a-1",
+          assessment_title: "Python Basics",
+          student_label: "Student abcd1234",
+          question_id: "q-1",
+          question_text: "Explain closures.",
+          points: "10.00",
+        },
+      ],
+    });
+
+    render(<FacultyDashboardView />);
+
+    expect(await screen.findByText("Needs Your Attention")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /evaluations requiring reconciliation/i }),
+    ).toHaveAttribute("href", "/faculty/reconciliation");
   });
 
   it("does not show a switcher link from moderator/lead alone", async () => {

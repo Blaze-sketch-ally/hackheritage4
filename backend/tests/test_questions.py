@@ -28,13 +28,27 @@ from app.schemas.question_bank import (
     QuestionUpdateRequest,
     ReviewDecisionRequest,
 )
-from app.services import question_bank_service
+from app.services import faculty_notification_producer, question_bank_service
 from tests.conftest import authenticated_as
 
 client = TestClient(app)
 
 _AUTHOR = {AssessmentCapability.AUTHOR}
 _REVIEWER = {AssessmentCapability.REVIEWER}
+
+
+@pytest.fixture(autouse=True)
+def _mock_review_decision_notification():
+    """approve_question/reject_question call
+    faculty_notification_producer.emit_review_decision() after a
+    successful decision (see app.api.questions._review). None of the
+    tests in this file are about notification behaviour -- that is
+    tests/test_faculty_notifications.py's job -- so it is mocked out
+    file-wide here to avoid an unmocked real Supabase call (matching the
+    existing pattern in tests/test_internship_completion.py for
+    app.services.notification_producer)."""
+    with patch.object(faculty_notification_producer, "emit_review_decision"):
+        yield
 
 
 def _as_author():
@@ -954,6 +968,64 @@ def test_reject_nonexistent_or_invisible_question_returns_404():
             f"/api/v1/questions/{uuid4()}/reject", headers={"Authorization": "Bearer token"}
         )
     assert response.status_code == 404
+
+
+def test_approve_notifies_the_authors_not_the_reviewer():
+    author_id = str(uuid4())
+    question_id = str(uuid4())
+    approved_row = _row_question(
+        id=question_id, review_status="APPROVED", created_by=author_id, updated_at="2026-01-01T00:00:00Z"
+    )
+    with (
+        authenticated_as("FACULTY", user_id="reviewer-b"),
+        _as_reviewer(),
+        patch.object(question_bank_service, "set_review_status", return_value=approved_row),
+        patch.object(question_bank_service, "get_my_question", return_value=approved_row),
+        patch.object(faculty_notification_producer, "emit_review_decision") as mock_emit,
+    ):
+        response = client.post(
+            f"/api/v1/questions/{uuid4()}/approve", headers={"Authorization": "Bearer token"}
+        )
+    assert response.status_code == 200
+    mock_emit.assert_called_once_with(
+        author_id=author_id, question_id=question_id, decision="APPROVED", updated_at="2026-01-01T00:00:00Z"
+    )
+
+
+def test_reject_notifies_the_author():
+    author_id = str(uuid4())
+    question_id = str(uuid4())
+    rejected_row = _row_question(
+        id=question_id, review_status="REJECTED", created_by=author_id, updated_at="2026-01-02T00:00:00Z"
+    )
+    with (
+        authenticated_as("FACULTY", user_id="reviewer-b"),
+        _as_reviewer(),
+        patch.object(question_bank_service, "set_review_status", return_value=rejected_row),
+        patch.object(question_bank_service, "get_my_question", return_value=rejected_row),
+        patch.object(faculty_notification_producer, "emit_review_decision") as mock_emit,
+    ):
+        response = client.post(
+            f"/api/v1/questions/{uuid4()}/reject", headers={"Authorization": "Bearer token"}
+        )
+    assert response.status_code == 200
+    mock_emit.assert_called_once_with(
+        author_id=author_id, question_id=question_id, decision="REJECTED", updated_at="2026-01-02T00:00:00Z"
+    )
+
+
+def test_notification_not_emitted_when_question_not_found():
+    with (
+        authenticated_as("FACULTY", user_id="reviewer-b"),
+        _as_reviewer(),
+        patch.object(question_bank_service, "set_review_status", return_value=None),
+        patch.object(faculty_notification_producer, "emit_review_decision") as mock_emit,
+    ):
+        response = client.post(
+            f"/api/v1/questions/{uuid4()}/approve", headers={"Authorization": "Bearer token"}
+        )
+    assert response.status_code == 404
+    mock_emit.assert_not_called()
 
 
 def test_reject_response_never_contains_correctness_fields_for_options():
