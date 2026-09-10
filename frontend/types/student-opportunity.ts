@@ -14,7 +14,14 @@
  * recruitment pipeline is the sole writer of it.
  */
 
+import type { InterviewMode, InterviewStatus } from "@/types/interview";
+
 export type SourceType = "INTERNSHIP" | "JOB";
+
+/** Browse-list sort keys — a fixed whitelist mirroring backend
+ * `OpportunitySort` (schemas/student_opportunity.py). `newest` is the
+ * default and is never serialized to the URL or the API. */
+export type OpportunitySort = "newest" | "deadline";
 
 /** All seven live values -- see database/migrations/020_applications.sql. */
 export type StudentApplicationStatus =
@@ -35,6 +42,21 @@ export const STUDENT_APPLICATION_STATUSES: StudentApplicationStatus[] = [
   "REJECTED",
   "WITHDRAWN",
 ];
+
+/** Active candidate stages a student may still withdraw from. Mirrors the
+ * backend `WITHDRAWABLE_STATUSES` (student_opportunity_service.py).
+ * SELECTED (offer in hand), REJECTED (terminal) and WITHDRAWN (already
+ * withdrawn) are not withdrawable — the backend returns 409 for those. */
+export const WITHDRAWABLE_APPLICATION_STATUSES: readonly StudentApplicationStatus[] = [
+  "APPLIED",
+  "UNDER_REVIEW",
+  "SHORTLISTED",
+  "INTERVIEW_SCHEDULED",
+];
+
+export function canWithdrawApplication(status: StudentApplicationStatus): boolean {
+  return WITHDRAWABLE_APPLICATION_STATUSES.includes(status);
+}
 
 export interface OpportunityIndustry {
   id: string;
@@ -88,6 +110,28 @@ export interface StudentApplicationOpportunity {
   title: string | null;
   industry: OpportunityIndustry | null;
   location: string | null;
+  /** ONSITE / REMOTE / HYBRID / null (null once the posting is no longer
+   * PUBLISHED). Drives the Applications-page workspace CTA for a SELECTED
+   * internship: only REMOTE/HYBRID get an Internship Workspace. */
+  work_mode: string | null;
+}
+
+/** The student's own LIVE (SCHEDULED) interview for an application.
+ * Mirrors backend `StudentApplicationInterview`
+ * (backend/app/schemas/student_opportunity.py), stitched on server-side
+ * from the `public.student_interviews` RPC. `notes` is Industry-private
+ * and is never included. `null` on `StudentApplication.interview` when the
+ * application has no live interview (INTERVIEW_SCHEDULED can exist without
+ * one — a manual status move, or a cancelled/completed interview). */
+export interface StudentApplicationInterview {
+  id: string;
+  application_id: string;
+  /** ISO-8601 UTC instant. Render in the viewer's locale. */
+  scheduled_at: string;
+  duration_minutes: number;
+  mode: InterviewMode;
+  location: string | null;
+  status: InterviewStatus;
 }
 
 export interface StudentApplication {
@@ -103,6 +147,7 @@ export interface StudentApplication {
   created_at: string | null;
   updated_at: string | null;
   opportunity: StudentApplicationOpportunity | null;
+  interview: StudentApplicationInterview | null;
 }
 
 export type SkillMatchStatus = "MATCHED" | "NEEDS_IMPROVEMENT" | "MISSING";

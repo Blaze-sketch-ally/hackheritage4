@@ -6,23 +6,23 @@ import {
   BarChart3,
   Building2,
   CalendarDays,
-  ClipboardCheck,
+  Contact,
   FileText,
   GraduationCap,
   Handshake,
   LayoutDashboard,
   type LucideIcon,
+  Landmark,
+  Network,
   Settings,
-  TrendingDown,
-  Trophy,
-  User,
+  TrendingUp,
   Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface NavItem {
   label: string;
-  href?: string;
+  href: string;
   icon: LucideIcon;
 }
 
@@ -31,73 +31,79 @@ interface NavGroup {
   items: NavItem[];
 }
 
-// Every href below points at a route that already exists in
-// app/institution/ (some are scaffold placeholder pages, linked anyway —
-// matching the convention already established in the other sidebars).
+// Every href points at a route that already exists under app/institution/
+// (all but /institution/collaborations are scaffold "Coming Soon" pages —
+// that's fine, this shell only adds navigation + logout around them).
+// Mirrors the grouping/visual conventions of
+// components/industry/industry-sidebar.tsx.
 const NAV_GROUPS: NavGroup[] = [
-  { items: [{ label: "Dashboard", href: "/institution/dashboard", icon: LayoutDashboard }] },
   {
-    label: "Students",
+    label: "Main",
     items: [
-      { label: "Students", href: "/institution/students", icon: Users },
+      { label: "Dashboard", href: "/institution/dashboard", icon: LayoutDashboard },
+      { label: "Profile", href: "/institution/profile", icon: Landmark },
+    ],
+  },
+  {
+    label: "Academics",
+    items: [
       { label: "Departments", href: "/institution/departments", icon: Building2 },
+      { label: "Students", href: "/institution/students", icon: Users },
+      { label: "Skill Gaps", href: "/institution/skill-gaps", icon: TrendingUp },
     ],
   },
   {
     label: "Placements",
     items: [
-      { label: "Placements", href: "/institution/placements", icon: Trophy },
-      { label: "Drives", href: "/institution/placements/drives", icon: CalendarDays },
-      { label: "Outcomes", href: "/institution/placements/outcomes", icon: FileText },
-    ],
-  },
-  {
-    label: "Analytics",
-    items: [
-      { label: "Overview", href: "/institution/analytics", icon: BarChart3 },
-      { label: "Department Analytics", href: "/institution/analytics/departments", icon: BarChart3 },
-      { label: "Skill Analytics", href: "/institution/analytics/skills", icon: BarChart3 },
-      { label: "Placement Analytics", href: "/institution/analytics/placements", icon: BarChart3 },
-      { label: "Skill Gaps", href: "/institution/skill-gaps", icon: TrendingDown },
-    ],
-  },
-  {
-    label: "Partnerships",
-    items: [
+      { label: "Placements", href: "/institution/placements", icon: GraduationCap },
+      { label: "Internships", href: "/institution/internships", icon: GraduationCap },
       { label: "Industry Partners", href: "/institution/industry-partners", icon: Handshake },
-      { label: "Collaborations", href: "/institution/collaborations", icon: Handshake },
-      { label: "Faculty Opportunities", href: "/institution/faculty-opportunities", icon: GraduationCap },
+      { label: "Industry Connections", href: "/institution/industry-connections", icon: Contact },
     ],
   },
   {
-    label: "Other",
+    label: "Engagement",
     items: [
-      { label: "Assessments", href: "/institution/assessments", icon: ClipboardCheck },
+      { label: "Collaborations", href: "/institution/collaborations", icon: Network },
       { label: "Events", href: "/institution/events", icon: CalendarDays },
+    ],
+  },
+  {
+    label: "Insights",
+    items: [
+      { label: "Analytics", href: "/institution/analytics", icon: BarChart3 },
       { label: "Reports", href: "/institution/reports", icon: FileText },
     ],
   },
   {
-    label: "Account",
-    items: [
-      { label: "Profile", href: "/institution/profile", icon: User },
-      { label: "Settings", href: "/institution/settings", icon: Settings },
-    ],
+    label: "System",
+    items: [{ label: "Settings", href: "/institution/settings", icon: Settings }],
   },
 ];
+
+function isActive(pathname: string, href: string): boolean {
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
 
 export function InstitutionSidebar({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex h-14 shrink-0 items-center gap-2 border-b px-4">
-        <Link href="/" className="flex items-center gap-2 font-semibold tracking-tight" onClick={onNavigate}>
+      <div className="flex h-14 shrink-0 flex-col justify-center gap-0.5 border-b px-4">
+        <Link
+          href="/"
+          className="flex items-center gap-2 font-semibold tracking-tight"
+          onClick={onNavigate}
+        >
           <span className="flex size-7 items-center justify-center rounded-lg bg-indigo-600 text-sm text-white">
             A
           </span>
           AIC Portal
         </Link>
+        <p className="pl-9 text-[11px] font-medium tracking-wide text-muted-foreground">
+          Institution Portal
+        </p>
       </div>
 
       <nav className="flex-1 space-y-6 overflow-y-auto px-3 py-4">
@@ -110,13 +116,14 @@ export function InstitutionSidebar({ onNavigate }: { onNavigate?: () => void }) 
             ) : null}
             {group.items.map((item) => {
               const Icon = item.icon;
-              const active = item.href && (pathname === item.href || pathname.startsWith(`${item.href}/`));
+              const active = isActive(pathname, item.href);
 
               return (
                 <Link
                   key={item.href}
-                  href={item.href!}
+                  href={item.href}
                   onClick={onNavigate}
+                  aria-current={active ? "page" : undefined}
                   className={cn(
                     "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium transition-colors",
                     active

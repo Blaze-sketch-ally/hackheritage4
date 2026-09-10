@@ -2,8 +2,8 @@
 applications.
 
 This is a thin, read-only *adapter* over the two real posting tables --
-`internships` (database/migrations/053_internships.sql) and `jobs`
-(054_jobs.sql). There is no `opportunities` table in this architecture and
+`internships` (database/migrations/018_internships.sql) and `jobs`
+(019_jobs.sql). There is no `opportunities` table in this architecture and
 none is introduced: the student-facing "opportunity" is just a normalized
 view of one internship OR one job.
 
@@ -14,7 +14,7 @@ resolve which source table (and therefore which of
 maps to, without assuming the raw internship/job UUIDs never collide.
 
 An application row is still the existing `applications` row
-(055_applications.sql) unchanged: `student_id` from the authenticated
+(020_applications.sql) unchanged: `student_id` from the authenticated
 caller, `industry_id` from the BEFORE-INSERT trigger, `opportunity_type` +
 `internship_id`/`job_id` derived here, `status` defaulting to APPLIED.
 The student never supplies any of those -- the only field they control is
@@ -28,7 +28,14 @@ from pydantic import BaseModel, ConfigDict, Field
 # Mirrors applications.opportunity_type / the INTERNSHIP-xor-JOB split.
 SourceType = Literal["INTERNSHIP", "JOB"]
 
-# database/migrations/055_applications.sql -- applications.status CHECK.
+# Browse-list filter/sort inputs. `OpportunityWorkMode` mirrors the
+# `internships.work_mode` / `jobs.work_mode` CHECK (018/019); `OpportunitySort`
+# is a fixed whitelist -- the browse endpoint never accepts a raw
+# order-by column name. Both are validated by FastAPI (422 on a bad value).
+OpportunityWorkMode = Literal["ONSITE", "REMOTE", "HYBRID"]
+OpportunitySort = Literal["newest", "deadline"]
+
+# database/migrations/020_applications.sql -- applications.status CHECK.
 # The student frontend renders all seven; the values are never redefined.
 StudentApplicationStatus = Literal[
     "APPLIED",
@@ -131,6 +138,33 @@ class StudentApplicationOpportunity(BaseModel):
     title: str | None = None
     industry: OpportunityIndustry | None = None
     location: str | None = None
+    # ONSITE / REMOTE / HYBRID / null -- null once the posting is no longer
+    # PUBLISHED. Drives the "Open Internship Workspace" vs "on-site, no
+    # workspace" CTA on the Applications page for a SELECTED internship.
+    work_mode: str | None = None
+
+
+class StudentApplicationInterview(BaseModel):
+    """The student's own LIVE (SCHEDULED) interview for an application,
+    read through the public.student_interviews SECURITY DEFINER RPC
+    (database/migrations/054_student_interview_visibility.sql).
+
+    Only the student-safe columns are here: `interviews.notes` is
+    Industry-private preparation notes and has no path to this schema or
+    that RPC. Null on `StudentApplicationResponse.interview` when the
+    application has no live interview -- INTERVIEW_SCHEDULED can exist
+    without one (a manual status move, or a cancelled/completed
+    interview). Mode/status values mirror
+    database/migrations/030_industry_interviews.sql and
+    frontend/types/interview.ts."""
+
+    id: str
+    application_id: str
+    scheduled_at: str
+    duration_minutes: int
+    mode: str
+    location: str | None = None
+    status: str
 
 
 class StudentApplicationResponse(BaseModel):
@@ -150,6 +184,11 @@ class StudentApplicationResponse(BaseModel):
     created_at: str | None = None
     updated_at: str | None = None
     opportunity: StudentApplicationOpportunity | None = None
+    # The student's live interview, when one exists. Stitched on by
+    # student_opportunity_service via the public.student_interviews RPC --
+    # never a nested PostgREST embed. Null when the application has no
+    # SCHEDULED interview.
+    interview: StudentApplicationInterview | None = None
 
 
 class StudentApplicationListResponse(BaseModel):

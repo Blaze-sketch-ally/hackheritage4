@@ -1,5 +1,5 @@
 """Pydantic schemas for Phase 8 -- internship stipend record-keeping
-(database/migrations/062_workspace_submissions_completion.sql --
+(database/migrations/051_workspace_submissions_completion.sql --
 stipend_disbursements).
 
 RECORD-KEEPING ONLY. There is no payment gateway, no bank/UPI integration,
@@ -21,7 +21,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-# stipend_disbursements.disbursement_status CHECK (062).
+# stipend_disbursements.disbursement_status CHECK (039).
 StipendStatus = Literal["PENDING", "APPROVED", "RELEASED", "CANCELLED"]
 
 

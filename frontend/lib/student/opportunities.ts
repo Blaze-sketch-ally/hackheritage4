@@ -1,6 +1,8 @@
 import { api } from "@/lib/api";
+import type { WorkMode } from "@/types/job";
 import type {
   OpportunityMatch,
+  OpportunitySort,
   SourceType,
   StudentApplication,
   StudentOpportunityDetail,
@@ -27,13 +29,31 @@ import type {
  * `internship_<uuid>` / `job_<uuid>` string the backend returns.
  */
 
+/**
+ * Browse published internships/jobs. Every filter is a server-side query
+ * param — the list is NOT downloaded whole and filtered in the browser.
+ * Defaults (`sort: "newest"`, unset filters) are omitted from the query
+ * string entirely, so a clean browse is just `?source_type=…`.
+ */
 export function listOpportunities(params?: {
   sourceType?: SourceType;
   search?: string;
+  workMode?: WorkMode;
+  minStipend?: number;
+  minSalary?: number;
+  sort?: OpportunitySort;
 }): Promise<{ opportunities: StudentOpportunitySummary[] }> {
   const query = new URLSearchParams();
   if (params?.sourceType) query.set("source_type", params.sourceType);
   if (params?.search?.trim()) query.set("search", params.search.trim());
+  if (params?.workMode) query.set("work_mode", params.workMode);
+  if (params?.minStipend != null && params.minStipend > 0) {
+    query.set("min_stipend", String(params.minStipend));
+  }
+  if (params?.minSalary != null && params.minSalary > 0) {
+    query.set("min_salary", String(params.minSalary));
+  }
+  if (params?.sort && params.sort !== "newest") query.set("order_by", params.sort);
   const qs = query.toString();
   return api.get(`/api/v1/student/opportunities${qs ? `?${qs}` : ""}`);
 }
@@ -66,4 +86,16 @@ export function applyToOpportunity(
  * reflects whatever the owning Industry account last set. */
 export function listMyApplications(): Promise<{ applications: StudentApplication[] }> {
   return api.get("/api/v1/student/applications");
+}
+
+/** Withdraw the caller's OWN application (status -> WITHDRAWN). Allowed
+ * only while the application is still an active candidate application
+ * (APPLIED / UNDER_REVIEW / SHORTLISTED / INTERVIEW_SCHEDULED) -- the
+ * backend returns 409 otherwise, and 404 for an application the student
+ * does not own. No `student_id` is ever sent; identity is the token.
+ * Resolves with the updated application (same shape as `applyToOpportunity`). */
+export function withdrawApplication(applicationId: string): Promise<StudentApplication> {
+  return api.post(
+    `/api/v1/student/applications/${encodeURIComponent(applicationId)}/withdraw`,
+  );
 }

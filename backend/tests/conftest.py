@@ -50,10 +50,29 @@ _BUILD_USER_CLIENT_MODULES = (
     "app.api.industry_workshops",
     "app.api.industry_mentorship_opportunities",
     "app.api.industry_collaborations",
+    # Institution portal + Job Training (integration pass)
+    "app.api.analytics",
+    "app.api.institution",
+    "app.api.institution_link_requests",
+    "app.api.student_institution",
+    "app.api.skill_gap",
+    "app.api.skills",
+    "app.api.job_training_programs",
+    "app.api.student_job_training",
+    "app.api.industry_job_training",
 )
 
 _GET_SUPABASE_MODULES = (
     "app.api.assessments",
+)
+
+# Service-role touches reachable from an authorized request. Stubbed so no
+# test ever constructs a real service-role client or attempts a live
+# write; a test that wants to assert on one patches the specific function
+# (e.g. emit_application_status_change) itself.
+_SERVICE_ROLE_STUB_TARGETS = (
+    "app.services.notification_producer.get_supabase",
+    "app.services.internship_workspace_service.get_supabase",
 )
 
 
@@ -100,7 +119,18 @@ def authenticated_as(role: str | None, user_id: str = "student-1"):
         )
         stack.enter_context(patch("app.core.dependencies.build_user_client", return_value=client))
         for module in _BUILD_USER_CLIENT_MODULES:
-            stack.enter_context(patch(f"{module}.build_user_client", return_value=client))
+            try:
+                stack.enter_context(patch(f"{module}.build_user_client", return_value=client))
+            except (AttributeError, ModuleNotFoundError):
+                # A route module that doesn't import build_user_client (or
+                # isn't present in this checkout) is simply skipped -- the
+                # patch list is a superset and best-effort.
+                pass
         for module in _GET_SUPABASE_MODULES:
             stack.enter_context(patch(f"{module}.get_supabase", return_value=client))
+        for target in _SERVICE_ROLE_STUB_TARGETS:
+            try:
+                stack.enter_context(patch(target, return_value=MagicMock()))
+            except (AttributeError, ModuleNotFoundError):
+                pass
         yield

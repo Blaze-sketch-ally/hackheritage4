@@ -10,7 +10,7 @@ import { FormError } from "@/components/auth/form-error";
 import { FormSuccess } from "@/components/auth/form-success";
 import { ApiError } from "@/lib/api";
 import { cancelInterview, completeInterview, getInterview } from "@/lib/industry/interviews";
-import { applicantRef, OPPORTUNITY_TYPE_LABELS } from "@/types/application";
+import { applicantDisplayName, OPPORTUNITY_TYPE_LABELS } from "@/types/application";
 import { INTERVIEW_LOCATION_LABELS, INTERVIEW_MODE_LABELS, type Interview } from "@/types/interview";
 import { InterviewStatusBadge } from "@/components/industry/interviews/interview-status-badge";
 import { InterviewFormDialog } from "@/components/industry/interviews/interview-form-dialog";
@@ -138,7 +138,7 @@ export function InterviewDetailView({ interviewId }: { interviewId: string }) {
             <div className="min-w-0 space-y-1">
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-xl font-semibold">
-                  {applicantRef(state.interview.student_id)}
+                  {applicantDisplayName(state.interview)}
                 </h1>
                 <InterviewStatusBadge status={state.interview.status} />
               </div>
@@ -194,8 +194,8 @@ export function InterviewDetailView({ interviewId }: { interviewId: string }) {
             </CardHeader>
             <CardContent className="space-y-3">
               <dl className="grid gap-4 sm:grid-cols-2">
-                <Detail label="Applicant reference">
-                  {applicantRef(state.interview.student_id)}
+                <Detail label="Applicant">
+                  {applicantDisplayName(state.interview)}
                 </Detail>
                 <Detail label="Opportunity">
                   {state.interview.opportunity ? (
@@ -214,7 +214,8 @@ export function InterviewDetailView({ interviewId }: { interviewId: string }) {
                 </Detail>
               </dl>
               <p className="text-xs text-muted-foreground">
-                Applicant profile details are not available to companies at this stage of the portal.
+                Only the applicant&apos;s name is shown here. Other profile details are not available
+                to companies at this stage of the portal.
               </p>
             </CardContent>
           </Card>

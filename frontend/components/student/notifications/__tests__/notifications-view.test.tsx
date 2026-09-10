@@ -147,4 +147,25 @@ describe("NotificationsView", () => {
     await screen.findByText("Application update");
     expect(container.querySelector("a")).toBeNull();
   });
+
+  it("links a job-training completion notification to its enrollment detail route", async () => {
+    mocks.listNotifications.mockResolvedValueOnce({
+      notifications: [
+        notif({
+          id: "n-jt",
+          type: "JOB_TRAINING",
+          title: "Job training completed — certificate issued",
+          body: "Your job training is complete. Your certificate is ready to view.",
+          related_entity_type: "JOB_TRAINING_ENROLLMENT",
+          related_entity_id: "enr-1",
+        }),
+      ],
+      unread_count: 1,
+    });
+    const { container } = render(<NotificationsView />);
+    await screen.findByText("Job training completed — certificate issued");
+    expect(
+      container.querySelector('a[href="/student/job-training/enr-1"]'),
+    ).not.toBeNull();
+  });
 });

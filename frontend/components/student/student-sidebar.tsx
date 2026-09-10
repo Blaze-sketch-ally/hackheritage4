@@ -7,9 +7,11 @@ import {
   Bell,
   BookOpen,
   Briefcase,
+  BriefcaseBusiness,
   Building2,
   CalendarDays,
   ClipboardCheck,
+  Compass,
   FileText,
   FolderKanban,
   GraduationCap,
@@ -17,6 +19,7 @@ import {
   LayoutDashboard,
   type LucideIcon,
   Settings,
+  Sparkles,
   Target,
   Trophy,
   User,
@@ -41,28 +44,46 @@ interface NavGroup {
 // (scaffold placeholder pages are fine — see docs/PROJECT_CONTEXT.md §2).
 // Items with no href (e.g. Industry Projects) have no matching route yet
 // and are shown as "Soon" rather than linking to a page that isn't theirs.
-const NAV_GROUPS: NavGroup[] = [
-  { items: [{ label: "Dashboard", href: "/student/dashboard", icon: LayoutDashboard }] },
+//
+// `hasJobTraining` is threaded in from StudentShell (which calls
+// GET /api/v1/student/job-training once): the "Job Training" item shows
+// ONLY when the student has at least one accessible enrollment. This is
+// UX only — the route and the backend still enforce access on their own.
+// "My Institution" is always shown; /student/institution renders its own
+// empty state for a student not yet linked to an institution.
+function navGroups(hasJobTraining: boolean): NavGroup[] {
+  const mainItems: NavItem[] = [
+    { label: "Skills & Assessment", href: "/student/skills", icon: Target },
+    { label: "Assessments", href: "/student/assessment", icon: ClipboardCheck },
+    { label: "Skill Gap Analysis", href: "/student/skill-gap", icon: TrendingUp },
+    { label: "Recommended For You", href: "/student/recommendations", icon: Sparkles },
+    { label: "Career", href: "/student/career", icon: Compass },
+    { label: "Learning & Courses", href: "/student/learning", icon: BookOpen },
+    { label: "Internships", href: "/student/internships", icon: Briefcase },
+    { label: "My Internships", href: "/student/my-internships", icon: GraduationCap },
+    ...(hasJobTraining
+      ? [
+          {
+            label: "Job Training",
+            href: "/student/job-training",
+            icon: BriefcaseBusiness,
+          } satisfies NavItem,
+        ]
+      : []),
+    { label: "Jobs & Placements", href: "/student/jobs", icon: Building2 },
+    { label: "Applications", href: "/student/applications", icon: FileText },
+  ];
+
+  return [
+  {
+    items: [
+      { label: "Dashboard", href: "/student/dashboard", icon: LayoutDashboard },
+      { label: "My Institution", href: "/student/institution", icon: GraduationCap },
+    ],
+  },
   {
     label: "Main",
-    items: [
-      { label: "Skills", href: "/student/skills", icon: Target },
-      // Real, fully-built feature (question bank, randomized attempts,
-      // scoring, results) with no prior entry point anywhere in the
-      // student UI -- previously only reachable by typing the URL
-      // directly. Placed between Skills and Skill Gap Analysis to match
-      // the documented pipeline order (assessment results are what skill
-      // gap analysis is actually computed from -- see
-      // docs/architecture/assessment-lifecycle.md's "Skill Evidence
-      // Boundary" section).
-      { label: "Assessments", href: "/student/assessment", icon: ClipboardCheck },
-      { label: "Skill Gap Analysis", href: "/student/skill-gap", icon: TrendingUp },
-      { label: "Learning & Courses", href: "/student/learning", icon: BookOpen },
-      { label: "Internships", href: "/student/internships", icon: Briefcase },
-      { label: "My Internships", href: "/student/my-internships", icon: GraduationCap },
-      { label: "Jobs & Placements", href: "/student/jobs", icon: Building2 },
-      { label: "Applications", href: "/student/applications", icon: FileText },
-    ],
+    items: mainItems,
   },
   {
     label: "Portfolio",
@@ -77,8 +98,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Network",
     items: [
       { label: "Mentorship", href: "/student/mentorship", icon: Users },
-      { label: "Mentorship Opportunities", href: "/student/mentorship-opportunities", icon: Handshake },
-      { label: "Workshops & Events", href: "/student/events", icon: CalendarDays },
+      { label: "Events", href: "/student/events", icon: CalendarDays },
       { label: "Industry Projects", icon: Handshake },
     ],
   },
@@ -90,10 +110,18 @@ const NAV_GROUPS: NavGroup[] = [
       { label: "Settings", href: "/student/settings", icon: Settings },
     ],
   },
-];
+  ];
+}
 
-export function StudentSidebar({ onNavigate }: { onNavigate?: () => void }) {
+export function StudentSidebar({
+  onNavigate,
+  hasJobTraining = false,
+}: {
+  onNavigate?: () => void;
+  hasJobTraining?: boolean;
+}) {
   const pathname = usePathname();
+  const groups = navGroups(hasJobTraining);
 
   return (
     <div className="flex h-full flex-col">
@@ -107,7 +135,7 @@ export function StudentSidebar({ onNavigate }: { onNavigate?: () => void }) {
       </div>
 
       <nav className="flex-1 space-y-6 overflow-y-auto px-3 py-4">
-        {NAV_GROUPS.map((group, i) => (
+        {groups.map((group, i) => (
           <div key={group.label ?? i} className="space-y-1">
             {group.label ? (
               <p className="px-2.5 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">

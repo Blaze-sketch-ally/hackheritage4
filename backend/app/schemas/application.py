@@ -1,5 +1,5 @@
 """Pydantic schemas for the Industry side of applications
-(database/migrations/055_applications.sql -- the unified internship + job
+(database/migrations/020_applications.sql -- the unified internship + job
 application table).
 
 An application row is created by a STUDENT applying to a published
@@ -11,7 +11,7 @@ sending `{"status": ...}` from the service.
 Student identity: `profiles` RLS still only permits a user to read their
 own row (001_profiles.sql) -- that is unchanged. `student_name` is
 resolved server-side through `public.application_applicant_names`
-(057_application_applicant_names.sql), a SECURITY DEFINER function scoped
+(036_application_applicant_names.sql), a SECURITY DEFINER function scoped
 to the exact same "Industry can view applications to their own postings"
 predicate as the applications table's own RLS SELECT policy, so it can
 never name a student for an application the caller doesn't already own.
@@ -25,7 +25,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-# database/migrations/055_applications.sql -- applications.status CHECK
+# database/migrations/020_applications.sql -- applications.status CHECK
 ApplicationStatus = Literal[
     "APPLIED",
     "UNDER_REVIEW",
@@ -71,6 +71,30 @@ class ApplicationOpportunity(BaseModel):
     status: str
 
 
+class ApplicationProvisioning(BaseModel):
+    """What the SELECTED transition provisioned for the candidate, so the
+    UI can say more than "moved to Selected". Present ONLY on the response
+    to a successful SELECTED transition -- never on a list/get or on any
+    other status. The backend is the single source of truth: `message` is
+    the exact string the UI shows, computed here from the
+    provision_for_selection() outcome, never re-derived on the client.
+
+      * kind        -- which post-selection container this describes.
+      * outcome     -- the raw provisioning outcome (CREATED / ALREADY_EXISTS
+                       / SKIPPED_* / FAILED), for conditional UI/telemetry.
+      * provisioned -- True when a usable container now exists (CREATED or
+                       ALREADY_EXISTS); False for every skipped/failed case.
+      * internship_id -- set only for a provisioned INTERNSHIP_WORKSPACE,
+                       so the UI can link to that internship's workspace.
+    """
+
+    kind: Literal["INTERNSHIP_WORKSPACE", "JOB_TRAINING"]
+    outcome: str
+    provisioned: bool
+    message: str
+    internship_id: str | None = None
+
+
 class ApplicationResponse(BaseModel):
     id: str
     student_id: str
@@ -89,6 +113,10 @@ class ApplicationResponse(BaseModel):
     created_at: str | None = None
     updated_at: str | None = None
     opportunity: ApplicationOpportunity | None = None
+    # Set only on the response to a successful SELECTED transition -- what
+    # was provisioned for the candidate (Internship Workspace / Job
+    # Training enrollment). None on every other read.
+    provisioning: ApplicationProvisioning | None = None
 
 
 class ApplicationListResponse(BaseModel):

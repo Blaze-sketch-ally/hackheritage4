@@ -1,5 +1,5 @@
 """Business logic for INDUSTRY internship-program authoring
-(database/migrations/060_internship_program.sql).
+(database/migrations/049_internship_program.sql).
 
 Every function takes an already-built *user-scoped* Supabase client
 (app.core.security.build_user_client) -- never get_supabase() /
@@ -10,8 +10,8 @@ service_role -- so RLS is the real access-control boundary:
   `exists (internships i where i.id = internship_id AND
   i.industry_id = auth.uid() AND public.is_industry(auth.uid()))`.
 * program_modules / module_items: routed through
-  public.owns_internship_program(program_id) (060).
-* program_skills: a single `for all` owner policy (060) -- so the
+  public.owns_internship_program(program_id) (037).
+* program_skills: a single `for all` owner policy (037) -- so the
   replace-set (DELETE + INSERT) below is RLS-legal, same pattern as
   internship_service._replace_skills on internship_skills.
 
@@ -29,7 +29,7 @@ allow it and the student preview (Phase 3) reflects changes live, exactly
 like industry_training.update_training.
 
 Phase 5 adds program_assignments authoring (create / update / reorder;
-no delete -- 060 grants no DELETE policy, hide via is_published) and a
+no delete -- 037 grants no DELETE policy, hide via is_published) and a
 READ-ONLY industry view of workspace_submissions (list + detail + attempt
 history).
 
@@ -67,7 +67,7 @@ _SUBMISSION_COLUMNS = (
     "id, workspace_id, assignment_id, attempt_number, submission_status, "
     "repo_url, live_url, attachment_url, notes, submitted_at, created_at, updated_at"
 )
-# database/migrations/062_workspace_submissions_completion.sql -- submission_reviews
+# database/migrations/051_workspace_submissions_completion.sql -- submission_reviews
 _REVIEW_COLUMNS = "id, submission_id, verdict, feedback, score, reviewer_id, created_at"
 # A review may only be recorded while the attempt is still open. Once a
 # terminal verdict lands, the submission_status cache leaves this set and

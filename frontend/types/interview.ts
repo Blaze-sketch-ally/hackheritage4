@@ -4,9 +4,10 @@
 //
 // An interview always hangs off an existing `applications` row. Its
 // `industry_id` / `student_id` are server-derived from that application
-// (never client-supplied), and — exactly like an application response —
-// the candidate is only ever exposed as `student_id` (a uuid), never a
-// name/email/profile.
+// (never client-supplied). The candidate is exposed as `student_id` (a
+// uuid) plus, when resolvable, `student_name` — the applicant's full name
+// only, for applications the caller owns, via the same ownership-scoped
+// RPC the Applicants list uses. No email/phone/avatar/profile.
 //
 // Lifecycle: SCHEDULED -> COMPLETED / CANCELLED. Rescheduling is an edit
 // of a still-SCHEDULED interview, not a separate status.
@@ -57,6 +58,10 @@ export interface Interview {
   application_id: string;
   industry_id: string;
   student_id: string;
+  /** The applicant's full name, resolved through the ownership-scoped
+   * `application_applicant_names` RPC. Name only. Null when the RPC could
+   * not resolve it — render `applicantDisplayName` for the fallback. */
+  student_name: string | null;
   /** ISO-8601 UTC instant. Render in the viewer's locale. */
   scheduled_at: string;
   duration_minutes: number;

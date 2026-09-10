@@ -1,6 +1,6 @@
 """API routes for Industry interview scheduling -- the concrete
 date/time/mode/location/notes layer on top of the recruitment pipeline's
-"interview stage" (applications.status = 'INTERVIEW_SCHEDULED', 055).
+"interview stage" (applications.status = 'INTERVIEW_SCHEDULED', 020).
 
 Every route is guarded by require_industry() and every read/write goes
 through build_user_client(current_user.access_token) -- never
@@ -12,9 +12,10 @@ request (a database trigger derives them from the referenced application).
 Lifecycle: SCHEDULED -> COMPLETED / CANCELLED, plus reschedule (an edit of
 a still-SCHEDULED interview). There is deliberately NO DELETE endpoint --
 an interview is recruitment history; cancellation is a status, matching
-applications / collaborations / postings (055 / 026 / 027 / 028).
+applications / collaborations / postings (020 / 026 / 027 / 028).
 """
 
+import contextlib
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -28,13 +29,30 @@ from app.schemas.interview import (
     InterviewStatus,
     InterviewUpdate,
 )
-from app.services import interview_service
+from app.services import interview_service, notification_producer
 
 router = APIRouter(prefix="/interviews", tags=["interviews"])
 
 
 def _not_found() -> HTTPException:
     return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Interview not found.")
+
+
+def _notify_interview_change(row: dict, event: str) -> None:
+    """Best-effort Student notification for an interview scheduled /
+    rescheduled / cancelled. Mirrors the application-status route: the
+    producer writes with the service role (student_notifications has no
+    insert policy) and swallows its own errors, so a failed notification
+    never turns a successful scheduling action into an error. The producer
+    already suppresses its own errors; the extra guard here keeps the
+    route independent of that contract."""
+    with contextlib.suppress(Exception):
+        notification_producer.emit_interview_change(
+            student_id=row.get("student_id"),
+            application_id=row.get("application_id"),
+            event=event,
+            opportunity_title=(row.get("opportunity") or {}).get("title"),
+        )
 
 
 def _server_error(action: str) -> HTTPException:
@@ -86,6 +104,7 @@ def create_interview(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except Exception as exc:
         raise _server_error("schedule the interview") from exc
+    _notify_interview_change(row, "SCHEDULED")
     return InterviewResponse(**row)
 
 
@@ -131,6 +150,8 @@ def reschedule_interview(
         raise _server_error("update the interview") from exc
     if row is None:
         raise _not_found()
+    if payload:
+        _notify_interview_change(row, "RESCHEDULED")
     return InterviewResponse(**row)
 
 
@@ -171,4 +192,5 @@ def cancel_interview(
         raise _server_error("cancel the interview") from exc
     if row is None:
         raise _not_found()
+    _notify_interview_change(row, "CANCELLED")
     return InterviewResponse(**row)

@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { OpportunityListView } from "@/components/student/opportunities/opportunity-list-view";
 import { createClient } from "@/lib/supabase/server";
@@ -20,7 +21,9 @@ export default async function StudentJobsPage() {
           Browse published jobs and see your real skill match for each.
         </p>
       </div>
-      <OpportunityListView sourceType="JOB" detailBasePath="/student/jobs" />
+      <Suspense fallback={null}>
+        <OpportunityListView sourceType="JOB" detailBasePath="/student/jobs" />
+      </Suspense>
     </div>
   );
 }

@@ -99,6 +99,92 @@ describe("ApplicationDetailView", () => {
     expect(screen.getByText("Interview scheduled")).toBeInTheDocument();
   });
 
+  it("shows the backend provisioning message and a workspace link on SELECTED (internship)", async () => {
+    mocks.getApplication.mockResolvedValueOnce(
+      application({ status: "INTERVIEW_SCHEDULED" }),
+    );
+    mocks.updateApplicationStatus.mockResolvedValueOnce(
+      application({
+        status: "SELECTED",
+        provisioning: {
+          kind: "INTERNSHIP_WORKSPACE",
+          outcome: "CREATED",
+          provisioned: true,
+          message: "Selected — Internship Workspace created.",
+          internship_id: "int-1",
+        },
+      }),
+    );
+
+    render(<ApplicationDetailView applicationId="app-1" />);
+    await screen.findByRole("heading", { name: /Applicant 11112222/ });
+
+    await userEvent.click(screen.getByRole("button", { name: "Mark selected" }));
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Mark selected" }));
+
+    expect(
+      await screen.findByText("Selected — Internship Workspace created."),
+    ).toBeInTheDocument();
+    const link = screen.getByRole("link", { name: /Open Internship Workspace/ });
+    expect(link).toHaveAttribute("href", "/industry/internships/int-1/submissions");
+  });
+
+  it("shows the job-training-not-published provisioning message without a link", async () => {
+    mocks.getApplication.mockResolvedValueOnce(
+      application({
+        status: "INTERVIEW_SCHEDULED",
+        opportunity_type: "JOB",
+        internship_id: null,
+        job_id: "job-1",
+      }),
+    );
+    mocks.updateApplicationStatus.mockResolvedValueOnce(
+      application({
+        status: "SELECTED",
+        opportunity_type: "JOB",
+        internship_id: null,
+        job_id: "job-1",
+        provisioning: {
+          kind: "JOB_TRAINING",
+          outcome: "SKIPPED_NO_PROGRAM",
+          provisioned: false,
+          message: "Selected — Job Training is not published yet.",
+        },
+      }),
+    );
+
+    render(<ApplicationDetailView applicationId="app-1" />);
+    await screen.findByRole("heading", { name: /Applicant 11112222/ });
+
+    await userEvent.click(screen.getByRole("button", { name: "Mark selected" }));
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Mark selected" }));
+
+    expect(
+      await screen.findByText("Selected — Job Training is not published yet."),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: /Internship Workspace/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("falls back to the generic moved-to message when there is no provisioning info", async () => {
+    mocks.getApplication.mockResolvedValueOnce(application());
+    mocks.updateApplicationStatus.mockResolvedValueOnce(
+      application({ status: "INTERVIEW_SCHEDULED" }),
+    );
+
+    render(<ApplicationDetailView applicationId="app-1" />);
+    await screen.findByRole("heading", { name: /Applicant 11112222/ });
+
+    await userEvent.click(screen.getByRole("button", { name: "Schedule interview" }));
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Schedule interview" }));
+
+    expect(await screen.findByText(/moved to/i)).toBeInTheDocument();
+  });
+
   it("handles a 409 invalid-transition from a stale tab", async () => {
     mocks.getApplication.mockResolvedValueOnce(application());
     mocks.updateApplicationStatus.mockRejectedValueOnce(

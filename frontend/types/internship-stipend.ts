@@ -3,7 +3,7 @@
  * same nullability.
  *
  * Phase 8: internship stipend RECORD-KEEPING
- * (database/migrations/039_workspace_submissions_completion.sql --
+ * (database/migrations/051_workspace_submissions_completion.sql --
  * stipend_disbursements). There is no payment gateway, no bank/UPI
  * integration, and no real money movement anywhere in this app --
  * "RELEASED" means the industry recorded that a disbursement happened,

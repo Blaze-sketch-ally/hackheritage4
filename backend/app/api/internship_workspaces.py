@@ -1,5 +1,5 @@
 """API routes for the INDUSTRY view of Internship Workspaces belonging to
-its own internship postings (database/migrations/061_internship_workspace.sql).
+its own internship postings (database/migrations/050_internship_workspace.sql).
 
 PHASE 2 SCOPE: a single read endpoint, to verify provisioning. Program
 authoring and submission review are later phases and are NOT in this

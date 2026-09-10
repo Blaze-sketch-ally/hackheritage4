@@ -82,6 +82,23 @@ export interface ApplicationOpportunity {
   status: string;
 }
 
+/** What the SELECTED transition provisioned for the candidate. Present
+ * ONLY on the response to a successful SELECTED transition (never on a
+ * list/get or any other status). The backend computes `message` — the UI
+ * shows it verbatim and never re-derives provisioning state. Mirrors
+ * backend `ApplicationProvisioning`. */
+export interface ApplicationProvisioning {
+  kind: "INTERNSHIP_WORKSPACE" | "JOB_TRAINING";
+  /** Raw outcome: CREATED / ALREADY_EXISTS / SKIPPED_* / FAILED. */
+  outcome: string;
+  /** True when a usable container now exists (CREATED or ALREADY_EXISTS). */
+  provisioned: boolean;
+  /** The exact line to show the recruiter. */
+  message: string;
+  /** Set only for a provisioned INTERNSHIP_WORKSPACE — link target. */
+  internship_id?: string | null;
+}
+
 export interface Application {
   id: string;
   student_id: string;
@@ -103,6 +120,9 @@ export interface Application {
   created_at: string | null;
   updated_at: string | null;
   opportunity: ApplicationOpportunity | null;
+  /** Only set on the object returned by `updateApplicationStatus` for a
+   * SELECTED transition — see `ApplicationProvisioning`. */
+  provisioning?: ApplicationProvisioning | null;
 }
 
 /** GET /api/v1/applications/summary — drives the recruitment funnel. */

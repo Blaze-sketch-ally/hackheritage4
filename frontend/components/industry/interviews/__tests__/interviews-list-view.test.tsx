@@ -32,6 +32,7 @@ function interview(overrides: Partial<Interview> = {}): Interview {
     application_id: "app-1",
     industry_id: "industry-1",
     student_id: "student-abcdef12",
+    student_name: null,
     scheduled_at: "2099-01-01T10:00:00.000Z",
     duration_minutes: 30,
     mode: "ONLINE",
@@ -107,6 +108,27 @@ describe("InterviewsListView", () => {
     expect(screen.getByText("Scheduled")).toBeInTheDocument();
   });
 
+  it("shows the applicant's real name on a scheduled interview when resolved", async () => {
+    mocks.getInterviews.mockResolvedValueOnce({
+      interviews: [interview({ student_name: "Priya Menon" })],
+    });
+    mocks.getApplications.mockResolvedValueOnce({ applications: [] });
+    render(<InterviewsListView />);
+    expect(await screen.findByText("Priya Menon")).toBeInTheDocument();
+    expect(screen.queryByText("Applicant student-")).not.toBeInTheDocument();
+  });
+
+  it("finds a scheduled interview by the applicant's real name in search", async () => {
+    mocks.getInterviews.mockResolvedValueOnce({
+      interviews: [interview({ student_name: "Priya Menon" })],
+    });
+    mocks.getApplications.mockResolvedValueOnce({ applications: [] });
+    render(<InterviewsListView />);
+    await screen.findByText("Priya Menon");
+    await userEvent.type(screen.getByPlaceholderText(/Search by candidate/i), "priya");
+    expect(screen.getByText("Priya Menon")).toBeInTheDocument();
+  });
+
   it("runs the cancel lifecycle action through a confirmation", async () => {
     mocks.getInterviews.mockResolvedValueOnce({ interviews: [interview()] });
     mocks.getApplications.mockResolvedValueOnce({ applications: [] });
@@ -140,5 +162,125 @@ describe("InterviewsListView", () => {
 
     await userEvent.click(await screen.findByRole("button", { name: /Schedule interview/i }));
     expect(await screen.findByText(/No shortlisted candidates/i)).toBeInTheDocument();
+  });
+
+  // --- Regression: an application advanced to INTERVIEW_SCHEDULED from the
+  // Applicants page has no `interviews` row, yet the candidate must still
+  // appear in the Interview panel (as "awaiting scheduling"). ---
+
+  it("lists an INTERVIEW_SCHEDULED candidate with no interview row as awaiting scheduling", async () => {
+    mocks.getInterviews.mockResolvedValueOnce({ interviews: [] });
+    mocks.getApplications.mockResolvedValueOnce({
+      applications: [
+        application({ id: "app-9", status: "INTERVIEW_SCHEDULED", student_name: "Riya Sharma" }),
+      ],
+    });
+    render(<InterviewsListView />);
+
+    expect(await screen.findByText("Awaiting scheduling")).toBeInTheDocument();
+    expect(screen.getByText("Riya Sharma")).toBeInTheDocument();
+    expect(screen.getByText("Interview not scheduled")).toBeInTheDocument();
+    // NOT the "nothing here" empty state
+    expect(screen.queryByText("No interviews scheduled")).not.toBeInTheDocument();
+  });
+
+  it("keeps the empty state when there are genuinely no interviews and no interview-stage candidates", async () => {
+    mocks.getInterviews.mockResolvedValueOnce({ interviews: [] });
+    mocks.getApplications.mockResolvedValueOnce({
+      applications: [application({ id: "app-s", status: "SHORTLISTED" })],
+    });
+    render(<InterviewsListView />);
+
+    expect(await screen.findByText("No interviews scheduled")).toBeInTheDocument();
+    expect(screen.queryByText("Awaiting scheduling")).not.toBeInTheDocument();
+  });
+
+  it("never shows a SELECTED candidate in the panel (awaiting or scheduling picker)", async () => {
+    mocks.getInterviews.mockResolvedValueOnce({ interviews: [] });
+    mocks.getApplications.mockResolvedValueOnce({
+      applications: [
+        application({ id: "app-sel", status: "SELECTED", student_name: "Selected Sam" }),
+      ],
+    });
+    render(<InterviewsListView />);
+
+    // SELECTED is post-interview -> Job Training / Internship Workspace, not here
+    expect(await screen.findByText("No interviews scheduled")).toBeInTheDocument();
+    expect(screen.queryByText("Awaiting scheduling")).not.toBeInTheDocument();
+    expect(screen.queryByText("Selected Sam")).not.toBeInTheDocument();
+
+    // ...and the schedule picker does not offer them either
+    await userEvent.click(screen.getByRole("button", { name: /Schedule interview/i }));
+    expect(await screen.findByText(/No shortlisted candidates/i)).toBeInTheDocument();
+  });
+
+  it("does not double-list an INTERVIEW_SCHEDULED candidate that already has a scheduled interview", async () => {
+    mocks.getInterviews.mockResolvedValueOnce({
+      interviews: [interview({ id: "iv-1", application_id: "app-7", status: "SCHEDULED" })],
+    });
+    mocks.getApplications.mockResolvedValueOnce({
+      applications: [application({ id: "app-7", status: "INTERVIEW_SCHEDULED" })],
+    });
+    render(<InterviewsListView />);
+
+    // the interview card renders...
+    expect(await screen.findByText("Backend Engineer")).toBeInTheDocument();
+    // ...and there is no "awaiting" section for the same candidate
+    expect(screen.queryByText("Awaiting scheduling")).not.toBeInTheDocument();
+  });
+
+  it("shows both a scheduled interview and a separate awaiting candidate", async () => {
+    mocks.getInterviews.mockResolvedValueOnce({
+      interviews: [interview({ id: "iv-1", application_id: "app-1", status: "SCHEDULED" })],
+    });
+    mocks.getApplications.mockResolvedValueOnce({
+      applications: [
+        application({ id: "app-2", status: "INTERVIEW_SCHEDULED", student_name: "Awaiting Amy" }),
+      ],
+    });
+    render(<InterviewsListView />);
+
+    expect(await screen.findByText("Awaiting scheduling")).toBeInTheDocument();
+    expect(screen.getByText("Awaiting Amy")).toBeInTheDocument();
+    expect(screen.getByText("Scheduled interviews")).toBeInTheDocument();
+  });
+
+  it("opens the schedule dialog preselected when scheduling from an awaiting candidate", async () => {
+    mocks.getInterviews.mockResolvedValueOnce({ interviews: [] });
+    mocks.getApplications.mockResolvedValueOnce({
+      applications: [
+        application({ id: "app-1", status: "INTERVIEW_SCHEDULED" }),
+        application({ id: "app-2", status: "SHORTLISTED" }),
+      ],
+    });
+    render(<InterviewsListView />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Schedule" }));
+    const select = (await screen.findByLabelText("Candidate")) as HTMLSelectElement;
+    expect(select.value).toBe("app-1");
+  });
+
+  // --- Regression: the backend now stitches `opportunity` from a separate,
+  // best-effort `applications` read. When that enrichment is unavailable the
+  // interview row comes back with `opportunity: null` (and possibly
+  // `opportunity_type: null`). The card must still render, not crash. ---
+
+  it("renders an interview whose opportunity enrichment is null without crashing", async () => {
+    mocks.getInterviews.mockResolvedValueOnce({
+      interviews: [interview({ opportunity: null, opportunity_type: null })],
+    });
+    mocks.getApplications.mockResolvedValueOnce({ applications: [] });
+    render(<InterviewsListView />);
+
+    // the row still lists (candidate ref + status), with a safe fallback label
+    expect(await screen.findByText("Applicant student-")).toBeInTheDocument();
+    expect(screen.getByText("Scheduled")).toBeInTheDocument();
+    expect(screen.getByText("Opportunity")).toBeInTheDocument();
+    expect(screen.queryByText("No interviews scheduled")).not.toBeInTheDocument();
+
+    // search still works (the haystack tolerates the missing title)
+    await userEvent.type(screen.getByLabelText("Search interviews"), "student");
+    expect(screen.getByText("Applicant student-")).toBeInTheDocument();
+    expect(screen.queryByText("No interviews match your filters")).not.toBeInTheDocument();
   });
 });

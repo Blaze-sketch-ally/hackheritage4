@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { OpportunityListView } from "@/components/student/opportunities/opportunity-list-view";
 import { createClient } from "@/lib/supabase/server";
@@ -20,7 +21,9 @@ export default async function StudentInternshipsPage() {
           Browse published internships and see your real skill match for each.
         </p>
       </div>
-      <OpportunityListView sourceType="INTERNSHIP" detailBasePath="/student/internships" />
+      <Suspense fallback={null}>
+        <OpportunityListView sourceType="INTERNSHIP" detailBasePath="/student/internships" />
+      </Suspense>
     </div>
   );
 }

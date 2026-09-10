@@ -1,5 +1,5 @@
 """Business logic for Industry interview scheduling (`interviews`,
-database/migrations/063_industry_interviews.sql).
+database/migrations/030_industry_interviews.sql).
 
 Same shape as application_service / industry_collaboration_service: every
 function takes an already-built *user-scoped* Supabase client
@@ -48,11 +48,23 @@ _ELIGIBLE_APPLICATION_STATUSES = frozenset({"SHORTLISTED", "INTERVIEW_SCHEDULED"
 _COMPLETE_FROM = frozenset({"SCHEDULED"})
 _CANCEL_FROM = frozenset({"SCHEDULED"})
 
+# The interview row itself -- flat columns only. The opportunity
+# (title/type) is stitched on afterwards from a separate `applications`
+# read (`_opportunity_index`) rather than a PostgREST embed: the
+# interviews -> applications relationship is not something this read can
+# depend on being present in PostgREST's schema cache, and stitching is
+# the same pattern application_service uses for applicant names.
 _SELECT = (
     "id, application_id, industry_id, student_id, scheduled_at, duration_minutes, "
-    "mode, location, notes, status, created_at, updated_at, "
-    "application:applications(opportunity_type, "
-    "internship:internships(id, title, status), job:jobs(id, title, status))"
+    "mode, location, notes, status, created_at, updated_at"
+)
+
+# The owned-application read used to resolve each interview's opportunity.
+# Goes through the same user-scoped client, so `applications`' own RLS
+# ("Industry can view applications to their own postings") still applies.
+_APPLICATION_SELECT = (
+    "id, opportunity_type, "
+    "internship:internships(id, title, status), job:jobs(id, title, status)"
 )
 
 
@@ -95,20 +107,91 @@ def _parse_dt(value) -> datetime:
     return dt.astimezone(UTC)
 
 
-def _shape(row: dict) -> dict:
-    """Collapse the nested application -> internship/job embed into a flat
-    `opportunity` + `opportunity_type`, mirroring application_service._shape."""
-    application = row.pop("application", None) or {}
-    internship = application.get("internship")
-    job = application.get("job")
-    picked = internship or job
-    row["opportunity"] = (
-        {"id": picked["id"], "title": picked["title"], "status": picked["status"]}
-        if picked
-        else None
-    )
-    row["opportunity_type"] = application.get("opportunity_type")
+def _opportunity_index(
+    client: Client, industry_id: str, application_ids: list[str]
+) -> dict[str, dict]:
+    """Map application_id -> {"opportunity", "opportunity_type"} for the
+    given applications, via ONE ownership-scoped `applications` read.
+
+    Scoped two ways, matching every other function in this module:
+    `applications`' own RLS ("Industry can view applications to their own
+    postings") AND an explicit `.eq("industry_id", industry_id)` filter --
+    so the enrichment read can only ever surface the caller's own
+    applications, never another company's, even if RLS were somehow
+    misconfigured.
+
+    Best-effort enrichment, exactly like application_service's applicant
+    names: a lookup failure (or an application the caller can no longer
+    see) just leaves `opportunity` / `opportunity_type` as None on the
+    interview -- it never turns a successful interview read into an error.
+    """
+    ids = [i for i in dict.fromkeys(application_ids) if i]
+    if not ids:
+        return {}
+    try:
+        response = (
+            client.table("applications")
+            .select(_APPLICATION_SELECT)
+            .eq("industry_id", industry_id)
+            .in_("id", ids)
+            .execute()
+        )
+    except Exception:  # noqa: BLE001 -- opportunity is optional enrichment, never fatal
+        return {}
+    index: dict[str, dict] = {}
+    for row in response.data or []:
+        picked = row.get("internship") or row.get("job")
+        index[row["id"]] = {
+            "opportunity": (
+                {"id": picked["id"], "title": picked["title"], "status": picked["status"]}
+                if picked
+                else None
+            ),
+            "opportunity_type": row.get("opportunity_type"),
+        }
+    return index
+
+
+def _shape(row: dict, opportunity_index: dict[str, dict] | None = None) -> dict:
+    """Attach the flat `opportunity` + `opportunity_type` an interview
+    response carries, from the pre-fetched `_opportunity_index`."""
+    info = (opportunity_index or {}).get(row.get("application_id")) or {}
+    row["opportunity"] = info.get("opportunity")
+    row["opportunity_type"] = info.get("opportunity_type")
     return row
+
+
+def _attach_applicant_names(client: Client, rows: list[dict]) -> list[dict]:
+    """Best-effort attach `student_name` to each interview row via the
+    public.application_applicant_names RPC (036) -- the same
+    ownership-scoped SECURITY DEFINER function application_service uses.
+    It is scoped to the exact ownership predicate of `applications`' own
+    RLS SELECT policy, so it can only ever name applicants for
+    applications the caller owns, and it returns the applicant's
+    `full_name` only -- never email / phone / avatar / anything else.
+
+    Never raises: a lookup failure just leaves `student_name` as None on
+    every row, so the scheduled-interview card falls back to the existing
+    "Applicant <ref>" placeholder exactly as before. Keyed on
+    `application_id` (each interview references exactly one application).
+    """
+    if not rows:
+        return rows
+    names: dict[str, str | None] = {}
+    try:
+        application_ids = list(
+            dict.fromkeys(row["application_id"] for row in rows if row.get("application_id"))
+        )
+        if application_ids:
+            response = client.rpc(
+                "application_applicant_names", {"application_ids": application_ids}
+            ).execute()
+            names = {r["application_id"]: r["student_name"] for r in (response.data or [])}
+    except Exception:  # noqa: BLE001 -- names are optional enrichment, never fatal
+        names = {}
+    for row in rows:
+        row["student_name"] = names.get(row.get("application_id"))
+    return rows
 
 
 def list_interviews(
@@ -130,7 +213,9 @@ def list_interviews(
     if upcoming:
         query = query.eq("status", "SCHEDULED").gte("scheduled_at", _now().isoformat())
     response = query.order("scheduled_at", desc=False).execute()
-    return [_shape(row) for row in (response.data or [])]
+    rows = response.data or []
+    index = _opportunity_index(client, industry_id, [row["application_id"] for row in rows])
+    return _attach_applicant_names(client, [_shape(row, index) for row in rows])
 
 
 def get_interview(client: Client, industry_id: str, interview_id: str) -> dict | None:
@@ -146,7 +231,11 @@ def get_interview(client: Client, industry_id: str, interview_id: str) -> dict |
         .execute()
     )
     row = response.data if response is not None else None
-    return _shape(dict(row)) if row else None
+    if not row:
+        return None
+    row = dict(row)
+    index = _opportunity_index(client, industry_id, [row["application_id"]])
+    return _attach_applicant_names(client, [_shape(row, index)])[0]
 
 
 def _live_interviews_for_conflict(

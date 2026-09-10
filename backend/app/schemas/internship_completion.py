@@ -1,5 +1,5 @@
 """Pydantic schemas for Phase 7 -- internship completion + certificate
-(database/migrations/062_workspace_submissions_completion.sql:
+(database/migrations/051_workspace_submissions_completion.sql:
 `internship_completions`, `internship_certificates`,
 `public.verify_internship_certificate`).
 
@@ -18,7 +18,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-# internship_completions.outcome CHECK (062).
+# internship_completions.outcome CHECK (039).
 CompletionOutcome = Literal["PASS", "FAIL"]
 
 

@@ -1,7 +1,5 @@
+import { SkillGapList } from "@/components/institution/skill-gaps/skill-gap-list";
+
 export default function Page() {
-  return (
-    <div className="p-8">
-      <h1 className="text-xl font-semibold">Institution Skill Gaps – Coming Soon</h1>
-    </div>
-  );
+  return <SkillGapList />;
 }

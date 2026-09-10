@@ -1,5 +1,5 @@
 """Pydantic schemas for INDUSTRY internship-program authoring
-(database/migrations/060_internship_program.sql).
+(database/migrations/049_internship_program.sql).
 
 Phase 4 scope: an industry account authors exactly one internship_program
 per internship posting -- program metadata, ordered modules, module
@@ -7,8 +7,8 @@ items, and required/optional program skills -- and publishes it. The
 student-facing preview (Phase 3) consumes the PUBLISHED result unchanged.
 
 Phase 5 adds authoring for program_assignments (one normalized table for
-ASSIGNMENT / QUIZ / PROJECT -- migration 060) and a READ-ONLY industry
-view of workspace_submissions (migration 062).
+ASSIGNMENT / QUIZ / PROJECT -- migration 037) and a READ-ONLY industry
+view of workspace_submissions (migration 039).
 
 Phase 6 adds industry review of those submissions: the industry can move
 an attempt SUBMITTED -> UNDER_REVIEW and record a terminal verdict
@@ -20,7 +20,7 @@ still have no schema here and are never written.
 
 Ownership is never accepted in a request: every endpoint derives the
 industry from the token (require_industry -> current_user.id) and RLS
-(060_internship_program.sql, via public.owns_internship_program) is the
+(049_internship_program.sql, via public.owns_internship_program) is the
 real access-control boundary.
 """
 
@@ -29,13 +29,13 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-# database/migrations/060_internship_program.sql -- CHECK value lists
+# database/migrations/049_internship_program.sql -- CHECK value lists
 ProgramStatus = Literal["DRAFT", "PUBLISHED", "ARCHIVED"]
 SkillRequirement = Literal["REQUIRED", "OPTIONAL"]
 ModuleItemType = Literal["VIDEO", "PDF", "LINK", "TEXT"]
 AssignmentType = Literal["ASSIGNMENT", "QUIZ", "PROJECT"]
 SubmissionKind = Literal["LINK", "REPO", "FILE", "TEXT", "MIXED"]
-# database/migrations/062_workspace_submissions_completion.sql
+# database/migrations/051_workspace_submissions_completion.sql
 SubmissionStatus = Literal[
     "SUBMITTED", "UNDER_REVIEW", "REVISION_REQUESTED", "ACCEPTED", "REJECTED"
 ]
@@ -265,7 +265,7 @@ class AssignmentUpdate(BaseModel):
 
 
 class SubmissionReviewResponse(BaseModel):
-    """One submission_reviews row (migration 062). Append-only -- a
+    """One submission_reviews row (migration 039). Append-only -- a
     correction is a new row, so responses carry the whole list newest
     first. `reviewer_id` is exposed only on the INDUSTRY side (the
     reviewer's own account); the student never sees it."""

@@ -3,7 +3,7 @@
  * same nullability.
  *
  * Phase 4: an industry account authors exactly one internship_program per
- * internship posting (database/migrations/037_internship_program.sql) --
+ * internship posting (database/migrations/049_internship_program.sql) --
  * metadata, ordered modules, module items, and required/optional program
  * skills -- and publishes it. The student-facing preview (Phase 3)
  * consumes the PUBLISHED result unchanged.
@@ -15,7 +15,7 @@ export type ModuleItemType = "VIDEO" | "PDF" | "LINK" | "TEXT";
 
 export const MODULE_ITEM_TYPES: ModuleItemType[] = ["VIDEO", "PDF", "LINK", "TEXT"];
 
-// database/migrations/037_internship_program.sql -- program_assignments
+// database/migrations/049_internship_program.sql -- program_assignments
 export type AssignmentType = "ASSIGNMENT" | "QUIZ" | "PROJECT";
 export type SubmissionKind = "LINK" | "REPO" | "FILE" | "TEXT" | "MIXED";
 export type SubmissionStatus =

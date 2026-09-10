@@ -20,20 +20,26 @@ from app.api import (
     industry,
     industry_collaborations,
     industry_faculty_opportunities,
+    industry_job_training,
     industry_mentorship_opportunities,
     industry_projects,
     industry_trainings,
     industry_workshops,
+    institution,
     institution_faculty_opportunities,
+    institution_link_requests,
     internship_programs,
     internship_workspaces,
     internships,
     interviews,
+    job_training_programs,
     jobs,
     portfolio,
     questions,
     student_events,
+    student_institution,
     student_internship_workspaces,
+    student_job_training,
     student_learning,
     student_mentorship_opportunities,
     student_mentorships,
@@ -91,6 +97,14 @@ app.include_router(industry_trainings.router, prefix="/api/v1")
 app.include_router(industry_workshops.router, prefix="/api/v1")
 app.include_router(industry_mentorship_opportunities.router, prefix="/api/v1")
 app.include_router(industry_collaborations.router, prefix="/api/v1")
+app.include_router(industry_job_training.router, prefix="/api/v1")
+
+# Institution portal + Job Training (integration pass)
+app.include_router(institution.router, prefix="/api/v1")
+app.include_router(institution_link_requests.router, prefix="/api/v1")
+app.include_router(job_training_programs.router, prefix="/api/v1")
+app.include_router(student_institution.router, prefix="/api/v1")
+app.include_router(student_job_training.router, prefix="/api/v1")
 
 
 @app.get("/")

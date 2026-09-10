@@ -14,6 +14,9 @@ export const NOTIFICATION_TYPES = [
   "EVENT",
   "SYSTEM",
   "INTERNSHIP",
+  // Added by migration 052 (job training). Emitted by
+  // notification_producer.emit_job_training_completed.
+  "JOB_TRAINING",
 ] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
 
@@ -25,6 +28,9 @@ export const RELATED_ENTITY_TYPES = [
   "MENTORSHIP",
   "EVENT",
   "INTERNSHIP_WORKSPACE",
+  // Added by migration 052 (job training) -- the id is a
+  // job_training_enrollments.id; see relatedHref() below.
+  "JOB_TRAINING_ENROLLMENT",
 ] as const;
 export type RelatedEntityType = (typeof RELATED_ENTITY_TYPES)[number];
 
@@ -68,6 +74,10 @@ export function relatedHref(n: StudentNotification): string | null {
       return `/student/mentorship/${encodeURIComponent(id)}`;
     case "INTERNSHIP_WORKSPACE":
       return `/student/my-internships/${encodeURIComponent(id)}`;
+    case "JOB_TRAINING_ENROLLMENT":
+      // `id` is a job_training_enrollments.id -- the Student Job Training
+      // detail route (app/student/job-training/[enrollmentId]/page.tsx).
+      return `/student/job-training/${encodeURIComponent(id)}`;
     case "INTERVIEW":
       // No student-facing interview route exists yet.
       return null;

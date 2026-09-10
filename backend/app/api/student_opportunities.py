@@ -7,10 +7,12 @@ access-control boundary. `student_id` is always current_user.id, never
 read from a request body or query parameter.
 
 This is a read adapter over the existing `internships` / `jobs` tables and
-a thin writer over the existing `applications` table (055_applications.sql
+a thin writer over the existing `applications` table (020_applications.sql
 unchanged): no `opportunities` table, no `opportunity_id` column, no new
 status enum. The Industry recruitment pipeline is untouched.
 """
+
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
@@ -19,6 +21,8 @@ from app.core.security import build_user_client
 from app.schemas.student_opportunity import (
     ApplyRequest,
     OpportunityMatchResponse,
+    OpportunitySort,
+    OpportunityWorkMode,
     SourceType,
     StudentApplicationListResponse,
     StudentApplicationResponse,
@@ -30,10 +34,23 @@ from app.services import student_opportunity_service
 
 router = APIRouter(prefix="/student", tags=["student-opportunities"])
 
+# Sanity ceilings for the compensation filters -- well above any real
+# posting, low enough to reject an obviously bogus value. The filter only
+# ever narrows the PUBLISHED result set, so the exact ceiling is not a
+# security boundary, just input hygiene.
+_MAX_STIPEND = 10_000_000
+_MAX_SALARY = 100_000_000
+
 
 def _not_found() -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_404_NOT_FOUND, detail="This opportunity is not available."
+    )
+
+
+def _application_not_found() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND, detail="We couldn't find that application."
     )
 
 
@@ -48,12 +65,27 @@ def _server_error(action: str) -> HTTPException:
 def list_opportunities(
     source_type: SourceType | None = Query(default=None),
     search: str | None = Query(default=None, max_length=200),
+    work_mode: OpportunityWorkMode | None = Query(default=None),
+    order_by: OpportunitySort = Query(default="newest"),
+    min_stipend: int | None = Query(default=None, ge=0, le=_MAX_STIPEND),
+    min_salary: int | None = Query(default=None, ge=0, le=_MAX_SALARY),
     current_user: CurrentUser = Depends(require_student),
 ) -> StudentOpportunityListResponse:
+    """Browse published internships/jobs. `work_mode` / `order_by` are
+    validated against a fixed whitelist (422 on a bad value); `min_stipend`
+    / `min_salary` are non-negative bounded integers. Every filter only
+    narrows the PUBLISHED result set -- see the service docstring."""
     client = build_user_client(current_user.access_token)
     try:
         rows = student_opportunity_service.list_opportunities(
-            client, current_user.id, source_type=source_type, search=search
+            client,
+            current_user.id,
+            source_type=source_type,
+            search=search,
+            work_mode=work_mode,
+            order_by=order_by,
+            min_stipend=min_stipend,
+            min_salary=min_salary,
         )
     except Exception as exc:
         raise _server_error("load opportunities") from exc
@@ -170,3 +202,36 @@ def list_my_applications(
     return StudentApplicationListResponse(
         applications=[StudentApplicationResponse(**row) for row in rows]
     )
+
+
+@router.post(
+    "/applications/{application_id}/withdraw",
+    response_model=StudentApplicationResponse,
+)
+def withdraw_application(
+    application_id: UUID,
+    current_user: CurrentUser = Depends(require_student),
+) -> StudentApplicationResponse:
+    """Withdraw the caller's OWN application. Allowed only while it is
+    still an active candidate application (APPLIED / UNDER_REVIEW /
+    SHORTLISTED / INTERVIEW_SCHEDULED); a SELECTED / REJECTED / already
+    WITHDRAWN application returns 409. An application the caller does not
+    own returns 404 (indistinguishable from one that doesn't exist).
+
+    No request body -- withdrawal is a single fixed transition and
+    `student_id` is always `current_user.id`, never a request field. Runs
+    on the user-scoped client; RLS + the `prevent_student_status_override`
+    trigger are the real guards.
+    """
+    client = build_user_client(current_user.access_token)
+    try:
+        row = student_opportunity_service.withdraw_application(
+            client, current_user.id, str(application_id)
+        )
+    except student_opportunity_service.ApplicationNotWithdrawableError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except Exception as exc:
+        raise _server_error("withdraw this application") from exc
+    if row is None:
+        raise _application_not_found()
+    return StudentApplicationResponse(**row)

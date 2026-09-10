@@ -1,9 +1,9 @@
 """Pydantic schemas for Industry interview scheduling
-(database/migrations/063_industry_interviews.sql -- the `interviews`
+(database/migrations/030_industry_interviews.sql -- the `interviews`
 table). Keep field names/constraints in sync with that migration and with
 frontend/types/interview.ts.
 
-An interview always hangs off an existing `applications` row (055). Its
+An interview always hangs off an existing `applications` row (020). Its
 `industry_id` and `student_id` are NEVER accepted from the client -- they
 are copied server-side (by a database trigger) from the referenced
 application, which already carries the authoritative, immutable
@@ -12,10 +12,13 @@ from the client either -- it only changes through the explicit lifecycle
 endpoints. `extra="forbid"` on the write models is what structurally
 rejects an attempt to smuggle any of these in.
 
-Applicant identity: exactly like application responses, an interview
-response carries the candidate only as `student_id` (a uuid). The schema
-gives Industry no path to an applicant's name/email/profile, and this
-module adds none.
+Applicant identity: an interview response carries the candidate as
+`student_id` (a uuid) plus, when it can be resolved, `student_name` --
+the applicant's `full_name` only, and only for applications the caller
+owns. `student_name` comes from the same ownership-scoped
+`application_applicant_names` SECURITY DEFINER RPC (036) that the
+Applicants list uses; it is best-effort enrichment (null when the RPC is
+unavailable) and exposes no email / phone / avatar / profile.
 """
 
 from datetime import datetime
@@ -23,9 +26,9 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-# database/migrations/063_industry_interviews.sql -- interviews.mode CHECK
+# database/migrations/030_industry_interviews.sql -- interviews.mode CHECK
 InterviewMode = Literal["ONLINE", "PHONE", "ONSITE"]
-# database/migrations/063_industry_interviews.sql -- interviews.status CHECK
+# database/migrations/030_industry_interviews.sql -- interviews.status CHECK
 InterviewStatus = Literal["SCHEDULED", "COMPLETED", "CANCELLED"]
 
 INTERVIEW_MODES: tuple[str, ...] = ("ONLINE", "PHONE", "ONSITE")
@@ -80,6 +83,11 @@ class InterviewResponse(BaseModel):
     application_id: str
     industry_id: str
     student_id: str
+    # The applicant's full name, resolved through the ownership-scoped
+    # application_applicant_names RPC (036). Name only -- no email / phone
+    # / avatar. Null when the RPC could not resolve it; the UI then falls
+    # back to the "Applicant <ref>" placeholder.
+    student_name: str | None = None
     scheduled_at: str
     duration_minutes: int
     mode: str

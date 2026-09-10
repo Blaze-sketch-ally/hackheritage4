@@ -46,14 +46,23 @@ def list_assessments(
 ) -> AssessmentListResponse:
     """Phase 1K: widened from require_student to get_current_user() --
     RLS ("Authenticated users can view active assessments") was never
-    role-restricted in the first place, and FACULTY now legitimately needs
+    role-restricted in the first place, and FACULTY legitimately needs
     this to pick an assessment for question authoring / blueprint
-    configuration. No new data becomes reachable that RLS didn't already
-    permit; this only removes an app-layer restriction that had no
-    matching RLS reason to exist."""
+    configuration.
+
+    Skill-specificity (integration pass): a STUDENT caller sees only
+    active PRODUCTION assessments for the skills they have selected
+    (assessment_service.list_assessments_for_student) -- derived entirely
+    server-side from their own student_skills rows, never a client-
+    supplied skill. Every other role (FACULTY authoring/reviewing) sees
+    the full active PRODUCTION catalog. No new data becomes reachable
+    that RLS didn't already permit either way."""
     client = build_user_client(current_user.access_token)
     try:
-        rows = assessment_service.list_active_assessments(client)
+        if current_user.role == "STUDENT":
+            rows = assessment_service.list_assessments_for_student(client, current_user.id)
+        else:
+            rows = assessment_service.list_active_assessments(client)
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -68,7 +77,10 @@ def get_assessment(
     current_user: CurrentUser = Depends(get_current_user),
 ) -> AssessmentResponse:
     """Phase 1K: widened from require_student to get_current_user() -- see
-    list_assessments above for why."""
+    list_assessments above for why. Skill-specificity (integration pass):
+    a STUDENT caller gets a 404 for an assessment whose skill they haven't
+    selected -- as invisible as one that doesn't exist, never revealing
+    which. FACULTY (authoring/reviewing) is not skill-gated."""
     client = build_user_client(current_user.access_token)
     try:
         row = assessment_service.get_active_assessment(client, assessment_id)
@@ -82,6 +94,21 @@ def get_assessment(
         # Same response whether the assessment never existed or exists but
         # is inactive -- never reveal which.
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assessment not found.")
+
+    if current_user.role == "STUDENT":
+        try:
+            has_skill = assessment_service.student_has_skill(
+                client, current_user.id, row["skill_id"]
+            )
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Could not load the assessment.",
+            ) from exc
+        if not has_skill:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Assessment not found."
+            )
 
     return AssessmentResponse(**row)
 
@@ -151,6 +178,23 @@ def create_attempt(
         ) from exc
 
     if assessment is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assessment not found.")
+
+    try:
+        has_skill = assessment_service.student_has_skill(
+            client, current_user.id, assessment["skill_id"]
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not load the assessment.",
+        ) from exc
+
+    if not has_skill:
+        # A student may only start an attempt for an assessment belonging
+        # to one of their own selected skills. Manipulating the URL to a
+        # valid-but-unselected assessment id gets the same 404 as a
+        # nonexistent one -- never reveal which.
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assessment not found.")
 
     service_client = get_supabase()

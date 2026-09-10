@@ -1,5 +1,5 @@
 """Business logic for provisioning and reading the per-student Internship
-Workspace (database/migrations/061_internship_workspace.sql).
+Workspace (database/migrations/050_internship_workspace.sql).
 
 PHASE 2 SCOPE: workspace PROVISIONING on the SELECTED transition, plus a
 minimal read surface. Nothing here implements acceptance, program
@@ -11,7 +11,7 @@ Every function takes an already-built Supabase client. The live path
 (application_service.update_status) and the two read endpoints pass a
 *user-scoped* client (app.core.security.build_user_client); the explicit
 one-off backfill script passes the *service-role* client. RLS
-(061_internship_workspace.sql) is the real access-control boundary in
+(050_internship_workspace.sql) is the real access-control boundary in
 both cases:
 
 * internship_workspaces INSERT policy:
@@ -34,7 +34,7 @@ PHASE 3 adds the student-facing read + acceptance surface on top:
 get_student_workspace / accept_workspace / decline_workspace /
 set_skill_selections. Acceptance and skill-selection are ultimately
 enforced by the DB triggers enforce_workspace_status_transitions and
-enforce_workspace_skill_selectable (061) -- this module re-checks the
+enforce_workspace_skill_selectable (038) -- this module re-checks the
 same rules in Python only to return a clean 4xx instead of a 500.
 
 `_resolve_internship_summaries` is the ONE deliberate, narrow service-role
@@ -492,7 +492,7 @@ def _read_industry_workspace(client: Client, industry_id: str, workspace_id: str
 def _load_program_preview(client: Client, internship_id: str) -> dict | None:
     """The PUBLISHED internship_program for `internship_id`, with its
     published modules (+ items) and its skills -- read through the
-    student's OWN user-scoped client. `student_can_access_program` (061)
+    student's OWN user-scoped client. `student_can_access_program` (038)
     gates this on program.status = 'PUBLISHED' and the workspace NOT being
     DECLINED / RESCINDED, and NEVER on internships.status. Returns None
     when no readable program exists yet (the industry has not published a
@@ -763,7 +763,7 @@ def set_skill_selections(
 # Everything append-only and state-gated is enforced by the DB
 # (set_workspace_submission_attempt_number,
 # prevent_workspace_submission_content_change, and the RLS policies on
-# workspace_submissions / program_assignments in 061 + 062). This module
+# workspace_submissions / program_assignments in 038 + 039). This module
 # re-checks the same rules only to return clean 4xx codes, and NEVER
 # writes submission_reviews / internship_completions /
 # internship_certificates / stipend_disbursements.
@@ -832,7 +832,7 @@ def _shape_submission(row: dict) -> dict:
 def _visible_assignments(client: Client, internship_id: str) -> list[dict]:
     """Published assignments the student may see in this workspace's
     program. RLS ("Students can view published assignments for their
-    workspace", 061) already requires is_published + module.is_published +
+    workspace", 038) already requires is_published + module.is_published +
     student_can_access_program; the !inner embed filter scopes it to this
     internship's program."""
     response = (
@@ -1042,7 +1042,7 @@ def create_submission(
 # ============================================================
 # Phase 7 -- completion + certificate
 # ============================================================
-# internship_completions / internship_certificates (062) are ONLY ever
+# internship_completions / internship_certificates (039) are ONLY ever
 # written here, from the industry side, on EXPLICIT verification -- never
 # automatically just because requirements happen to be met. "Requirements
 # met" is always computed LIVE from program_assignments (is_required AND
@@ -1089,7 +1089,7 @@ class InvalidWorkspaceStateError(Exception):
 def _required_assignments(client: Client, internship_id: str) -> list[dict]:
     """Every REQUIRED, PUBLISHED assignment in this internship's program --
     the same visibility rule the student-facing assignment list uses
-    (060/061: a required-but-unpublished assignment is invisible to the
+    (037/038: a required-but-unpublished assignment is invisible to the
     student, so it can never gate completion). Empty if there is no
     program yet, or it defines no required assignments -- vacuously met,
     exactly like an internship program with no assignments at all."""

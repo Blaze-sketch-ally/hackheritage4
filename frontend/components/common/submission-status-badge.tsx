@@ -2,7 +2,7 @@ import { Badge } from "@/components/ui/badge";
 
 /**
  * The five workspace_submissions.submission_status values
- * (database/migrations/039_workspace_submissions_completion.sql). Phase 5
+ * (database/migrations/051_workspace_submissions_completion.sql). Phase 5
  * only ever shows SUBMITTED (every new attempt starts there); the other
  * values appear once Phase 6 reviews land, so they are styled now.
  */

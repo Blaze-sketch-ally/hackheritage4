@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { ProfileHeader } from "@/components/student/profile/profile-header";
 import { StudentProfileForm } from "@/components/student/profile/student-profile-form";
+import { InstitutionLinkCard } from "@/components/student/institution-link/institution-link-card";
 import { createClient } from "@/lib/supabase/server";
 import { fetchProfile } from "@/lib/profile";
 import { fetchStudentProfile, getProfileCompletion } from "@/lib/student/profile";
@@ -22,6 +23,7 @@ export default async function StudentProfilePage() {
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <ProfileHeader profile={profile} completion={completion} />
+      <InstitutionLinkCard />
       <StudentProfileForm profile={profile} studentProfile={studentProfile} />
     </div>
   );

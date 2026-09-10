@@ -464,6 +464,105 @@ def test_list_active_assessments_includes_active_production():
     assert len(result) == 1
 
 
+# ------------------------------------------------------------
+# Service layer: skill-scoped assessment listing (integration pass --
+# collaborator's "make assessments skill-specific", layered with the
+# Phase 3E source filter)
+# ------------------------------------------------------------
+
+
+def test_list_selected_skill_ids_scopes_to_student_and_dedupes():
+    mock_client = MagicMock()
+    query = mock_client.table.return_value.select.return_value
+    query.eq.return_value = query
+    query.execute.return_value.data = [
+        {"skill_id": "skill-a"},
+        {"skill_id": "skill-b"},
+        {"skill_id": "skill-a"},
+    ]
+
+    result = assessment_service.list_selected_skill_ids(mock_client, "student-1")
+
+    mock_client.table.assert_called_once_with("student_skills")
+    assert query.eq.call_args_list == [(("student_id", "student-1"), {})]
+    assert sorted(result) == ["skill-a", "skill-b"]
+
+
+def test_list_assessments_for_skill_ids_returns_empty_without_querying_when_no_skills():
+    mock_client = MagicMock()
+    result = assessment_service.list_assessments_for_skill_ids(mock_client, [])
+    assert result == []
+    mock_client.table.assert_not_called()
+
+
+def test_list_assessments_for_skill_ids_filters_active_production_and_in_skill_ids():
+    """The skill-filtered list also carries the Phase 3E source filter:
+    (is_active AND source='PRODUCTION' AND skill_id in ...)."""
+    mock_client = MagicMock()
+    query = mock_client.table.return_value.select.return_value
+    query.eq.return_value = query
+    query.in_.return_value = query
+    query.order.return_value.execute.return_value.data = [_row_assessment()]
+
+    assessment_service.list_assessments_for_skill_ids(mock_client, ["skill-a", "skill-b"])
+
+    mock_client.table.assert_called_once_with("assessments")
+    assert query.eq.call_args_list == [
+        (("is_active", True), {}),
+        (("source", "PRODUCTION"), {}),
+    ]
+    query.in_.assert_called_once_with("skill_id", ["skill-a", "skill-b"])
+    query.order.assert_called_once_with("created_at")
+
+
+def test_list_assessments_for_student_composes_skill_lookup_then_filter():
+    with (
+        patch.object(
+            assessment_service, "list_selected_skill_ids", return_value=["skill-a"]
+        ) as mock_ids,
+        patch.object(
+            assessment_service, "list_assessments_for_skill_ids", return_value=[_row_assessment()]
+        ) as mock_list,
+    ):
+        rows = assessment_service.list_assessments_for_student(MagicMock(), "student-1")
+
+    assert mock_ids.call_args[0][1] == "student-1"
+    assert mock_list.call_args[0][1] == ["skill-a"]
+    assert len(rows) == 1
+
+
+def test_list_assessments_for_student_empty_when_no_selected_skills():
+    with patch.object(assessment_service, "list_selected_skill_ids", return_value=[]):
+        rows = assessment_service.list_assessments_for_student(MagicMock(), "student-1")
+    assert rows == []
+
+
+def test_student_has_skill_true_when_row_exists():
+    mock_client = MagicMock()
+    query = mock_client.table.return_value.select.return_value
+    query.eq.return_value = query
+    query.limit.return_value.execute.return_value.data = [{"id": "ss-1"}]
+
+    result = assessment_service.student_has_skill(mock_client, "student-1", "skill-a")
+
+    mock_client.table.assert_called_once_with("student_skills")
+    assert query.eq.call_args_list == [
+        (("student_id", "student-1"), {}),
+        (("skill_id", "skill-a"), {}),
+    ]
+    assert result is True
+
+
+def test_student_has_skill_false_when_no_row():
+    mock_client = MagicMock()
+    query = mock_client.table.return_value.select.return_value
+    query.eq.return_value = query
+    query.limit.return_value.execute.return_value.data = []
+
+    result = assessment_service.student_has_skill(mock_client, "student-1", "skill-a")
+    assert result is False
+
+
 def test_list_visible_questions_filters_approved_active_objective():
     mock_client, query = _chain_returning([_row_question()])
     assessment_id = uuid4()
@@ -569,10 +668,13 @@ def test_assessments_allowed_for_every_authenticated_role():
 
 
 def test_assessments_returns_active_assessments():
+    """A STUDENT caller gets only the assessments for their own selected
+    skills (list_assessments_for_student) -- see
+    test_assessments_faculty_sees_full_catalog for the FACULTY path."""
     row = _row_assessment(title="Python Beginner Assessment")
     with (
         authenticated_as("STUDENT"),
-        patch.object(assessment_service, "list_active_assessments", return_value=[row]),
+        patch.object(assessment_service, "list_assessments_for_student", return_value=[row]),
     ):
         response = client.get(
             "/api/v1/assessments", headers={"Authorization": "Bearer token"}
@@ -583,11 +685,47 @@ def test_assessments_returns_active_assessments():
     assert body["assessments"][0]["title"] == "Python Beginner Assessment"
 
 
+def test_assessments_student_id_comes_from_token_not_request():
+    seen = {}
+
+    def fake(_client, student_id):
+        seen["student_id"] = student_id
+        return []
+
+    with (
+        authenticated_as("STUDENT", user_id="the-caller"),
+        patch.object(assessment_service, "list_assessments_for_student", side_effect=fake),
+    ):
+        client.get(
+            "/api/v1/assessments?student_id=victim", headers={"Authorization": "Bearer token"}
+        )
+    assert seen["student_id"] == "the-caller"
+
+
+def test_assessments_faculty_sees_full_catalog():
+    """A FACULTY caller (authoring / blueprint configuration) is NOT
+    skill-gated -- they see every active PRODUCTION assessment via
+    list_active_assessments, unchanged from Phase 1K."""
+    row = _row_assessment(title="Advanced SQL")
+    with (
+        authenticated_as("FACULTY"),
+        patch.object(assessment_service, "list_active_assessments", return_value=[row]) as mock_all,
+        patch.object(assessment_service, "list_assessments_for_student") as mock_student,
+    ):
+        response = client.get(
+            "/api/v1/assessments", headers={"Authorization": "Bearer token"}
+        )
+    assert response.status_code == 200
+    assert response.json()["assessments"][0]["title"] == "Advanced SQL"
+    mock_all.assert_called_once()
+    mock_student.assert_not_called()
+
+
 def test_assessments_response_matches_schema():
     row = _row_assessment()
     with (
         authenticated_as("STUDENT"),
-        patch.object(assessment_service, "list_active_assessments", return_value=[row]),
+        patch.object(assessment_service, "list_assessments_for_student", return_value=[row]),
     ):
         response = client.get(
             "/api/v1/assessments", headers={"Authorization": "Bearer token"}
@@ -601,7 +739,7 @@ def test_assessments_unexpected_failure_returns_clean_500():
         authenticated_as("STUDENT"),
         patch.object(
             assessment_service,
-            "list_active_assessments",
+            "list_assessments_for_student",
             side_effect=RuntimeError("connection refused to internal db host 10.0.0.5"),
         ),
     ):
@@ -1090,6 +1228,60 @@ def test_create_attempt_inactive_assessment_returns_404():
             _attempts_url(uuid4()), headers={"Authorization": "Bearer token"}
         )
     assert response.status_code == 404
+
+
+def test_create_attempt_unselected_skill_returns_404():
+    """Skill-specificity (integration pass): a student may only start an
+    attempt for an assessment whose skill they have selected. A
+    valid-but-unselected assessment id gets the same 404 as a
+    nonexistent one -- never reveal which."""
+    assessment_id = uuid4()
+    with (
+        authenticated_as("STUDENT"),
+        patch.object(
+            assessment_service, "get_active_assessment", return_value=_row_assessment(id=str(assessment_id))
+        ),
+        patch.object(assessment_service, "student_has_skill", return_value=False),
+        patch.object(assessment_service, "create_attempt") as mock_create,
+    ):
+        response = client.post(
+            _attempts_url(assessment_id), headers={"Authorization": "Bearer token"}
+        )
+    assert response.status_code == 404
+    mock_create.assert_not_called()
+
+
+def test_get_assessment_by_id_unselected_skill_returns_404_for_student():
+    assessment_id = uuid4()
+    with (
+        authenticated_as("STUDENT"),
+        patch.object(
+            assessment_service, "get_active_assessment", return_value=_row_assessment(id=str(assessment_id))
+        ),
+        patch.object(assessment_service, "student_has_skill", return_value=False),
+    ):
+        response = client.get(
+            f"/api/v1/assessments/{assessment_id}", headers={"Authorization": "Bearer token"}
+        )
+    assert response.status_code == 404
+
+
+def test_get_assessment_by_id_not_skill_gated_for_faculty():
+    """A FACULTY caller viewing an assessment for authoring is never
+    skill-gated -- student_has_skill is not even consulted."""
+    assessment_id = uuid4()
+    with (
+        authenticated_as("FACULTY"),
+        patch.object(
+            assessment_service, "get_active_assessment", return_value=_row_assessment(id=str(assessment_id))
+        ),
+        patch.object(assessment_service, "student_has_skill") as mock_has_skill,
+    ):
+        response = client.get(
+            f"/api/v1/assessments/{assessment_id}", headers={"Authorization": "Bearer token"}
+        )
+    assert response.status_code == 200
+    mock_has_skill.assert_not_called()
 
 
 # ------------------------------------------------------------

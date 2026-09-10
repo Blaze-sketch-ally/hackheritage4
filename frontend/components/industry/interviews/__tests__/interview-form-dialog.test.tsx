@@ -42,6 +42,7 @@ function interview(overrides: Partial<Interview> = {}): Interview {
     application_id: "app-1",
     industry_id: "industry-1",
     student_id: "student-abcdef12",
+    student_name: null,
     scheduled_at: "2099-01-01T10:00:00.000Z",
     duration_minutes: 30,
     mode: "ONLINE",

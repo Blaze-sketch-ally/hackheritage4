@@ -13,12 +13,13 @@ import { SearchBar } from "@/components/common/search-bar";
 import { ApiError } from "@/lib/api";
 import { getApplications } from "@/lib/industry/applications";
 import { cancelInterview, completeInterview, getInterviews } from "@/lib/industry/interviews";
-import { applicantRef, type Application } from "@/types/application";
+import { applicantDisplayName, type Application } from "@/types/application";
 import {
   INTERVIEW_STATUS_LABELS,
   INTERVIEW_STATUSES,
   type Interview,
 } from "@/types/interview";
+import { AwaitingScheduleCard } from "@/components/industry/interviews/awaiting-schedule-card";
 import { InterviewCard } from "@/components/industry/interviews/interview-card";
 import { InterviewFormDialog } from "@/components/industry/interviews/interview-form-dialog";
 
@@ -64,6 +65,7 @@ export function InterviewsListView() {
   const [statusFilter, setStatusFilter] = useState("all");
 
   const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [scheduleForId, setScheduleForId] = useState<string | null>(null);
   const [rescheduling, setRescheduling] = useState<Interview | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<{ id: string; action: LifecycleAction } | null>(null);
@@ -93,15 +95,43 @@ export function InterviewsListView() {
     setReloadKey((k) => k + 1);
   }
 
-  const eligibleApplications = useMemo(() => {
-    if (state.status !== "ready") return [];
-    const withLiveInterview = new Set(
+  // Applications that already have a live (SCHEDULED) interview booked,
+  // keyed by application id -- shared by the "eligible to schedule" and
+  // "awaiting scheduling" derivations below.
+  const appsWithLiveInterview = useMemo(() => {
+    if (state.status !== "ready") return new Set<string>();
+    return new Set(
       state.interviews.filter((i) => i.status === "SCHEDULED").map((i) => i.application_id),
     );
-    return state.applications.filter(
-      (a) => ELIGIBLE_APP_STATUSES.has(a.status) && !withLiveInterview.has(a.id),
-    );
   }, [state]);
+
+  const eligibleApplications = useMemo(() => {
+    if (state.status !== "ready") return [];
+    return state.applications.filter(
+      (a) => ELIGIBLE_APP_STATUSES.has(a.status) && !appsWithLiveInterview.has(a.id),
+    );
+  }, [state, appsWithLiveInterview]);
+
+  // Candidates the recruitment pipeline has advanced to INTERVIEW_SCHEDULED
+  // (applications.status, migration 020) that have no interview event booked
+  // yet -- e.g. moved to the stage from the Applicants page. The Interview
+  // panel exists to show every interview-stage candidate, so these are
+  // listed here as "awaiting scheduling" until an interview is booked.
+  const awaitingScheduling = useMemo(() => {
+    if (state.status !== "ready") return [];
+    return state.applications.filter(
+      (a) => a.status === "INTERVIEW_SCHEDULED" && !appsWithLiveInterview.has(a.id),
+    );
+  }, [state, appsWithLiveInterview]);
+
+  // The candidate list handed to the schedule dialog: everything eligible,
+  // or -- when the user clicked "Schedule" on one awaiting candidate --
+  // just that one (the dialog preselects a single-entry list).
+  const scheduleDialogApplications = useMemo(() => {
+    if (!scheduleForId) return eligibleApplications;
+    const picked = eligibleApplications.find((a) => a.id === scheduleForId);
+    return picked ? [picked] : eligibleApplications;
+  }, [scheduleForId, eligibleApplications]);
 
   const visible = useMemo(() => {
     if (state.status !== "ready") return [];
@@ -109,11 +139,29 @@ export function InterviewsListView() {
     return state.interviews.filter((iv) => {
       const matchesStatus = statusFilter === "all" || iv.status === statusFilter;
       const haystack =
-        `${iv.opportunity?.title ?? ""} ${applicantRef(iv.student_id)}`.toLowerCase();
+        `${iv.opportunity?.title ?? ""} ${applicantDisplayName(iv)}`.toLowerCase();
       const matchesSearch = !query || haystack.includes(query);
       return matchesStatus && matchesSearch;
     });
   }, [state, search, statusFilter]);
+
+  // Awaiting-scheduling candidates matching the current search. They carry
+  // no interview status, so a real status filter (Scheduled/Completed/
+  // Cancelled) hides them.
+  const visibleAwaiting = useMemo(() => {
+    if (statusFilter !== "all") return [];
+    const query = search.trim().toLowerCase();
+    return awaitingScheduling.filter((app) => {
+      const haystack =
+        `${app.opportunity?.title ?? ""} ${applicantDisplayName(app)}`.toLowerCase();
+      return !query || haystack.includes(query);
+    });
+  }, [awaitingScheduling, search, statusFilter]);
+
+  function openSchedule(applicationId?: string) {
+    setScheduleForId(applicationId ?? null);
+    setScheduleOpen(true);
+  }
 
   function upsertInterview(updated: Interview) {
     setState((prev) => {
@@ -166,7 +214,7 @@ export function InterviewsListView() {
           </p>
         </div>
         <Button
-          onClick={() => setScheduleOpen(true)}
+          onClick={() => openSchedule()}
           disabled={state.status !== "ready"}
         >
           <Plus className="size-4" /> Schedule interview
@@ -206,7 +254,7 @@ export function InterviewsListView() {
       ) : null}
 
       {state.status === "ready" ? (
-        state.interviews.length === 0 ? (
+        state.interviews.length === 0 && awaitingScheduling.length === 0 ? (
           <EmptyState
             icon={CalendarClock}
             title="No interviews scheduled"
@@ -216,7 +264,7 @@ export function InterviewsListView() {
                 : "Shortlist a candidate first, then schedule their interview here."
             }
             actionLabel={eligibleApplications.length > 0 ? "Schedule interview" : undefined}
-            onAction={eligibleApplications.length > 0 ? () => setScheduleOpen(true) : undefined}
+            onAction={eligibleApplications.length > 0 ? () => openSchedule() : undefined}
           />
         ) : (
           <>
@@ -235,21 +283,45 @@ export function InterviewsListView() {
               />
             </div>
 
-            {visible.length === 0 ? (
+            {visible.length === 0 && visibleAwaiting.length === 0 ? (
               <EmptyState icon={Search} title="No interviews match your filters" />
             ) : (
-              <div className="space-y-3">
-                {visible.map((interview) => (
-                  <InterviewCard
-                    key={interview.id}
-                    interview={interview}
-                    pending={pendingId === interview.id}
-                    onReschedule={() => setRescheduling(interview)}
-                    onComplete={() => setConfirming({ id: interview.id, action: "complete" })}
-                    onCancel={() => setConfirming({ id: interview.id, action: "cancel" })}
-                  />
-                ))}
-              </div>
+              <>
+                {visibleAwaiting.length > 0 ? (
+                  <section className="space-y-3">
+                    <h2 className="text-sm font-semibold text-muted-foreground">
+                      Awaiting scheduling
+                    </h2>
+                    {visibleAwaiting.map((application) => (
+                      <AwaitingScheduleCard
+                        key={application.id}
+                        application={application}
+                        onSchedule={() => openSchedule(application.id)}
+                      />
+                    ))}
+                  </section>
+                ) : null}
+
+                {visible.length > 0 ? (
+                  <div className="space-y-3">
+                    {visibleAwaiting.length > 0 ? (
+                      <h2 className="text-sm font-semibold text-muted-foreground">
+                        Scheduled interviews
+                      </h2>
+                    ) : null}
+                    {visible.map((interview) => (
+                      <InterviewCard
+                        key={interview.id}
+                        interview={interview}
+                        pending={pendingId === interview.id}
+                        onReschedule={() => setRescheduling(interview)}
+                        onComplete={() => setConfirming({ id: interview.id, action: "complete" })}
+                        onCancel={() => setConfirming({ id: interview.id, action: "cancel" })}
+                      />
+                    ))}
+                  </div>
+                ) : null}
+              </>
             )}
           </>
         )
@@ -257,9 +329,12 @@ export function InterviewsListView() {
 
       <InterviewFormDialog
         open={scheduleOpen}
-        onOpenChange={setScheduleOpen}
+        onOpenChange={(open) => {
+          setScheduleOpen(open);
+          if (!open) setScheduleForId(null);
+        }}
         mode="schedule"
-        eligibleApplications={eligibleApplications}
+        eligibleApplications={scheduleDialogApplications}
         onSubmitted={(interview) => {
           upsertInterview(interview);
           setActionSuccess("Interview scheduled.");

@@ -1,7 +1,7 @@
 """Pydantic schemas for the STUDENT side of in-app notifications.
 
 Field names and constraints match
-database/migrations/059_student_notifications.sql (`student_notifications`)
+database/migrations/035_student_notifications.sql (`student_notifications`)
 exactly. Validation here mirrors that migration's CHECK constraints so a
 bad value comes back as a friendly 422 instead of a raw database error --
 the database stays authoritative.
@@ -18,8 +18,8 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-# student_notifications.type CHECK -- 059, widened by migration 062
-# (+ 'INTERNSHIP').
+# student_notifications.type CHECK -- 035, widened by migration 039
+# (+ 'INTERNSHIP') and migration 052 (+ 'JOB_TRAINING').
 NotificationType = Literal[
     "APPLICATION_STATUS",
     "INTERVIEW",
@@ -29,10 +29,12 @@ NotificationType = Literal[
     "EVENT",
     "SYSTEM",
     "INTERNSHIP",
+    "JOB_TRAINING",
 ]
 
-# student_notifications.related_entity_type CHECK -- 059, widened by
-# migration 062 (+ 'INTERNSHIP_WORKSPACE').
+# student_notifications.related_entity_type CHECK -- 035, widened by
+# migration 039 (+ 'INTERNSHIP_WORKSPACE') and migration 052
+# (+ 'JOB_TRAINING_ENROLLMENT').
 RelatedEntityType = Literal[
     "APPLICATION",
     "INTERVIEW",
@@ -41,6 +43,7 @@ RelatedEntityType = Literal[
     "MENTORSHIP",
     "EVENT",
     "INTERNSHIP_WORKSPACE",
+    "JOB_TRAINING_ENROLLMENT",
 ]
 
 

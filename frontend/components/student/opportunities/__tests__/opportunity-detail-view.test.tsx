@@ -76,7 +76,8 @@ function application(overrides: Partial<StudentApplication> = {}): StudentApplic
     applied_at: "2026-09-02T00:00:00Z",
     created_at: "2026-09-02T00:00:00Z",
     updated_at: "2026-09-02T00:00:00Z",
-    opportunity: { id: OPP_ID, source_type: "INTERNSHIP", title: "Backend Intern", industry: null, location: "Pune" },
+    opportunity: { id: OPP_ID, source_type: "INTERNSHIP", title: "Backend Intern", industry: null, location: "Pune", work_mode: "HYBRID" },
+    interview: null,
     ...overrides,
   };
 }
@@ -173,5 +174,80 @@ describe("OpportunityDetailView", () => {
     render(<OpportunityDetailView opportunityId={OPP_ID} />);
     expect(await screen.findByText("Backend Intern")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Apply" })).toBeInTheDocument();
+  });
+
+  // ---- Opportunity details / compensation block ----
+
+  it("shows the internship stipend and start date from the API", async () => {
+    mocks.getOpportunity.mockResolvedValueOnce(
+      detail({ stipend_amount: 15000, stipend_currency: "INR", start_date: "2026-11-03" }),
+    );
+    mocks.listMyApplications.mockResolvedValueOnce({ applications: [] });
+    mocks.getOpportunityMatch.mockResolvedValueOnce(noMatch);
+
+    render(<OpportunityDetailView opportunityId={OPP_ID} />);
+    await screen.findByText("Backend Intern");
+
+    expect(screen.getByText("Details")).toBeInTheDocument();
+    expect(screen.getByText("Stipend")).toBeInTheDocument();
+    expect(screen.getByText(/15,000/)).toHaveTextContent(/month/i);
+    expect(screen.getByText("Start date")).toBeInTheDocument();
+  });
+
+  it("shows the job salary range, employment type and experience from the API", async () => {
+    mocks.getOpportunity.mockResolvedValueOnce(
+      detail({
+        source_type: "JOB",
+        id: "job_22222222-2222-2222-2222-222222222222",
+        duration_months: null,
+        stipend_amount: null,
+        stipend_currency: null,
+        salary_min: 600000,
+        salary_max: 900000,
+        salary_currency: "INR",
+        employment_type: "FULL_TIME",
+        experience_min_years: 2,
+      }),
+    );
+    mocks.listMyApplications.mockResolvedValueOnce({ applications: [] });
+    mocks.getOpportunityMatch.mockResolvedValueOnce(noMatch);
+
+    const { container } = render(
+      <OpportunityDetailView opportunityId="job_22222222-2222-2222-2222-222222222222" />,
+    );
+    await screen.findByText("Backend Intern");
+
+    expect(screen.getByText("Salary")).toBeInTheDocument();
+    // Digit grouping is locale-dependent (₹6,00,000 vs ₹600,000) — assert
+    // on the raw digits, not the separators.
+    const flat = (container.textContent ?? "").replace(/[\s,]/g, "");
+    expect(flat).toContain("600000");
+    expect(flat).toContain("900000");
+    expect(screen.getByText("Employment type")).toBeInTheDocument();
+    expect(screen.getByText("Full-time")).toBeInTheDocument();
+    expect(screen.getByText("Experience")).toBeInTheDocument();
+    expect(screen.getByText("2+ years")).toBeInTheDocument();
+  });
+
+  it("omits the Details block entirely when the posting lists no compensation", async () => {
+    mocks.getOpportunity.mockResolvedValueOnce(
+      detail({
+        stipend_amount: null,
+        stipend_currency: null,
+        start_date: null,
+        salary_min: null,
+        salary_max: null,
+        employment_type: null,
+        experience_min_years: null,
+      }),
+    );
+    mocks.listMyApplications.mockResolvedValueOnce({ applications: [] });
+    mocks.getOpportunityMatch.mockResolvedValueOnce(noMatch);
+
+    render(<OpportunityDetailView opportunityId={OPP_ID} />);
+    await screen.findByText("Backend Intern");
+
+    expect(screen.queryByText("Details")).not.toBeInTheDocument();
+    expect(screen.getByText("Requirements")).toBeInTheDocument();
   });
 });
