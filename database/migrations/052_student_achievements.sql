@@ -73,3 +73,4 @@ create trigger student_achievements_set_updated_at
   before update on student_achievements
   for each row
   execute procedure public.set_updated_at();
+
