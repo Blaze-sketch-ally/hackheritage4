@@ -5,6 +5,7 @@ from app.api import (
     admin_evaluator_assignments,
     admin_faculty,
     admin_mentorships,
+    analytics,
     applications,
     assessments,
     attempts,
@@ -36,6 +37,7 @@ from app.api import (
     jobs,
     portfolio,
     questions,
+    skill_gap,
     student_events,
     student_institution,
     student_internship_workspaces,
@@ -105,6 +107,10 @@ app.include_router(institution_link_requests.router, prefix="/api/v1")
 app.include_router(job_training_programs.router, prefix="/api/v1")
 app.include_router(student_institution.router, prefix="/api/v1")
 app.include_router(student_job_training.router, prefix="/api/v1")
+
+# Skill Gap + Industry Analytics (implemented but previously unmounted)
+app.include_router(skill_gap.router, prefix="/api/v1")
+app.include_router(analytics.router, prefix="/api/v1")
 
 
 @app.get("/")
