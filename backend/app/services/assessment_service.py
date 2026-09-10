@@ -46,13 +46,14 @@ _QUESTION_COLUMNS = (
 
 
 def list_active_assessments(client: Client) -> list[dict]:
-    """All assessments visible to the caller.
+    """Every active assessment visible to the caller, unfiltered by skill.
 
-    RLS ("Authenticated users can view active assessments") already
-    restricts this to is_active = true for any authenticated role; the
-    explicit .eq() here is defense in depth, not the only enforcement --
-    STUDENT-only is enforced by require_student() at the route layer, since
-    RLS itself does not gate this table by role.
+    RLS ("Students can view active assessments") already restricts this to
+    is_active = true for a STUDENT caller; the explicit .eq() here is
+    defense in depth. Kept as a building block / admin-style read -- the
+    student-facing list endpoint uses list_assessments_for_student()
+    instead, which additionally narrows to the caller's own selected
+    skills (see that function).
     """
     response = (
         client.table("assessments")
@@ -62,6 +63,78 @@ def list_active_assessments(client: Client) -> list[dict]:
         .execute()
     )
     return response.data or []
+
+
+def list_selected_skill_ids(client: Client, student_id: str) -> list[str]:
+    """The distinct skill_ids the student has added to their own profile
+    (student_skills). RLS ("Students can view their own skills") already
+    scopes this to the caller when called with a user-scoped client; the
+    explicit .eq("student_id", ...) is defense in depth, matching every
+    other read in this module. The student_skills_unique_per_student
+    constraint already guarantees one row per (student, skill), so the
+    de-dup here is belt-and-braces, not load-bearing."""
+    response = (
+        client.table("student_skills")
+        .select("skill_id")
+        .eq("student_id", student_id)
+        .execute()
+    )
+    rows = response.data or []
+    return list({row["skill_id"] for row in rows})
+
+
+def list_assessments_for_skill_ids(client: Client, skill_ids: list[str]) -> list[dict]:
+    """Active assessments whose skill_id is in `skill_ids`, ordered by
+    created_at. An empty `skill_ids` short-circuits to [] and never issues
+    a query -- PostgREST's `in.()` with an empty set is ambiguous and must
+    not be relied on to mean "match nothing"."""
+    if not skill_ids:
+        return []
+    response = (
+        client.table("assessments")
+        .select(_ASSESSMENT_COLUMNS)
+        .eq("is_active", True)
+        .in_("skill_id", skill_ids)
+        .order("created_at")
+        .execute()
+    )
+    return response.data or []
+
+
+def list_assessments_for_student(client: Client, student_id: str) -> list[dict]:
+    """The assessments a student may actually see: active assessments for
+    the skills that student has selected, and nothing else.
+
+    Derived entirely server-side from the authenticated caller's own
+    student_skills rows -- the frontend never supplies a skill id or name
+    for this. A student with no selected skills gets []. Adding a skill
+    makes that skill's existing assessments appear here on the next call;
+    removing a skill makes them disappear. Assessments for skills the
+    student hasn't selected remain untouched in the database -- they are
+    simply never returned here.
+    """
+    skill_ids = list_selected_skill_ids(client, student_id)
+    return list_assessments_for_skill_ids(client, skill_ids)
+
+
+def student_has_skill(client: Client, student_id: str, skill_id: str) -> bool:
+    """Whether the student has this skill in their own profile at any
+    proficiency level. The per-assessment authorization gate for
+    GET /assessments/{id} and POST /assessments/{id}/attempts: an
+    assessment whose skill the caller hasn't selected must be as
+    invisible/unusable as one that doesn't exist. skill_id here always
+    comes from an already-loaded assessment row, never from client input.
+    RLS scopes student_skills to the caller; the explicit .eq() is defense
+    in depth."""
+    response = (
+        client.table("student_skills")
+        .select("id")
+        .eq("student_id", student_id)
+        .eq("skill_id", skill_id)
+        .limit(1)
+        .execute()
+    )
+    return bool(response.data)
 
 
 def get_active_assessment(client: Client, assessment_id: UUID) -> dict | None:

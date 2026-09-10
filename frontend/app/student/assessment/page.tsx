@@ -28,7 +28,7 @@ export default async function StudentAssessmentPage() {
           <History className="size-3.5" /> History
         </Button>
       </div>
-      <AssessmentListView />
+      <AssessmentListView studentId={user.id} />
     </div>
   );
 }

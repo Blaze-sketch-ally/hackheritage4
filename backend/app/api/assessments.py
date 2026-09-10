@@ -36,9 +36,20 @@ router = APIRouter(prefix="/assessments", tags=["assessments"])
 def list_assessments(
     current_user: CurrentUser = Depends(require_student),
 ) -> AssessmentListResponse:
+    """Active assessments for the skills the calling student has selected,
+    and nothing else.
+
+    The filter is derived entirely server-side from the caller's own
+    student_skills rows (assessment_service.list_assessments_for_student)
+    -- the client never supplies a skill id or name here, so it cannot
+    widen the result to a skill it hasn't selected. A student with no
+    selected skills gets an empty list. Assessments for unselected skills
+    are never deleted -- they are global definitions that simply aren't
+    returned to this student.
+    """
     client = build_user_client(current_user.access_token)
     try:
-        rows = assessment_service.list_active_assessments(client)
+        rows = assessment_service.list_assessments_for_student(client, current_user.id)
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -64,6 +75,20 @@ def get_assessment(
     if row is None:
         # Same response whether the assessment never existed or exists but
         # is inactive -- never reveal which.
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assessment not found.")
+
+    try:
+        has_skill = assessment_service.student_has_skill(client, current_user.id, row["skill_id"])
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not load the assessment.",
+        ) from exc
+
+    if not has_skill:
+        # An assessment for a skill the student hasn't selected is as
+        # invisible as one that doesn't exist -- same 404, never reveal
+        # which. Selecting the skill later makes it reachable again.
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assessment not found.")
 
     return AssessmentResponse(**row)
@@ -127,6 +152,23 @@ def create_attempt(
         ) from exc
 
     if assessment is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assessment not found.")
+
+    try:
+        has_skill = assessment_service.student_has_skill(
+            client, current_user.id, assessment["skill_id"]
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not load the assessment.",
+        ) from exc
+
+    if not has_skill:
+        # A student may only start an attempt for an assessment belonging
+        # to one of their own selected skills. Manipulating the URL to a
+        # valid-but-unselected assessment id gets the same 404 as a
+        # nonexistent one -- never reveal which.
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assessment not found.")
 
     service_client = get_supabase()

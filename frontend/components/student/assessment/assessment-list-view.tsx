@@ -2,27 +2,50 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { AlertCircle, Clock, ListChecks, RefreshCw } from "lucide-react";
+import { AlertCircle, Clock, GraduationCap, ListChecks, RefreshCw } from "lucide-react";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ApiError } from "@/lib/api";
 import { listAssessments } from "@/lib/student/assessment";
 import { createClient } from "@/lib/supabase/client";
-import { fetchActiveSkills, type CatalogSkill } from "@/lib/student/skills";
-import type { Assessment } from "@/types/assessment";
+import { fetchStudentSkills, type StudentSkill } from "@/lib/student/skills";
+import type { Assessment, Difficulty } from "@/types/assessment";
+
+/** The order assessments are listed within a skill -- mirrors the
+ * 'Beginner'/'Intermediate'/'Advanced'/'Expert' scale shared by
+ * assessments.difficulty and student_skills.proficiency_level. Not a
+ * hardcoded skill list -- a hardcoded *difficulty* ordering, which the DB
+ * CHECK constraint itself fixes. */
+const DIFFICULTY_ORDER: Difficulty[] = ["Beginner", "Intermediate", "Advanced", "Expert"];
+
+type SkillGroup = {
+  skillId: string;
+  skillName: string;
+  categoryName: string | null;
+  assessments: Assessment[];
+};
 
 type LoadState =
   | { status: "loading" }
   | { status: "error"; error: ApiError }
-  | { status: "ready"; assessments: Assessment[]; skillNames: Map<string, string> };
+  | { status: "ready"; groups: SkillGroup[]; hasSkills: boolean };
 
-/** GET /api/v1/assessments via the FastAPI bridge -- the assessment list
- * page's real content. Skill names are resolved via the existing,
- * already-tested lib/student/skills.ts (direct Supabase read of the
- * `skills` catalog), not a new backend endpoint -- the assessment
- * response itself only carries skill_id. */
-export function AssessmentListView() {
+/** The Assessments page is fully data-driven:
+ *
+ *  1. the student's selected skills come from the existing
+ *     `student_skills` source of truth (fetchStudentSkills), and
+ *  2. the assessments come from GET /api/v1/assessments, which the
+ *     backend has ALREADY filtered to exactly those selected skills
+ *     (assessment_service.list_assessments_for_student) -- the client
+ *     never sends a skill id/name and cannot widen the result.
+ *
+ * The page then groups those assessments under each selected skill and
+ * lists that skill's Beginner/Intermediate/Advanced assessments. A skill
+ * with no assessment in the database shows an explicit "not available
+ * yet" note rather than a fabricated entry. There is no hardcoded list of
+ * skills anywhere in this file. */
+export function AssessmentListView({ studentId }: { studentId: string }) {
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [reloadKey, setReloadKey] = useState(0);
 
@@ -31,15 +54,16 @@ export function AssessmentListView() {
 
     async function load() {
       try {
-        const [{ assessments }, skills] = await Promise.all([
+        const [{ assessments }, studentSkills] = await Promise.all([
           listAssessments(),
-          fetchActiveSkills(createClient()),
+          fetchStudentSkills(createClient(), studentId),
         ]);
         if (cancelled) return;
-        const skillNames = new Map<string, string>(
-          skills.map((skill: CatalogSkill) => [skill.id, skill.name]),
-        );
-        setState({ status: "ready", assessments, skillNames });
+        setState({
+          status: "ready",
+          groups: buildGroups(studentSkills, assessments),
+          hasSkills: studentSkills.length > 0,
+        });
       } catch (err) {
         if (cancelled) return;
         setState({
@@ -53,7 +77,7 @@ export function AssessmentListView() {
     return () => {
       cancelled = true;
     };
-  }, [reloadKey]);
+  }, [reloadKey, studentId]);
 
   if (state.status === "loading") {
     return <AssessmentListSkeleton />;
@@ -89,39 +113,90 @@ export function AssessmentListView() {
     );
   }
 
-  const { assessments, skillNames } = state;
+  const { groups, hasSkills } = state;
 
-  if (assessments.length === 0) {
+  if (!hasSkills) {
     return (
       <Card>
         <CardContent className="flex flex-col items-center gap-2 py-10 text-center text-muted-foreground">
-          <ListChecks className="size-8" />
-          <p className="font-medium text-foreground">No assessments available right now</p>
-          <p className="text-sm">Check back later — new assessments are added periodically.</p>
+          <GraduationCap className="size-8" />
+          <p className="font-medium text-foreground">No skills selected yet</p>
+          <p className="text-sm">
+            Assessments are shown for the skills on your profile. Add a skill to see its
+            Beginner, Intermediate, and Advanced assessments here.
+          </p>
+          <Button size="sm" className="mt-2" render={<Link href="/student/skills" />} nativeButton={false}>
+            Go to My Skills
+          </Button>
         </CardContent>
       </Card>
     );
   }
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-      {assessments.map((assessment) => (
-        <AssessmentListCard
-          key={assessment.id}
-          assessment={assessment}
-          skillName={skillNames.get(assessment.skill_id)}
-        />
+    <div className="flex flex-col gap-8">
+      {groups.map((group) => (
+        <section key={group.skillId} className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+            <h2 className="text-base font-semibold">{group.skillName}</h2>
+            {group.categoryName && (
+              <span className="text-xs text-muted-foreground">{group.categoryName}</span>
+            )}
+          </div>
+
+          {group.assessments.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No assessment available yet for this skill.
+            </p>
+          ) : (
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              {group.assessments.map((assessment) => (
+                <AssessmentListCard key={assessment.id} assessment={assessment} />
+              ))}
+            </div>
+          )}
+        </section>
       ))}
     </div>
   );
 }
 
-function AssessmentListCard({ assessment, skillName }: { assessment: Assessment; skillName?: string }) {
+/** Groups the (already skill-filtered) assessments under each selected
+ * skill, in the skill's own alphabetical order, with each skill's
+ * assessments ordered Beginner -> Intermediate -> Advanced -> Expert.
+ * A selected skill with no assessment still gets a group (empty
+ * `assessments`) so the page can say so explicitly. */
+function buildGroups(studentSkills: StudentSkill[], assessments: Assessment[]): SkillGroup[] {
+  const bySkill = new Map<string, Assessment[]>();
+  for (const assessment of assessments) {
+    const list = bySkill.get(assessment.skill_id) ?? [];
+    list.push(assessment);
+    bySkill.set(assessment.skill_id, list);
+  }
+
+  return studentSkills
+    .map((studentSkill) => {
+      const list = (bySkill.get(studentSkill.skill_id) ?? [])
+        .slice()
+        .sort(
+          (a, b) =>
+            DIFFICULTY_ORDER.indexOf(a.difficulty) - DIFFICULTY_ORDER.indexOf(b.difficulty),
+        );
+      return {
+        skillId: studentSkill.skill_id,
+        skillName: studentSkill.skill.name,
+        categoryName: studentSkill.skill.category?.name ?? null,
+        assessments: list,
+      };
+    })
+    .sort((a, b) => a.skillName.localeCompare(b.skillName));
+}
+
+function AssessmentListCard({ assessment }: { assessment: Assessment }) {
   return (
     <Card className="flex flex-col">
       <CardHeader>
         <div className="flex flex-wrap items-center gap-1.5">
-          {skillName && <Badge variant="secondary">{skillName}</Badge>}
           <Badge variant="outline">{assessment.difficulty}</Badge>
         </div>
         <CardTitle className="text-base">{assessment.title}</CardTitle>

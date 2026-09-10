@@ -52,7 +52,11 @@ export function StudentSkillsView({
 
   // Matching assessment per (skill_id, difficulty) -- fetched once,
   // client-side (the FastAPI bridge is browser-only, see lib/api.ts), the
-  // same pattern AssessmentListView already uses. A failure here degrades
+  // same pattern AssessmentListView already uses. listAssessments() is
+  // already scoped server-side to this student's selected skills, so every
+  // row it returns corresponds to one of the cards below; the
+  // (skill_id, proficiency_level) exact-match lookup still decides which
+  // card actually gets a "Take Assessment" button. A failure here degrades
   // gracefully to "Assessment not available yet." on every card rather
   // than blocking the skills page itself.
   const [assessmentsByKey, setAssessmentsByKey] = useState<Map<string, Assessment>>(new Map());

@@ -22,6 +22,11 @@ import type {
  * derives it from the token).
  */
 
+/** Active assessments for the skills the calling student has selected --
+ * the backend filters to the authenticated caller's own `student_skills`
+ * (assessment_service.list_assessments_for_student); no skill id/name is
+ * sent from here and the client cannot widen the result. Returns an empty
+ * list when the student has no selected skills. */
 export function listAssessments(): Promise<{ assessments: Assessment[] }> {
   return api.get("/api/v1/assessments");
 }
