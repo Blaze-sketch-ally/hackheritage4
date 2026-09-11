@@ -1,5 +1,14 @@
 <title>AIC Portal — Project Context</title>
 
+> ⚠️ **STALE — do not trust this file's feature/scaffold claims.** It was
+> written when the project was an early scaffold ("none of that workflow is
+> built yet" below is no longer true). Student, Industry, and most of
+> Institution are now fully built; the backend registers 30+ routers. See
+> the root `README.md` "Status" section and `backend/README.md` for the
+> current, accurate picture. This file is kept for historical architecture
+> notes only — verify anything load-bearing against the actual code before
+> relying on it.
+
 > **Read this file first.** It exists so a future Claude Code session (or a
 > human) can resume work on AIC Portal without re-explaining the project.
 > It was written by inspecting the actual repository, git history, and a

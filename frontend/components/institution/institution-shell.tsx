@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { InstitutionHeader } from "@/components/institution/institution-header";
 import { InstitutionSidebar } from "@/components/institution/institution-sidebar";
+import { MobileNavOverlay } from "@/components/layout/mobile-nav-overlay";
 import type { Profile } from "@/types/user";
 
 // Same architecture as components/industry/industry-shell.tsx and
@@ -19,18 +20,9 @@ export function InstitutionShell({ profile, children }: { profile: Profile; chil
         <InstitutionSidebar />
       </aside>
 
-      {mobileOpen ? (
-        <div className="fixed inset-0 z-40 lg:hidden">
-          <div
-            className="absolute inset-0 bg-black/30"
-            onClick={() => setMobileOpen(false)}
-            aria-hidden="true"
-          />
-          <aside className="absolute inset-y-0 left-0 w-64 bg-card shadow-lg">
-            <InstitutionSidebar onNavigate={() => setMobileOpen(false)} />
-          </aside>
-        </div>
-      ) : null}
+      <MobileNavOverlay open={mobileOpen} onClose={() => setMobileOpen(false)}>
+        <InstitutionSidebar onNavigate={() => setMobileOpen(false)} />
+      </MobileNavOverlay>
 
       <div className="flex min-w-0 flex-1 flex-col">
         <InstitutionHeader profile={profile} onMenuClick={() => setMobileOpen(true)} />

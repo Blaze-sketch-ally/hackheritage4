@@ -11,7 +11,7 @@ services:
     command: sh -c "npm install && npm run dev"
 
   backend:
-    image: python:3.12-slim
+    image: python:3.11-slim
     working_dir: /app
     volumes:
       - ./backend:/app

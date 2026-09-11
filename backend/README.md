@@ -1,8 +1,13 @@
 # AIC Portal — Backend
 
-FastAPI backend for the Academia-Industry Collaboration Portal. Currently a
-scaffold: `GET /` and `GET /health` are the only live endpoints — see
-`app/api/` for route modules awaiting implementation as features are built.
+FastAPI backend for the Academia-Industry Collaboration Portal. `app/main.py`
+registers 30+ routers under `/api/v1` (student, industry, institution,
+assessments, applications, internships, jobs, analytics, and more) on top
+of `GET /` and `GET /health`. Some files under `app/api/` are still empty,
+unregistered scaffolds for features not yet built (Faculty's own endpoints,
+notifications, recommendations, etc.) — being a file in that directory does
+not mean it's live; check `app/main.py`'s router list for what's actually
+mounted.
 
 ## Stack
 

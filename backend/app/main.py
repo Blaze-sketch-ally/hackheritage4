@@ -1,5 +1,8 @@
-from fastapi import FastAPI
+import logging
+
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.api import (
     analytics,
@@ -37,15 +40,36 @@ from app.api import (
 )
 from app.core.config import settings
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+logger = logging.getLogger("app")
+
 app = FastAPI(title="AIC Portal API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.frontend_url],
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Last-resort handler for anything a route/dependency didn't already
+    turn into an HTTPException. Logs the real error server-side (visible in
+    the deployment platform's logs) but never leaks it to the client --
+    every other error path in this app already returns a safe, generic
+    message (see frontend/lib/api.ts), and this keeps that guarantee even
+    for a genuinely unexpected exception."""
+    logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Something went wrong. Please try again."},
+    )
 
 app.include_router(analytics.router, prefix="/api/v1")
 app.include_router(applications.router, prefix="/api/v1")

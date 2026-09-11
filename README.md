@@ -10,8 +10,14 @@ Placement -> Analytics
 
 ## Status
 
-Environment scaffold only. Authentication and business features are not
-implemented yet — see `frontend/` and `backend/` READMEs for what exists.
+The Student and Industry portals are fully built end-to-end (skill
+assessment, applications, internships, jobs, analytics). The Institution
+portal has a real dashboard, student directory, placements, industry
+partners, and analytics. Faculty has authentication/role-gating and a
+collaborations flow; most other Faculty screens and the entire Admin portal
+are still placeholder stubs pending a provisioning path. See
+`frontend/` and `backend/` for the actual route/router lists — treat
+`docs/PROJECT_CONTEXT.md` as historical, not current.
 
 ## Stack
 
@@ -95,6 +101,89 @@ See `frontend/.env.example` and `backend/.env.example` — copy each to
 themselves stay committed with variable *names* only. Never commit `.env`
 or `.env.local` files, and never expose `SUPABASE_SERVICE_ROLE_KEY` to the
 frontend.
+
+**Frontend** (`NEXT_PUBLIC_*` only — these are readable in the browser bundle,
+so never put a secret here):
+
+| Variable | Purpose |
+|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon (public) key |
+| `NEXT_PUBLIC_API_URL` | Base URL of the deployed FastAPI backend |
+
+**Backend** (server-only secrets — never expose these to the frontend):
+
+| Variable | Purpose |
+|---|---|
+| `SUPABASE_URL` | Supabase project URL |
+| `SUPABASE_ANON_KEY` | Anon key, used for RLS-scoped per-user requests |
+| `SUPABASE_SERVICE_ROLE_KEY` | Service-role key, bypasses RLS — used in 3 narrow spots only. **Never** expose this to the frontend. |
+| `AI_API_KEY` | LLM provider key |
+| `FRONTEND_URL` | The deployed frontend origin, used for CORS |
+| `ADDITIONAL_CORS_ORIGINS` | Optional, comma-separated extra origins to allow (e.g. a preview deployment) |
+
+## Deployment
+
+This is not deployed automatically by any process in this repo — the steps
+below are what a human operator runs manually. Nothing here has been
+executed against a live production environment.
+
+**1. Supabase (database/auth)**
+- Create a Supabase project (or use the existing one for this environment).
+- Apply every file in `database/migrations/` **in filename order** — there
+  is no migration runner in this repo; use the Supabase SQL editor or
+  `supabase db push` with the Supabase CLI pointed at the project.
+- Copy the project's URL, `anon` key, and `service_role` key from
+  Settings → API.
+- Under Authentication → URL Configuration, add the deployed frontend's
+  origin (and `https://<domain>/auth/callback`) to the redirect allow-list.
+
+**2. Frontend → Vercel**
+- Import the repo into Vercel; set the project's **Root Directory** to
+  `frontend` (this is a monorepo, so this step is required — there is no
+  `vercel.json` in this repo for it).
+- Framework preset: Next.js (auto-detected).
+- Set the three `NEXT_PUBLIC_*` environment variables above in the Vercel
+  project settings (Production and Preview as needed).
+- `NEXT_PUBLIC_API_URL` must point at the deployed backend's public URL
+  (step 3), not `localhost`.
+- Deploy. Vercel runs `npm run build` (or `npm run vercel-build` if added)
+  from `frontend/` automatically.
+
+**3. Backend → Render/Railway/Fly.io**
+- Point the service at this repo with `backend/` as the root/working
+  directory.
+- Install: `pip install -r requirements.txt`.
+- Start command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+  (also available as `backend/Procfile` for platforms that read it).
+- Set the backend environment variables above (`SUPABASE_URL`,
+  `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `AI_API_KEY`,
+  `FRONTEND_URL`) with `FRONTEND_URL` set to the deployed Vercel domain
+  (not `localhost`).
+- Confirm the platform's health check is `GET /health`.
+
+**4. Google OAuth (if enabling "Sign in with Google")**
+- In the Google Cloud Console OAuth client, add
+  `https://<your-supabase-project>.supabase.co/auth/v1/callback` as an
+  authorized redirect URI.
+- In Supabase → Authentication → Providers → Google, enable the provider
+  and paste the Google client ID/secret.
+- No frontend/backend code change is needed beyond the environment
+  variables above — `frontend/lib/auth.ts`'s `signInWithGoogle` already
+  builds the redirect from the current origin.
+
+**5. Post-deployment verification**
+- `GET https://<backend-domain>/health` returns `{"status": "ok"}`.
+- Sign up/sign in on the deployed frontend and confirm a session is set
+  (check that role-gated routes like `/student/dashboard` load, not just
+  the login page).
+- Open the browser network tab and confirm API calls go to the deployed
+  backend URL, not `localhost:8000`.
+- Confirm a request from an *other* origin is rejected by CORS (no
+  `Access-Control-Allow-Origin` header for a disallowed origin).
+- Spot-check one write per role (e.g. student applies to an internship,
+  industry publishes a posting) to confirm RLS + backend auth are both
+  working against the production Supabase project, not a local one.
 
 ## CI
 
