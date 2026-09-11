@@ -97,6 +97,9 @@ export interface ApplicationProvisioning {
   message: string;
   /** Set only for a provisioned INTERNSHIP_WORKSPACE — link target. */
   internship_id?: string | null;
+  /** Set only for a provisioned (CREATED or ALREADY_EXISTS) JOB_TRAINING
+   * enrollment. Null for every skipped/failed/revoked case. */
+  enrollment_id?: string | null;
 }
 
 export interface Application {

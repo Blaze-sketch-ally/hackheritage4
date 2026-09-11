@@ -431,6 +431,31 @@ def test_update_status_rejects_backwards_transition():
 # shows it verbatim.
 
 
+def test_application_provisioning_schema_accepts_enrollment_id():
+    from app.schemas.application import ApplicationProvisioning
+
+    prov = ApplicationProvisioning(
+        kind="JOB_TRAINING",
+        outcome="CREATED",
+        provisioned=True,
+        message="Selected — Job Training enrollment created.",
+        enrollment_id="enr-1",
+    )
+    assert prov.enrollment_id == "enr-1"
+    assert prov.internship_id is None
+
+    # internship_id-only construction (the pre-existing shape) still works,
+    # and enrollment_id defaults to None.
+    prov2 = ApplicationProvisioning(
+        kind="INTERNSHIP_WORKSPACE",
+        outcome="CREATED",
+        provisioned=True,
+        message="Selected — Internship Workspace created.",
+        internship_id="int-1",
+    )
+    assert prov2.enrollment_id is None
+
+
 def _selected_pair(**overrides):
     """get_application side_effect for a valid INTERVIEW_SCHEDULED -> SELECTED
     move: the pre-read (still INTERVIEW_SCHEDULED) then the post-read
@@ -459,6 +484,8 @@ def test_selected_internship_reports_workspace_created():
     assert prov["outcome"] == "CREATED"
     assert prov["internship_id"] == "int-1"
     assert "Internship Workspace" in prov["message"]
+    # Internship provisioning never touches the new JOB_TRAINING-only field.
+    assert prov["enrollment_id"] is None
 
 
 def test_selected_job_reports_training_enrollment_created():
@@ -481,6 +508,7 @@ def test_selected_job_reports_training_enrollment_created():
     assert prov["provisioned"] is True
     assert "Job Training enrollment created" in prov["message"]
     assert prov["internship_id"] is None
+    assert prov["enrollment_id"] == "enr-1"
 
 
 def test_selected_job_without_published_program_reports_not_published():
@@ -502,6 +530,55 @@ def test_selected_job_without_published_program_reports_not_published():
     assert prov["provisioned"] is False
     assert prov["outcome"] == "SKIPPED_NO_PROGRAM"
     assert prov["message"] == "Selected — Job Training is not published yet."
+    assert prov["enrollment_id"] is None
+
+
+def test_selected_job_already_enrolled_reports_enrollment_id():
+    """ALREADY_EXISTS is a provisioned outcome -- the UI needs enrollment_id
+    here too, not just on first CREATED (idempotent re-provision, or the
+    SELECTED transition firing again after a stale-tab retry)."""
+    supabase = MagicMock()
+    enrollment = job_training_service.ProvisionResult(
+        "ALREADY_EXISTS", "exists", "app-1", enrollment={"id": "enr-1"}
+    )
+    overrides = {"opportunity_type": "JOB", "internship_id": None, "job_id": "job-1"}
+    with (
+        patch.object(
+            application_service, "get_application", side_effect=_selected_pair(**overrides)
+        ),
+        patch.object(
+            job_training_service, "provision_for_selection", return_value=enrollment
+        ),
+    ):
+        result = application_service.update_status(supabase, "industry-1", "app-1", "SELECTED")
+    prov = result["provisioning"]
+    assert prov["outcome"] == "ALREADY_EXISTS"
+    assert prov["provisioned"] is True
+    assert prov["enrollment_id"] == "enr-1"
+
+
+def test_selected_job_revoked_blocked_does_not_report_enrollment_id():
+    """REVOKED_BLOCKED is not a provisioned outcome -- the enrollment
+    exists but is revoked, so enrollment_id must stay None (never point the
+    UI at a dead enrollment)."""
+    supabase = MagicMock()
+    revoked = job_training_service.ProvisionResult(
+        "REVOKED_BLOCKED", "revoked", "app-1", enrollment={"id": "enr-1", "enrollment_status": "REVOKED"}
+    )
+    overrides = {"opportunity_type": "JOB", "internship_id": None, "job_id": "job-1"}
+    with (
+        patch.object(
+            application_service, "get_application", side_effect=_selected_pair(**overrides)
+        ),
+        patch.object(
+            job_training_service, "provision_for_selection", return_value=revoked
+        ),
+    ):
+        result = application_service.update_status(supabase, "industry-1", "app-1", "SELECTED")
+    prov = result["provisioning"]
+    assert prov["outcome"] == "REVOKED_BLOCKED"
+    assert prov["provisioned"] is False
+    assert prov["enrollment_id"] is None
 
 
 def test_selected_reports_failure_without_failing_the_transition():
