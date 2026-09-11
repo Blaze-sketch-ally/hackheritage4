@@ -49,14 +49,15 @@ export function AuthShell({ title, description, children, contentClassName }: Au
       {/* Top Navbar */}
       <header className="sticky top-0 z-30 flex h-16 w-full items-center justify-between border-b border-border/40 bg-background/80 px-4 backdrop-blur-md sm:px-8">
         <div className="flex items-center gap-3">
-          <Link href="/" aria-label="SkillBridge home" className="group flex items-center gap-2.5">
+          <Link href="/" aria-label="SkillBridge home" className="group flex items-center gap-2">
             <SkillBridgeBrand
               emblemSize={32}
               priority
               className="transition-transform group-hover:scale-105"
             />
-            <span className="hidden self-end text-[10px] text-muted-foreground sm:inline">
-              Academia × Industry
+            <span className="hidden border-l border-border/60 pl-2 text-[10px] text-muted-foreground sm:inline">
+              Academia
+              <br />× Industry
             </span>
           </Link>
         </div>

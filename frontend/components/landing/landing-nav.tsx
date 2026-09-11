@@ -57,8 +57,19 @@ export function LandingNav() {
           aria-label="SkillBridge home"
           className="flex items-center gap-2.5 font-bold tracking-tight"
         >
-          <SkillBridgeBrand emblemSize={32} priority />
-          <span className="hidden sm:inline-flex items-center gap-1 rounded-full border border-border/80 bg-muted/40 px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
+          {/* The wordmark image is wider than the old text label was --
+              between `md` (nav links appear) and `lg` there isn't room
+              for brand + wordmark + nav + CTAs on one line, so the
+              wordmark waits for `lg` and the emblem alone carries the
+              brand at in-between widths, per the "emblem only when
+              constrained" guidance. */}
+          <SkillBridgeBrand emblemSize={32} priority wordmarkClassName="hidden lg:inline-block" />
+          {/* The image wordmark is wider than the old text label was, so
+              this decorative badge now waits for `xl` instead of `sm` --
+              at `md`/`lg` (where nav links and, respectively, the
+              wordmark + search bar appear) there isn't room left for
+              this badge too without a collision. */}
+          <span className="hidden xl:inline-flex items-center gap-1 rounded-full border border-border/80 bg-muted/40 px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
             <Sparkles className="size-2.5 text-indigo-600" />
             Enterprise
           </span>

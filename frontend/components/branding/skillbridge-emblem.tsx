@@ -26,6 +26,7 @@ const EMBLEM_INTRINSIC_SIZE = 1254;
 export function SkillBridgeEmblem({
   size = 28,
   className,
+  chip = true,
   chipClassName,
   priority,
   alt = "SkillBridge",
@@ -35,6 +36,11 @@ export function SkillBridgeEmblem({
   size?: number;
   /** Applied to the <img> itself. */
   className?: string;
+  /** Wrap in the white chip (see module docstring). Set to false only
+   * when a caller (e.g. SkillBridgeBrand) already provides its own
+   * shared chip around this + the wordmark -- never to expose the raw
+   * near-white background on a dark surface unwrapped. */
+  chip?: boolean;
   /** Applied to the white chip wrapper -- override only for spacing/
    * layout, never to recolor or hide the chip. */
   chipClassName?: string;
@@ -45,6 +51,26 @@ export function SkillBridgeEmblem({
    * standalone use (splash/loading screens, compact mobile branding). */
   alt?: string;
 }) {
+  const img = (
+    <Image
+      src={EMBLEM_SRC}
+      alt={alt}
+      width={EMBLEM_INTRINSIC_SIZE}
+      height={EMBLEM_INTRINSIC_SIZE}
+      priority={priority}
+      // Without `sizes`, next/image assumes this could render as wide as
+      // the viewport and requests its largest configured breakpoint --
+      // an expensive resize of an ~900KB source for a mark that only
+      // ever renders at `size` px. Pinning `sizes` to the actual
+      // rendered width gets a small, fast, correctly-cached variant.
+      sizes={`${size}px`}
+      style={{ height: size, width: size }}
+      className={cn("rounded-[3px] object-contain", className)}
+    />
+  );
+
+  if (!chip) return img;
+
   return (
     <span
       className={cn(
@@ -52,15 +78,7 @@ export function SkillBridgeEmblem({
         chipClassName,
       )}
     >
-      <Image
-        src={EMBLEM_SRC}
-        alt={alt}
-        width={EMBLEM_INTRINSIC_SIZE}
-        height={EMBLEM_INTRINSIC_SIZE}
-        priority={priority}
-        style={{ height: size, width: size }}
-        className={cn("rounded-[3px] object-contain", className)}
-      />
+      {img}
     </span>
   );
 }
