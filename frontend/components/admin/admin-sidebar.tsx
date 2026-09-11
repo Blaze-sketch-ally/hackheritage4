@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { SkillBridgeBrand } from "@/components/branding/skillbridge-brand";
 import {
   BadgeCheck,
   Building2,
@@ -78,13 +79,11 @@ export function AdminSidebar({ onNavigate }: { onNavigate?: () => void }) {
       <div className="flex h-14 shrink-0 flex-col justify-center gap-0.5 border-b px-4">
         <Link
           href="/"
+          aria-label="SkillBridge home"
           className="flex items-center gap-2 font-semibold tracking-tight"
           onClick={onNavigate}
         >
-          <span className="flex size-7 items-center justify-center rounded-lg bg-slate-800 text-sm font-bold text-white shadow-sm dark:bg-slate-700">
-            A
-          </span>
-          <span className="text-base tracking-tight text-foreground">AIC Portal</span>
+          <SkillBridgeBrand emblemSize={28} />
         </Link>
         <span className="text-[11px] font-semibold tracking-wider text-slate-500 uppercase dark:text-slate-400">
           Admin Console
@@ -139,7 +138,7 @@ export function AdminSidebar({ onNavigate }: { onNavigate?: () => void }) {
       </nav>
 
       <div className="border-t p-3 text-xs text-muted-foreground">
-        <p className="font-medium text-foreground">AIC System Core</p>
+        <p className="font-medium text-foreground">SkillBridge System Core</p>
         <p className="text-[11px]">Enterprise Governance Engine</p>
       </div>
     </div>

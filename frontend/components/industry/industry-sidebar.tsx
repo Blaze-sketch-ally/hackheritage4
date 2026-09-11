@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { SkillBridgeBrand } from "@/components/branding/skillbridge-brand";
 import {
   BarChart3,
   Briefcase,
@@ -75,11 +76,13 @@ export function IndustrySidebar({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <div className="flex h-full flex-col">
       <div className="flex h-14 shrink-0 items-center gap-2 border-b px-4">
-        <Link href="/" className="flex items-center gap-2 font-semibold tracking-tight" onClick={onNavigate}>
-          <span className="flex size-7 items-center justify-center rounded-lg bg-indigo-600 text-sm text-white">
-            A
-          </span>
-          AIC Portal
+        <Link
+          href="/"
+          aria-label="SkillBridge home"
+          className="flex items-center gap-2 font-semibold tracking-tight"
+          onClick={onNavigate}
+        >
+          <SkillBridgeBrand emblemSize={28} />
         </Link>
       </div>
 

@@ -1,0 +1,52 @@
+import { cn } from "@/lib/utils";
+import { SkillBridgeEmblem } from "@/components/branding/skillbridge-emblem";
+import { SkillBridgeWordmark } from "@/components/branding/skillbridge-wordmark";
+
+/** wordmark-height / emblem-size ratio that lines up the two marks' actual
+ * ink (glyph) heights, not their raw canvas heights -- measured directly
+ * from the source PNGs: the emblem's "S" glyph fills ~70% of its square
+ * canvas, the wordmark's letters fill ~48% of its canvas height, so
+ * `wordmarkHeight = emblemSize * (0.70 / 0.48)` puts both at the same
+ * visual cap-height instead of matching arbitrary bounding boxes. */
+const WORDMARK_TO_EMBLEM_RATIO = 0.7 / 0.48;
+
+/**
+ * The full SkillBridge lockup: the emblem and wordmark side by side, as
+ * two separate images (never a single flattened asset). This component
+ * only controls layout/spacing/sizing -- it renders no link and no
+ * accessible name of its own, since every current use sits inside an
+ * existing `<Link aria-label="SkillBridge home">` (see e.g.
+ * components/auth/auth-shell.tsx); both images are therefore alt="" here
+ * to avoid a duplicate screen-reader announcement of the same name.
+ */
+export function SkillBridgeBrand({
+  emblemSize = 28,
+  showWordmark = true,
+  gapClassName = "gap-2",
+  className,
+  priority,
+}: {
+  /** Emblem height/width in px; the wordmark's height is derived from it
+   * (see WORDMARK_TO_EMBLEM_RATIO) so the pair never needs two sizes. */
+  emblemSize?: number;
+  /** Set to false where the wordmark genuinely doesn't fit (e.g. a very
+   * narrow mobile header) -- renders the emblem alone rather than
+   * cramming or shrinking the wordmark unreadably. */
+  showWordmark?: boolean;
+  gapClassName?: string;
+  className?: string;
+  priority?: boolean;
+}) {
+  return (
+    <span className={cn("inline-flex shrink-0 items-center", gapClassName, className)}>
+      <SkillBridgeEmblem size={emblemSize} priority={priority} alt="" />
+      {showWordmark ? (
+        <SkillBridgeWordmark
+          height={Math.round(emblemSize * WORDMARK_TO_EMBLEM_RATIO)}
+          priority={priority}
+          alt=""
+        />
+      ) : null}
+    </span>
+  );
+}

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Menu, Search, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { SkillBridgeBrand } from "@/components/branding/skillbridge-brand";
 import { cn } from "@/lib/utils";
 
 const NAV_LINKS = [
@@ -51,11 +52,12 @@ export function LandingNav() {
     >
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
         {/* Brand Logo */}
-        <Link href="/" className="flex items-center gap-2.5 font-bold tracking-tight">
-          <span className="flex size-8 items-center justify-center rounded-lg bg-indigo-600 font-bold text-white shadow-md shadow-indigo-600/30">
-            A
-          </span>
-          <span className="text-base text-foreground">AIC Portal</span>
+        <Link
+          href="/"
+          aria-label="SkillBridge home"
+          className="flex items-center gap-2.5 font-bold tracking-tight"
+        >
+          <SkillBridgeBrand emblemSize={32} priority />
           <span className="hidden sm:inline-flex items-center gap-1 rounded-full border border-border/80 bg-muted/40 px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
             <Sparkles className="size-2.5 text-indigo-600" />
             Enterprise

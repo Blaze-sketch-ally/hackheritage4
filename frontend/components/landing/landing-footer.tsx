@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ShieldCheck } from "lucide-react";
+import { SkillBridgeBrand } from "@/components/branding/skillbridge-brand";
 
 const FOOTER_LINKS = [
   { label: "Sign In", href: "/login" },
@@ -15,13 +16,8 @@ export function LandingFooter() {
       <div className="mx-auto max-w-6xl px-4 py-12 sm:px-6">
         <div className="flex flex-col items-center justify-between gap-6 sm:flex-row">
           <div className="flex items-center gap-3">
-            <span className="flex size-8 items-center justify-center rounded-lg bg-indigo-600 font-bold text-xs text-white shadow-xs">
-              A
-            </span>
-            <div>
-              <p className="text-sm font-bold text-foreground">AIC Portal</p>
-              <p className="text-xs text-muted-foreground">Academia-Industry Collaboration &amp; Skill Verification</p>
-            </div>
+            <SkillBridgeBrand emblemSize={32} />
+            <p className="text-xs text-muted-foreground">Academia-Industry Collaboration &amp; Skill Verification</p>
           </div>
 
           <nav className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
@@ -48,7 +44,7 @@ export function LandingFooter() {
             <span>Enterprise Multi-Tenant RLS · Verified Assessment Trust Network</span>
           </div>
           <p>
-            &copy; {new Date().getFullYear()} AIC Portal. Ready for universal enterprise deployment.
+            &copy; {new Date().getFullYear()} SkillBridge. Ready for universal enterprise deployment.
           </p>
         </div>
       </div>

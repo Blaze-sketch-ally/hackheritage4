@@ -16,6 +16,7 @@ import {
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { SkillBridgeBrand } from "@/components/branding/skillbridge-brand";
 import { cn } from "@/lib/utils";
 
 interface AuthShellProps {
@@ -48,16 +49,15 @@ export function AuthShell({ title, description, children, contentClassName }: Au
       {/* Top Navbar */}
       <header className="sticky top-0 z-30 flex h-16 w-full items-center justify-between border-b border-border/40 bg-background/80 px-4 backdrop-blur-md sm:px-8">
         <div className="flex items-center gap-3">
-          <Link href="/" className="group flex items-center gap-2.5">
-            <span className="flex size-8 items-center justify-center rounded-lg bg-indigo-600 text-sm font-bold text-white shadow-sm shadow-indigo-600/30 transition-transform group-hover:scale-105">
-              A
+          <Link href="/" aria-label="SkillBridge home" className="group flex items-center gap-2.5">
+            <SkillBridgeBrand
+              emblemSize={32}
+              priority
+              className="transition-transform group-hover:scale-105"
+            />
+            <span className="hidden self-end text-[10px] text-muted-foreground sm:inline">
+              Academia × Industry
             </span>
-            <div className="flex flex-col">
-              <span className="text-base font-semibold tracking-tight text-foreground">AIC Portal</span>
-              <span className="hidden text-[10px] text-muted-foreground sm:inline">
-                Academia × Industry
-              </span>
-            </div>
           </Link>
         </div>
 
@@ -189,7 +189,7 @@ export function AuthShell({ title, description, children, contentClassName }: Au
 
               <div className="rounded-xl border border-dashed border-border/70 p-4 text-xs text-muted-foreground">
                 <p className="italic">
-                  &ldquo;AIC Portal replaces subjective resumes with verified evidence — saving our recruitment team hundreds of screening hours.&rdquo;
+                  &ldquo;SkillBridge replaces subjective resumes with verified evidence — saving our recruitment team hundreds of screening hours.&rdquo;
                 </p>
                 <p className="mt-2 font-semibold text-foreground">
                   — Campus Talent Acquisition Lead
@@ -202,7 +202,7 @@ export function AuthShell({ title, description, children, contentClassName }: Au
 
       {/* Footer */}
       <footer className="border-t border-border/40 py-4 text-center text-xs text-muted-foreground">
-        © {new Date().getFullYear()} AIC Portal. Built for Academia, Industry &amp; Higher Education.
+        © {new Date().getFullYear()} SkillBridge. Built for Academia, Industry &amp; Higher Education.
       </footer>
     </div>
   );

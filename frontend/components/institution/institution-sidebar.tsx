@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { SkillBridgeBrand } from "@/components/branding/skillbridge-brand";
 import {
   BarChart3,
   Building2,
@@ -94,13 +95,11 @@ export function InstitutionSidebar({ onNavigate }: { onNavigate?: () => void }) 
       <div className="flex h-14 shrink-0 flex-col justify-center gap-0.5 border-b px-4">
         <Link
           href="/"
+          aria-label="SkillBridge home"
           className="flex items-center gap-2 font-semibold tracking-tight"
           onClick={onNavigate}
         >
-          <span className="flex size-7 items-center justify-center rounded-lg bg-indigo-600 text-sm text-white">
-            A
-          </span>
-          AIC Portal
+          <SkillBridgeBrand emblemSize={28} />
         </Link>
         <p className="pl-9 text-[11px] font-medium tracking-wide text-muted-foreground">
           Institution Portal
