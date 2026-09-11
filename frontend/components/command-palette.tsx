@@ -187,10 +187,14 @@ export function CommandPalette({
     );
   }, [items, query]);
 
-  // Reset selectedIndex when filter changes
-  React.useEffect(() => {
+  // Reset selectedIndex when the filter query changes. Adjusted during
+  // render (React's recommended pattern for resetting derived state)
+  // rather than in an effect, which would cause an extra render pass.
+  const [prevQuery, setPrevQuery] = React.useState(query);
+  if (query !== prevQuery) {
+    setPrevQuery(query);
     setSelectedIndex(0);
-  }, [filteredItems.length]);
+  }
 
   const executeItem = React.useCallback(
     (item: CommandItem) => {

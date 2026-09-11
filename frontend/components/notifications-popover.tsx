@@ -129,31 +129,10 @@ export function NotificationsPopover({
   const isFaculty = role === "FACULTY";
   const hasLiveNotifications = isStudent || isFaculty;
 
-  // Load unread count on mount
-  const fetchCount = React.useCallback(async () => {
-    if (!hasLiveNotifications) {
-      setUnreadCount(0);
-      return;
-    }
-
-    try {
-      if (isStudent) {
-        const res = await listStudentNotifications({ unread: true, limit: 1 });
-        setUnreadCount(res.unread_count ?? 0);
-      } else if (isFaculty) {
-        const res = await listFacultyNotifications({ unread: true, limit: 1 });
-        setUnreadCount(res.unread_count ?? 0);
-      }
-    } catch {
-      // Quiet fail for header badges
-      setUnreadCount(0);
-    }
-  }, [hasLiveNotifications, isStudent, isFaculty]);
-
-  // Load preview items (latest 5)
+  // Load preview items (latest 5). Called directly from the popover's
+  // onOpenChange handler (a real user event), not from an effect --
+  // this is an event-triggered fetch, not a mount-time sync.
   const fetchRecent = React.useCallback(async () => {
-    if (!hasLiveNotifications) return;
-
     setLoading(true);
     try {
       if (isStudent) {
@@ -188,17 +167,40 @@ export function NotificationsPopover({
     } finally {
       setLoading(false);
     }
+  }, [isStudent, isFaculty]);
+
+  // Load unread count on mount.
+  React.useEffect(() => {
+    if (!hasLiveNotifications) return;
+    let cancelled = false;
+
+    async function fetchCount() {
+      try {
+        if (isStudent) {
+          const res = await listStudentNotifications({ unread: true, limit: 1 });
+          if (!cancelled) setUnreadCount(res.unread_count ?? 0);
+        } else if (isFaculty) {
+          const res = await listFacultyNotifications({ unread: true, limit: 1 });
+          if (!cancelled) setUnreadCount(res.unread_count ?? 0);
+        }
+      } catch {
+        // Quiet fail for header badges
+        if (!cancelled) setUnreadCount(0);
+      }
+    }
+
+    void fetchCount();
+    return () => {
+      cancelled = true;
+    };
   }, [hasLiveNotifications, isStudent, isFaculty]);
 
-  React.useEffect(() => {
-    fetchCount();
-  }, [fetchCount]);
-
-  React.useEffect(() => {
-    if (open && hasLiveNotifications) {
+  function handleOpenChange(next: boolean) {
+    setOpen(next);
+    if (next && hasLiveNotifications) {
       fetchRecent();
     }
-  }, [open, hasLiveNotifications, fetchRecent]);
+  }
 
   async function handleMarkAllRead() {
     if (markingAll) return;
@@ -283,7 +285,7 @@ export function NotificationsPopover({
   })();
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger
         render={
           <Button
