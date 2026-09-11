@@ -10,7 +10,7 @@ export default function InstitutionAnalyticsSkillsPage() {
         description="Analyze student cohort proficiency across modern technology stacks and benchmark campus readiness against current industry recruitment trends."
         highlights={[
           "Comparative skill gap heatmaps across semesters and branches",
-          "Real-time calibration against live hiring requirements in the AIC network",
+          "Real-time calibration against live hiring requirements in the SkillBridge network",
           "Curriculum enhancement recommendations backed by data",
           "Exportable compliance summaries for NAAC & NBA accreditation criteria",
         ]}

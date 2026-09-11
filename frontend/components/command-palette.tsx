@@ -313,7 +313,7 @@ export function CommandPalette({
             <span className="ml-1">Select:</span>
             <kbd className="rounded border bg-background px-1 py-0.5 font-mono text-[10px]">↵</kbd>
           </div>
-          <span className="font-mono text-[10px]">AIC Portal Quick Search</span>
+          <span className="font-mono text-[10px]">SkillBridge Quick Search</span>
         </div>
       </DialogContent>
     </Dialog>

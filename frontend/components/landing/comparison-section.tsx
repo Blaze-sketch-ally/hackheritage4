@@ -24,7 +24,7 @@ export function ComparisonSection() {
             Why it&apos;s different
           </p>
           <h2 className="mt-2 text-balance text-3xl font-semibold tracking-tight sm:text-4xl">
-            Resumes claim. AIC Portal proves.
+            Resumes claim. SkillBridge proves.
           </h2>
         </Reveal>
 
@@ -47,7 +47,7 @@ export function ComparisonSection() {
 
           <Reveal delay={120}>
             <div className="relative h-full overflow-hidden rounded-2xl border-2 border-indigo-600/50 bg-gradient-to-br from-indigo-500/5 via-background to-emerald-500/5 p-8 shadow-sm">
-              <p className="text-sm font-semibold text-indigo-600">The AIC Portal way</p>
+              <p className="text-sm font-semibold text-indigo-600">The SkillBridge way</p>
               <ul className="mt-5 space-y-4">
                 {NEW_WAY.map((item) => (
                   <li key={item} className="flex items-start gap-3 text-sm font-medium">

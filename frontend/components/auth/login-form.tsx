@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useId, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -73,6 +73,8 @@ const ROLE_HINTS = [
   },
 ] as const;
 
+const emptySubscribe = () => () => {};
+
 export function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -87,6 +89,7 @@ export function LoginForm() {
   const [unverifiedEmail, setUnverifiedEmail] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const mounted = useSyncExternalStore(emptySubscribe, () => true, () => false);
 
   const oauthError = searchParams.get("error");
   const activeHint = ROLE_HINTS.find((r) => r.id === selectedRole) || ROLE_HINTS[0];
@@ -148,8 +151,7 @@ export function LoginForm() {
         description: "Signing in and opening your workspace...",
       });
 
-      router.push(destination);
-      router.refresh();
+      window.location.assign(destination);
     } catch (err) {
       console.error("Login failed:", err);
       const errorMsg = getAuthErrorMessage(err);
@@ -244,7 +246,13 @@ export function LoginForm() {
         </div>
       ) : null}
 
-      <form onSubmit={handleSubmit} noValidate className="space-y-4">
+      <form
+        method="POST"
+        action="javascript:void(0)"
+        onSubmit={handleSubmit}
+        noValidate
+        className="space-y-4"
+      >
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">
             <Label htmlFor={identifierId} className="flex items-center gap-1.5 text-xs font-medium">
@@ -313,9 +321,9 @@ export function LoginForm() {
         <Button
           type="submit"
           className="h-11 w-full bg-primary font-medium text-primary-foreground shadow-sm transition-all hover:bg-primary/90"
-          disabled={submitting}
+          disabled={submitting || !mounted}
         >
-          {submitting ? "Signing in to workspace..." : "Sign In to Portal"}
+          {submitting ? "Signing in to workspace..." : !mounted ? "Loading portal..." : "Sign In to Portal"}
         </Button>
       </form>
 

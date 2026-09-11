@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useId, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -41,6 +41,8 @@ interface FieldErrors {
   confirmPassword?: string;
 }
 
+const emptySubscribe = () => () => {};
+
 export function RegisterForm() {
   const router = useRouter();
   const fullNameId = useId();
@@ -58,6 +60,7 @@ export function RegisterForm() {
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const mounted = useSyncExternalStore(emptySubscribe, () => true, () => false);
 
   // Real-time helper validation indicators
   const isUsernameFormatValid = username.length >= 3 && isValidUsername(username);
@@ -162,8 +165,8 @@ export function RegisterForm() {
 
       await syncProfileUsernameFromMetadata(supabase, data.user.id, data.user.user_metadata);
       const role = await fetchProfileRole(supabase, data.user.id);
-      router.push(role ? getPostLoginRedirectPath(role) : "/onboarding");
-      router.refresh();
+      const destination = role ? getPostLoginRedirectPath(role) : "/onboarding";
+      window.location.assign(destination);
     } catch (err) {
       console.error("Registration failed:", err);
       const errorMsg = getAuthErrorMessage(err);
@@ -223,7 +226,13 @@ export function RegisterForm() {
 
       <FormError message={formError} />
 
-      <form onSubmit={handleSubmit} noValidate className="space-y-4">
+      <form
+        method="POST"
+        action="javascript:void(0)"
+        onSubmit={handleSubmit}
+        noValidate
+        className="space-y-4"
+      >
         <div className="space-y-1.5">
           <Label htmlFor={fullNameId} className="flex items-center gap-1.5 text-xs font-medium">
             <User className="size-3.5 text-muted-foreground" />
@@ -360,9 +369,9 @@ export function RegisterForm() {
         <Button
           type="submit"
           className="h-11 w-full bg-primary font-medium text-primary-foreground shadow-sm transition-all hover:bg-primary/90"
-          disabled={submitting}
+          disabled={submitting || !mounted}
         >
-          {submitting ? "Creating account..." : "Create Account & Continue"}
+          {submitting ? "Creating account..." : !mounted ? "Loading portal..." : "Create Account & Continue"}
         </Button>
       </form>
 

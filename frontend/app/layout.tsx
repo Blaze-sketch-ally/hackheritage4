@@ -26,24 +26,24 @@ export const viewport: Viewport = {
 
 export const metadata: Metadata = {
   title: {
-    default: "AIC Portal — Prove Your Skills, Not Just Claim Them",
-    template: "%s | AIC Portal",
+    default: "SkillBridge — Prove Your Skills, Not Just Claim Them",
+    template: "%s | SkillBridge",
   },
   description:
-    "Academia-Industry Collaboration Portal: objective skill assessments, explainable job matching, and a recruitment pipeline students and employers can actually trust.",
-  applicationName: "AIC Portal",
-  authors: [{ name: "AIC Portal Engineering Team" }],
+    "SkillBridge Portal: objective skill assessments, explainable job matching, and a recruitment pipeline students and employers can actually trust.",
+  applicationName: "SkillBridge",
+  authors: [{ name: "SkillBridge Engineering Team" }],
   openGraph: {
-    title: "AIC Portal — Objective Skill Verification & Career Matching",
+    title: "SkillBridge — Objective Skill Verification & Career Matching",
     description:
-      "Academia-Industry Collaboration Portal: verifiable skill assessments, transparent job matching, and reliable recruitment pipelines.",
-    siteName: "AIC Portal",
+      "SkillBridge Portal: verifiable skill assessments, transparent job matching, and reliable recruitment pipelines.",
+    siteName: "SkillBridge",
     locale: "en_US",
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
-    title: "AIC Portal",
+    title: "SkillBridge",
     description:
       "Objective skill assessments, explainable job matching, and recruitment pipelines you can trust.",
   },

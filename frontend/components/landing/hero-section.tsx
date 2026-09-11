@@ -108,7 +108,7 @@ export function HeroSection() {
           </h1>
 
           <p className="mx-auto mt-6 max-w-2xl text-balance text-base text-muted-foreground sm:text-lg">
-            AIC Portal bridges students, universities, and enterprise recruiters with randomized,
+            SkillBridge bridges students, universities, and enterprise recruiters with randomized,
             peer-reviewed assessments, explainable job matches, and tamper-proof portfolio evidence.
           </p>
 
@@ -192,7 +192,7 @@ export function HeroSection() {
                 <span className="size-3 rounded-full bg-amber-500/80" />
                 <span className="size-3 rounded-full bg-emerald-500/80" />
                 <span className="ml-2 font-mono text-xs text-muted-foreground">
-                  aic-portal://workspace/{activeRole}
+                  skillbridge://workspace/{activeRole}
                 </span>
               </div>
               <div className="flex items-center gap-2">

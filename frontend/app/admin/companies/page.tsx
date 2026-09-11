@@ -7,7 +7,7 @@ export default function AdminCompaniesPage() {
         title="Corporate Partner Governance"
         role="Admin"
         badge="Admin Roadmap"
-        description="Manage corporate registrations, employer vetting, job posting quotas, and partnership agreements across the AIC portal."
+        description="Manage corporate registrations, employer vetting, job posting quotas, and partnership agreements across the SkillBridge portal."
         highlights={[
           "Employer verification pipeline with corporate tax ID validation",
           "Recruiter seat management, authorization tiers, and audit logs",

@@ -23,7 +23,7 @@ export default async function OnboardingPage() {
 
   return (
     <AuthShell
-      title="Welcome to AIC Portal"
+      title="Welcome to SkillBridge"
       description="Let's personalize your experience — what best describes you?"
       contentClassName="max-w-2xl"
     >

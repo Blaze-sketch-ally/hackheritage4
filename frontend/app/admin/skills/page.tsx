@@ -7,7 +7,7 @@ export default function AdminSkillsPage() {
         title="Skill Taxonomy & Ontology Engine"
         role="Admin"
         badge="Admin Roadmap"
-        description="Manage the central AIC skill ontology, industry competency standards, and automated course-to-skill mapping dictionaries."
+        description="Manage the central SkillBridge skill ontology, industry competency standards, and automated course-to-skill mapping dictionaries."
         highlights={[
           "Hierarchical skill taxonomy with semantic tag relationship graphs",
           "Market demand trend tracking calibrated against live job listings",

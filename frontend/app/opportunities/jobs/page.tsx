@@ -6,7 +6,7 @@ export default function OpportunitiesJobsPage() {
       <FeatureRoadmapStub
         title="Public Job Directory"
         badge="Roadmap Phase 4"
-        description="Explore verified full-time engineering, research, and technical positions from vetted corporate partners across the AIC network."
+        description="Explore verified full-time engineering, research, and technical positions from vetted corporate partners across the SkillBridge network."
         highlights={[
           "Transparent compensation ranges and verified role requirements",
           "Automated skill match score calculated from your verified profile",

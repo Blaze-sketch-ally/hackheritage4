@@ -18,7 +18,20 @@ import { createClient } from "@/lib/supabase/client";
  * Handlers -- use lib/supabase/server.ts's client for those instead.
  */
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+function getApiBaseUrl(): string {
+  if (
+    typeof window !== "undefined" &&
+    window.location?.hostname &&
+    window.location.hostname !== "localhost" &&
+    window.location.hostname !== "127.0.0.1"
+  ) {
+    // When accessed from a mobile device on the local network (e.g. http://192.168.x.x:3000),
+    // hardcoded "http://localhost:8000" points to the phone's loopback and fails.
+    // An empty base URL delegates to Next.js same-origin rewrites (/api/v1 -> backend).
+    return "";
+  }
+  return process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+}
 
 /** Thrown for every non-2xx FastAPI response and for "no session at all".
  * `status` lets callers branch on specific backend semantics (e.g. 409 on
@@ -79,7 +92,7 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
 
   let response: Response;
   try {
-    response = await fetch(`${API_BASE_URL}${path}`, {
+    response = await fetch(`${getApiBaseUrl()}${path}`, {
       ...rest,
       headers: {
         ...(body !== undefined ? { "Content-Type": "application/json" } : {}),

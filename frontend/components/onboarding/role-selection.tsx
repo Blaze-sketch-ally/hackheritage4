@@ -66,7 +66,7 @@ export function RoleSelection({ userId }: RoleSelectionProps) {
         return;
       }
 
-      toast.success("Welcome to AIC Portal!", {
+      toast.success("Welcome to SkillBridge!", {
         description: `Opening your ${ROLE_LABELS[selectedRole].title} workspace...`,
       });
 
