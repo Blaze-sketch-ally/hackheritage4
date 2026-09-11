@@ -225,6 +225,9 @@ def update_status(
     #     re-runnable (the /provision-workspace and /provision-job-training
     #     heal endpoints, or the scripts/backfill_*.py utilities), so a
     #     miss self-heals.
+    # Same best-effort posture as notification_producer in the route. Each
+    # call is READ-ONLY with respect to `applications` / `jobs` /
+    # `internships` -- it only inserts one workspace / enrollment row.
     provisioning: dict | None = None
     if target_status == "SELECTED":
         opportunity_type = existing.get("opportunity_type")
