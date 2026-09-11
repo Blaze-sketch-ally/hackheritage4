@@ -18,6 +18,8 @@ import { fetchProfile } from "@/lib/profile";
 // ADMIN account through the app at all (002_protect_admin_role.sql), so
 // this check can never actually let anyone through today -- it exists
 // for when that changes.
+import { AdminShell } from "@/components/admin/admin-shell";
+
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient();
   const {
@@ -31,5 +33,5 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   if (!profile || !profile.role) redirect("/onboarding");
   if (profile.role !== "ADMIN") redirect(getPostLoginRedirectPath(profile.role));
 
-  return <div className="min-h-screen">{children}</div>;
+  return <AdminShell profile={profile}>{children}</AdminShell>;
 }

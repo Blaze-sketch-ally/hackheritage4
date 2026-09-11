@@ -8,6 +8,7 @@ import { FormError } from "@/components/auth/form-error";
 import { createClient } from "@/lib/supabase/client";
 import { getPostLoginRedirectPath, updateProfileRole } from "@/lib/auth";
 import { PUBLIC_ROLES, ROLE_LABELS, type PublicRole } from "@/lib/constants";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 const ROLE_ICONS: Record<PublicRole, LucideIcon> = {
@@ -58,16 +59,24 @@ export function RoleSelection({ userId }: RoleSelectionProps) {
 
       if (error) {
         console.error("Role update failed:", error.message);
-        setFormError("Something went wrong while setting up your account. Please try again.");
+        const msg = "Something went wrong while setting up your account. Please try again.";
+        setFormError(msg);
+        toast.error("Role setup failed", { description: msg });
         setSubmitting(false);
         return;
       }
+
+      toast.success("Welcome to AIC Portal!", {
+        description: `Opening your ${ROLE_LABELS[selectedRole].title} workspace...`,
+      });
 
       router.push(getPostLoginRedirectPath(selectedRole));
       router.refresh();
     } catch (err) {
       console.error("Role update failed:", err);
-      setFormError("Something went wrong while setting up your account. Please try again.");
+      const msg = "Something went wrong while setting up your account. Please try again.";
+      setFormError(msg);
+      toast.error("Role setup failed", { description: msg });
       setSubmitting(false);
     }
   }

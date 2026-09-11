@@ -7,6 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { ProjectCard } from "@/components/portfolio/project-card";
 import { ProjectForm } from "@/components/portfolio/project-form";
 import { ApiError } from "@/lib/api";
+import { toast } from "sonner";
 import { deleteProject, listMyProjects } from "@/lib/student/portfolio";
 import type { Project } from "@/types/portfolio";
 
@@ -55,8 +56,10 @@ export function ProjectList() {
     try {
       await deleteProject(projectId);
       setReloadKey((k) => k + 1);
+      toast.success("Project deleted from portfolio.");
     } catch (err) {
-      window.alert(err instanceof ApiError ? err.message : "Could not delete this project.");
+      const message = err instanceof ApiError ? err.message : "Could not delete this project.";
+      toast.error(message);
     }
   }
 

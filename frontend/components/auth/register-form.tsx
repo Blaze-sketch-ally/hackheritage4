@@ -3,6 +3,16 @@
 import { useId, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import {
+  AtSign,
+  CheckCircle2,
+  Lock,
+  Mail,
+  ShieldCheck,
+  Sparkles,
+  User,
+} from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -48,6 +58,11 @@ export function RegisterForm() {
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+
+  // Real-time helper validation indicators
+  const isUsernameFormatValid = username.length >= 3 && isValidUsername(username);
+  const isEmailFormatValid = email.length > 3 && isValidEmail(email);
+  const doPasswordsMatch = Boolean(password && confirmPassword && password === confirmPassword);
 
   function validate(): boolean {
     const errors: FieldErrors = {};
@@ -118,36 +133,42 @@ export function RegisterForm() {
       });
 
       if (error) {
-        setFormError(getAuthErrorMessage(error));
+        const errorMsg = getAuthErrorMessage(error);
+        setFormError(errorMsg);
+        toast.error("Registration failed", { description: errorMsg });
         setSubmitting(false);
         return;
       }
 
       if (!data.user) {
-        setFormError(getAuthErrorMessage(null));
+        const fallbackMsg = getAuthErrorMessage(null);
+        setFormError(fallbackMsg);
+        toast.error("Registration failed", { description: fallbackMsg });
         setSubmitting(false);
         return;
       }
 
       if (!data.session) {
-        // Email confirmation is required — no session yet. Reuse the
-        // existing verify-email page rather than building a second one;
-        // this also covers Supabase's anti-enumeration "obfuscated user"
-        // response for an already-registered email, which looks identical
-        // to a genuine new signup here.
+        toast.info("Verification email sent!", {
+          description: "Please check your inbox to confirm your email and proceed.",
+        });
         router.push(`/verify-email?email=${encodeURIComponent(trimmedEmail)}`);
         return;
       }
 
-      // Email confirmation is disabled — Supabase returned a session
-      // immediately, so this is already an authenticated sign-in.
+      toast.success("Account created successfully!", {
+        description: "Setting up your workspace profile...",
+      });
+
       await syncProfileUsernameFromMetadata(supabase, data.user.id, data.user.user_metadata);
       const role = await fetchProfileRole(supabase, data.user.id);
       router.push(role ? getPostLoginRedirectPath(role) : "/onboarding");
       router.refresh();
     } catch (err) {
       console.error("Registration failed:", err);
-      setFormError(getAuthErrorMessage(err));
+      const errorMsg = getAuthErrorMessage(err);
+      setFormError(errorMsg);
+      toast.error("Registration failed", { description: errorMsg });
       setSubmitting(false);
     }
   }
@@ -161,41 +182,81 @@ export function RegisterForm() {
       const { error } = await signInWithGoogle(supabase, `${window.location.origin}/auth/callback`);
 
       if (error) {
-        setFormError(getAuthErrorMessage(error));
+        const errorMsg = getAuthErrorMessage(error);
+        setFormError(errorMsg);
+        toast.error("Google sign-in failed", { description: errorMsg });
         setGoogleLoading(false);
       }
-      // On success the browser navigates away to Google, so no further state change here.
     } catch (err) {
       console.error("Google sign-in failed:", err);
-      setFormError(getAuthErrorMessage(err));
+      const errorMsg = getAuthErrorMessage(err);
+      setFormError(errorMsg);
+      toast.error("Google sign-in failed", { description: errorMsg });
       setGoogleLoading(false);
     }
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
+      {/* 2-Step Onboarding Indicator */}
+      <div className="rounded-xl border border-border/70 bg-muted/30 p-3.5">
+        <div className="flex items-center justify-between text-xs font-semibold">
+          <span className="flex items-center gap-1.5 text-primary">
+            <span className="flex size-5 items-center justify-center rounded-full bg-primary text-[11px] text-primary-foreground font-bold">
+              1
+            </span>
+            Account Credentials
+          </span>
+          <span className="flex items-center gap-1 text-muted-foreground font-normal">
+            <Sparkles className="size-3.5 text-primary" />
+            Step 2: Choose Workspace Role
+          </span>
+        </div>
+        <p className="mt-2 text-xs text-muted-foreground leading-relaxed">
+          Create your portal login below. In the next step, you will select your primary role:{" "}
+          <strong className="text-foreground font-medium">Student</strong>,{" "}
+          <strong className="text-foreground font-medium">Faculty</strong>,{" "}
+          <strong className="text-foreground font-medium">Recruiter</strong>, or{" "}
+          <strong className="text-foreground font-medium">Institution Admin</strong>.
+        </p>
+      </div>
+
       <FormError message={formError} />
 
       <form onSubmit={handleSubmit} noValidate className="space-y-4">
         <div className="space-y-1.5">
-          <Label htmlFor={fullNameId}>Full Name</Label>
+          <Label htmlFor={fullNameId} className="flex items-center gap-1.5 text-xs font-medium">
+            <User className="size-3.5 text-muted-foreground" />
+            Full Name
+          </Label>
           <Input
             id={fullNameId}
             name="name"
             type="text"
             autoComplete="name"
+            placeholder="e.g. Alexandra Chen"
             value={fullName}
             onChange={(e) => setFullName(e.target.value)}
             aria-invalid={!!fieldErrors.fullName}
             aria-describedby={fieldErrors.fullName ? `${fullNameId}-error` : undefined}
             disabled={submitting}
-            className="h-10"
+            className="h-10 transition-colors focus-visible:ring-2 focus-visible:ring-primary/20"
           />
           <FieldError id={`${fullNameId}-error`} message={fieldErrors.fullName} />
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor={usernameId}>Username</Label>
+          <div className="flex items-center justify-between">
+            <Label htmlFor={usernameId} className="flex items-center gap-1.5 text-xs font-medium">
+              <AtSign className="size-3.5 text-muted-foreground" />
+              Username
+            </Label>
+            {isUsernameFormatValid && (
+              <span className="flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                <CheckCircle2 className="size-3" /> Valid format
+              </span>
+            )}
+          </div>
           <Input
             id={usernameId}
             name="username"
@@ -203,35 +264,50 @@ export function RegisterForm() {
             autoComplete="username"
             autoCapitalize="none"
             spellCheck={false}
+            placeholder="e.g. alex.chen"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             aria-invalid={!!fieldErrors.username}
             aria-describedby={fieldErrors.username ? `${usernameId}-error` : undefined}
             disabled={submitting}
-            className="h-10"
+            className="h-10 transition-colors focus-visible:ring-2 focus-visible:ring-primary/20"
           />
           <FieldError id={`${usernameId}-error`} message={fieldErrors.username} />
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor={emailId}>Email</Label>
+          <div className="flex items-center justify-between">
+            <Label htmlFor={emailId} className="flex items-center gap-1.5 text-xs font-medium">
+              <Mail className="size-3.5 text-muted-foreground" />
+              Email Address
+            </Label>
+            {isEmailFormatValid && (
+              <span className="flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                <CheckCircle2 className="size-3" /> Valid email
+              </span>
+            )}
+          </div>
           <Input
             id={emailId}
             name="email"
             type="email"
             autoComplete="email"
+            placeholder="alex@university.edu"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             aria-invalid={!!fieldErrors.email}
             aria-describedby={fieldErrors.email ? `${emailId}-error` : undefined}
             disabled={submitting}
-            className="h-10"
+            className="h-10 transition-colors focus-visible:ring-2 focus-visible:ring-primary/20"
           />
           <FieldError id={`${emailId}-error`} message={fieldErrors.email} />
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor={passwordId}>Password</Label>
+          <Label htmlFor={passwordId} className="flex items-center gap-1.5 text-xs font-medium">
+            <Lock className="size-3.5 text-muted-foreground" />
+            Password
+          </Label>
           <PasswordInput
             id={passwordId}
             name="new-password"
@@ -241,6 +317,7 @@ export function RegisterForm() {
             aria-invalid={!!fieldErrors.password}
             aria-describedby={`${passwordId}-strength${fieldErrors.password ? ` ${passwordId}-error` : ""}`}
             disabled={submitting}
+            className="h-10 transition-colors focus-visible:ring-2 focus-visible:ring-primary/20"
           />
           <FieldError id={`${passwordId}-error`} message={fieldErrors.password} />
           <div id={`${passwordId}-strength`}>
@@ -249,7 +326,17 @@ export function RegisterForm() {
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor={confirmPasswordId}>Confirm Password</Label>
+          <div className="flex items-center justify-between">
+            <Label htmlFor={confirmPasswordId} className="flex items-center gap-1.5 text-xs font-medium">
+              <Lock className="size-3.5 text-muted-foreground" />
+              Confirm Password
+            </Label>
+            {doPasswordsMatch && (
+              <span className="flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                <CheckCircle2 className="size-3" /> Passwords match
+              </span>
+            )}
+          </div>
           <PasswordInput
             id={confirmPasswordId}
             name="confirm-password"
@@ -259,26 +346,42 @@ export function RegisterForm() {
             aria-invalid={!!fieldErrors.confirmPassword}
             aria-describedby={fieldErrors.confirmPassword ? `${confirmPasswordId}-error` : undefined}
             disabled={submitting}
+            className="h-10 transition-colors focus-visible:ring-2 focus-visible:ring-primary/20"
           />
           <FieldError id={`${confirmPasswordId}-error`} message={fieldErrors.confirmPassword} />
         </div>
 
-        <Button type="submit" className="h-10 w-full" disabled={submitting}>
-          {submitting ? "Creating account..." : "Create Account"}
+        <p className="text-[11px] leading-normal text-muted-foreground">
+          By selecting Create Account, you acknowledge that you agree to the portal{" "}
+          <span className="text-foreground underline underline-offset-2">Terms of Service</span> and{" "}
+          <span className="text-foreground underline underline-offset-2">Data Privacy Policy</span>.
+        </p>
+
+        <Button
+          type="submit"
+          className="h-11 w-full bg-primary font-medium text-primary-foreground shadow-sm transition-all hover:bg-primary/90"
+          disabled={submitting}
+        >
+          {submitting ? "Creating account..." : "Create Account & Continue"}
         </Button>
       </form>
 
       <div className="flex items-center gap-3" aria-hidden="true">
-        <div className="h-px flex-1 bg-border" />
-        <span className="text-xs text-muted-foreground">OR</span>
-        <div className="h-px flex-1 bg-border" />
+        <div className="h-px flex-1 bg-border/80" />
+        <span className="text-xs font-medium text-muted-foreground">OR SIGN UP WITH</span>
+        <div className="h-px flex-1 bg-border/80" />
       </div>
 
       <GoogleButton onClick={handleGoogleSignIn} loading={googleLoading} disabled={submitting} />
 
+      <div className="flex items-center justify-center gap-1.5 rounded-lg border border-border/50 bg-muted/20 py-2 px-3 text-[11px] text-muted-foreground">
+        <ShieldCheck className="size-3.5 text-emerald-600 dark:text-emerald-400" />
+        <span>Enterprise Data Protection · Row-Level Multi-Tenant Security</span>
+      </div>
+
       <p className="text-center text-sm text-muted-foreground">
         Already have an account?{" "}
-        <Link href="/login" className="font-medium text-primary underline-offset-4 hover:underline">
+        <Link href="/login" className="font-semibold text-primary underline-offset-4 hover:underline">
           Sign in
         </Link>
       </p>

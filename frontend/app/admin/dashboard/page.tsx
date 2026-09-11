@@ -1,7 +1,5 @@
+import { AdminDashboardView } from "@/components/admin/admin-dashboard-view";
+
 export default function Page() {
-  return (
-    <div className="p-8">
-      <h1 className="text-xl font-semibold">Admin Dashboard – Coming Soon</h1>
-    </div>
-  );
+  return <AdminDashboardView />;
 }

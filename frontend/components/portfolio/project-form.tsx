@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError } from "@/lib/api";
+import { toast } from "sonner";
 import { createProject, updateProject } from "@/lib/student/portfolio";
 import type { Project } from "@/types/portfolio";
 
@@ -50,6 +51,7 @@ export function ProjectForm({
           project_url: projectUrl || null,
           github_url: githubUrl || null,
         });
+        toast.success("Project updated.");
       } else {
         await createProject({
           title,
@@ -58,10 +60,13 @@ export function ProjectForm({
           project_url: projectUrl || null,
           github_url: githubUrl || null,
         });
+        toast.success("Project added to portfolio.");
       }
       onSaved();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not save this project.");
+      const message = err instanceof ApiError ? err.message : "Could not save this project.";
+      setError(message);
+      toast.error(message);
     } finally {
       setSaving(false);
     }

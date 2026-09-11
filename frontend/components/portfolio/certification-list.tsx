@@ -7,6 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { CertificationCard } from "@/components/portfolio/certification-card";
 import { CertificationForm } from "@/components/portfolio/certification-form";
 import { ApiError } from "@/lib/api";
+import { toast } from "sonner";
 import { deleteCertification, listMyCertifications } from "@/lib/student/portfolio";
 import type { Certification } from "@/types/portfolio";
 
@@ -54,8 +55,10 @@ export function CertificationList() {
     try {
       await deleteCertification(certificationId);
       setReloadKey((k) => k + 1);
+      toast.success("Certification removed from portfolio.");
     } catch (err) {
-      window.alert(err instanceof ApiError ? err.message : "Could not delete this certification.");
+      const message = err instanceof ApiError ? err.message : "Could not delete this certification.";
+      toast.error(message);
     }
   }
 

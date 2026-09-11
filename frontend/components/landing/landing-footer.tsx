@@ -1,41 +1,56 @@
 import Link from "next/link";
+import { ShieldCheck } from "lucide-react";
 
 const FOOTER_LINKS = [
   { label: "Sign In", href: "/login" },
   { label: "Create Account", href: "/register" },
   { label: "Workflow", href: "#workflow" },
-  { label: "Platform", href: "#features" },
+  { label: "Role Portals", href: "#roles" },
+  { label: "Platform Standards", href: "#features" },
 ];
 
 export function LandingFooter() {
   return (
-    <footer className="border-t border-border/60">
-      <div className="mx-auto flex max-w-6xl flex-col items-center gap-6 px-4 py-12 sm:flex-row sm:justify-between sm:px-6">
-        <div className="flex items-center gap-2">
-          <span className="flex size-7 items-center justify-center rounded-lg bg-indigo-600 text-xs text-white">
-            A
-          </span>
-          <div>
-            <p className="text-sm font-semibold">AIC Portal</p>
-            <p className="text-xs text-muted-foreground">Academia-Industry Collaboration Portal</p>
+    <footer className="border-t border-border/70 bg-muted/20">
+      <div className="mx-auto max-w-6xl px-4 py-12 sm:px-6">
+        <div className="flex flex-col items-center justify-between gap-6 sm:flex-row">
+          <div className="flex items-center gap-3">
+            <span className="flex size-8 items-center justify-center rounded-lg bg-indigo-600 font-bold text-xs text-white shadow-xs">
+              A
+            </span>
+            <div>
+              <p className="text-sm font-bold text-foreground">AIC Portal</p>
+              <p className="text-xs text-muted-foreground">Academia-Industry Collaboration &amp; Skill Verification</p>
+            </div>
+          </div>
+
+          <nav className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
+            {FOOTER_LINKS.map((link) => (
+              <Link
+                key={link.href}
+                href={link.href}
+                className="text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+              >
+                {link.label}
+              </Link>
+            ))}
+          </nav>
+
+          <div className="flex items-center gap-2 rounded-full border border-border/70 bg-background/80 px-3 py-1 text-[11px] font-medium text-muted-foreground">
+            <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span>Systems Operational</span>
           </div>
         </div>
 
-        <nav className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
-          {FOOTER_LINKS.map((link) => (
-            <Link
-              key={link.href}
-              href={link.href}
-              className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-            >
-              {link.label}
-            </Link>
-          ))}
-        </nav>
-
-        <p className="text-xs text-muted-foreground">
-          &copy; {new Date().getFullYear()} AIC Portal. Built for students, faculty, and industry.
-        </p>
+        <div className="mt-8 flex flex-col items-center justify-between gap-4 border-t border-border/60 pt-6 text-center text-xs text-muted-foreground sm:flex-row sm:text-left">
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="size-3.5 text-emerald-600 dark:text-emerald-400" />
+            <span>Enterprise Multi-Tenant RLS · Verified Assessment Trust Network</span>
+          </div>
+          <p>
+            &copy; {new Date().getFullYear()} AIC Portal. Ready for universal enterprise deployment.
+          </p>
+        </div>
       </div>
     </footer>
   );

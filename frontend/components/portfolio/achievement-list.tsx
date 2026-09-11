@@ -7,6 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { AchievementCard } from "@/components/portfolio/achievement-card";
 import { AchievementForm } from "@/components/portfolio/achievement-form";
 import { ApiError } from "@/lib/api";
+import { toast } from "sonner";
 import { deleteAchievement, listMyAchievements } from "@/lib/student/portfolio";
 import type { Achievement } from "@/types/portfolio";
 
@@ -53,8 +54,10 @@ export function AchievementList() {
     try {
       await deleteAchievement(achievementId);
       setReloadKey((k) => k + 1);
+      toast.success("Achievement removed from portfolio.");
     } catch (err) {
-      window.alert(err instanceof ApiError ? err.message : "Could not delete this achievement.");
+      const message = err instanceof ApiError ? err.message : "Could not delete this achievement.";
+      toast.error(message);
     }
   }
 

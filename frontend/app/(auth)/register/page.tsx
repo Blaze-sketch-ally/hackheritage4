@@ -3,7 +3,10 @@ import { RegisterForm } from "@/components/auth/register-form";
 
 export default function RegisterPage() {
   return (
-    <AuthShell title="Create your account" description="Join the Academia-Industry Collaboration Portal">
+    <AuthShell
+      title="Create Account"
+      description="Join the national trust network connecting verified students, faculty, and recruiters"
+    >
       <RegisterForm />
     </AuthShell>
   );

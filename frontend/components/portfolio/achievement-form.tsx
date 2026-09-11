@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError } from "@/lib/api";
+import { toast } from "sonner";
 import { createAchievement, updateAchievement } from "@/lib/student/portfolio";
 import type { Achievement } from "@/types/portfolio";
 
@@ -43,12 +44,16 @@ export function AchievementForm({
       };
       if (achievement) {
         await updateAchievement(achievement.id, payload);
+        toast.success("Achievement updated.");
       } else {
         await createAchievement(payload);
+        toast.success("Achievement added to portfolio.");
       }
       onSaved();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not save this achievement.");
+      const message = err instanceof ApiError ? err.message : "Could not save this achievement.";
+      setError(message);
+      toast.error(message);
     } finally {
       setSaving(false);
     }

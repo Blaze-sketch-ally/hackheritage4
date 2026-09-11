@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ApiError } from "@/lib/api";
+import { toast } from "sonner";
 import { createCertification, updateCertification } from "@/lib/student/portfolio";
 import type { Certification } from "@/types/portfolio";
 
@@ -40,6 +41,7 @@ export function CertificationForm({
           issue_date: issueDate || null,
           credential_url: credentialUrl || null,
         });
+        toast.success("Certification updated.");
       } else {
         await createCertification({
           name,
@@ -47,10 +49,13 @@ export function CertificationForm({
           issue_date: issueDate || null,
           credential_url: credentialUrl || null,
         });
+        toast.success("Certification added to portfolio.");
       }
       onSaved();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not save this certification.");
+      const message = err instanceof ApiError ? err.message : "Could not save this certification.";
+      setError(message);
+      toast.error(message);
     } finally {
       setSaving(false);
     }
