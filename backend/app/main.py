@@ -38,6 +38,7 @@ from app.api import (
     portfolio,
     questions,
     skill_gap,
+    skills,
     student_events,
     student_institution,
     student_internship_workspaces,
@@ -111,6 +112,10 @@ app.include_router(student_job_training.router, prefix="/api/v1")
 # Skill Gap + Industry Analytics (implemented but previously unmounted)
 app.include_router(skill_gap.router, prefix="/api/v1")
 app.include_router(analytics.router, prefix="/api/v1")
+
+# Shared skill catalog (implemented but previously unmounted -- see
+# Industry Create Internship/Job "skill catalog couldn't be loaded")
+app.include_router(skills.router, prefix="/api/v1")
 
 
 @app.get("/")

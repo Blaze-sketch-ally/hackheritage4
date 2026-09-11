@@ -393,6 +393,67 @@ def test_create_forces_draft_and_owner_and_drops_junk():
     assert "id" not in inserted
 
 
+def test_create_omits_unset_optional_fields_so_db_defaults_apply():
+    """A draft created before the industry user has decided a stipend
+    must not send an explicit `stipend_currency: null` -- the column is
+    `not null default 'INR'` (053_internships.sql), and PostgREST sending
+    a literal null for it raises a NOT NULL violation instead of letting
+    Postgres apply the default. The route's schema always includes every
+    field in its model_dump(), set or not, so this filtering has to
+    happen here."""
+    supabase = MagicMock()
+    supabase.table.return_value.insert.return_value.execute.return_value.data = [{"id": "new-1"}]
+
+    with (
+        patch.object(internship_service, "_validate_skill_ids"),
+        patch.object(internship_service, "get_internship", return_value=_row(id="new-1")),
+    ):
+        internship_service.create_internship(
+            supabase,
+            "industry-1",
+            {
+                "title": "T",
+                "description": "D",
+                "location": None,
+                "work_mode": None,
+                "duration_months": None,
+                "stipend_amount": None,
+                "stipend_currency": None,
+                "openings": None,
+                "eligibility_criteria": None,
+                "application_deadline": None,
+                "start_date": None,
+            },
+            [],
+        )
+
+    inserted = supabase.table.return_value.insert.call_args_list[0].args[0]
+    assert "stipend_currency" not in inserted
+    assert "location" not in inserted
+    assert inserted["title"] == "T"
+    assert inserted["description"] == "D"
+
+
+def test_create_keeps_explicitly_provided_optional_fields():
+    supabase = MagicMock()
+    supabase.table.return_value.insert.return_value.execute.return_value.data = [{"id": "new-1"}]
+
+    with (
+        patch.object(internship_service, "_validate_skill_ids"),
+        patch.object(internship_service, "get_internship", return_value=_row(id="new-1")),
+    ):
+        internship_service.create_internship(
+            supabase,
+            "industry-1",
+            {"title": "T", "description": "D", "stipend_currency": "USD", "openings": 3},
+            [],
+        )
+
+    inserted = supabase.table.return_value.insert.call_args_list[0].args[0]
+    assert inserted["stipend_currency"] == "USD"
+    assert inserted["openings"] == 3
+
+
 def test_create_validates_skills_before_inserting_internship():
     supabase = MagicMock()
     with (

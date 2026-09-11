@@ -183,8 +183,17 @@ def _replace_skills(client: Client, job_id: str, skills: list[dict]) -> None:
 
 def create_job(client: Client, industry_id: str, data: dict, skills: list[dict]) -> dict:
     """Always creates a DRAFT owned by `industry_id` (the authenticated
-    caller). Any `status` / `industry_id` / `id` in `data` is overridden."""
-    payload = {k: v for k, v in data.items() if k in _EDITABLE_COLUMNS}
+    caller). Any `status` / `industry_id` / `id` in `data` is overridden.
+
+    Fields the client left unset arrive here as explicit `None` (the
+    schema's `model_dump()` includes every field) -- omitted entirely
+    rather than sent as literal `null`, so columns with a database
+    default (e.g. `salary_currency not null default 'INR'`,
+    `openings not null default 1`) actually get that default instead of
+    violating its NOT NULL constraint. A draft with those details not
+    decided yet is exactly the case this page exists for, so this must
+    not 500."""
+    payload = {k: v for k, v in data.items() if k in _EDITABLE_COLUMNS and v is not None}
     payload["industry_id"] = industry_id
     payload["status"] = "DRAFT"
 

@@ -404,6 +404,58 @@ def test_create_forces_draft_and_owner_and_drops_junk():
     assert "id" not in inserted
 
 
+def test_create_omits_unset_optional_fields_so_db_defaults_apply():
+    """A draft created before the industry user has decided a salary must
+    not send an explicit `salary_currency: null` / `openings: null` --
+    both columns are `not null default ...` (054_jobs.sql), and PostgREST
+    sending a literal null for either raises a NOT NULL violation instead
+    of letting Postgres apply the default."""
+    supabase = MagicMock()
+    supabase.table.return_value.insert.return_value.execute.return_value.data = [{"id": "new-1"}]
+
+    with (
+        patch.object(job_service, "_validate_skill_ids"),
+        patch.object(job_service, "get_job", return_value=_row(id="new-1")),
+    ):
+        job_service.create_job(
+            supabase,
+            "industry-1",
+            {
+                "title": "T",
+                "description": "D",
+                "salary_currency": None,
+                "openings": None,
+                "location": None,
+            },
+            [],
+        )
+
+    inserted = supabase.table.return_value.insert.call_args_list[0].args[0]
+    assert "salary_currency" not in inserted
+    assert "openings" not in inserted
+    assert inserted["title"] == "T"
+
+
+def test_create_keeps_explicitly_provided_optional_fields():
+    supabase = MagicMock()
+    supabase.table.return_value.insert.return_value.execute.return_value.data = [{"id": "new-1"}]
+
+    with (
+        patch.object(job_service, "_validate_skill_ids"),
+        patch.object(job_service, "get_job", return_value=_row(id="new-1")),
+    ):
+        job_service.create_job(
+            supabase,
+            "industry-1",
+            {"title": "T", "description": "D", "salary_currency": "USD", "openings": 5},
+            [],
+        )
+
+    inserted = supabase.table.return_value.insert.call_args_list[0].args[0]
+    assert inserted["salary_currency"] == "USD"
+    assert inserted["openings"] == 5
+
+
 def test_create_validates_skills_before_inserting_job():
     supabase = MagicMock()
     with (
