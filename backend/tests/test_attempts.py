@@ -51,7 +51,7 @@ Python-observable about it. See the Phase 1I report for exactly what
 still requires manual Supabase SQL Editor verification.
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 from uuid import uuid4
 
 import pytest
@@ -1642,6 +1642,7 @@ def test_score_uses_service_role_client_only_for_scoring():
             "score_attempt",
             return_value=_row_completed_attempt(id=str(attempt_id)),
         ) as mock_score,
+        patch.object(assessment_service, "get_assessment_by_id", return_value=None),
     ):
         client.post(_score_url(attempt_id), headers={"Authorization": "Bearer token"})
 
@@ -1779,16 +1780,24 @@ def _result_answer_key_row(**overrides):
 class _FakeResultQuery:
     """Same real-filtering-fake pattern as _FakeFilterQuery in
     test_assessments.py, extended with .in_() since
-    get_attempt_result_rows() uses it for the answer-key lookup."""
+    get_attempt_result_rows() uses it for the answer-key lookup, and
+    .maybe_single() since get_attempt_result's own
+    086_assessment_verification.sql passed/skill_verified lookup
+    (get_active_assessment) uses it."""
 
     def __init__(self, rows):
         self._rows = rows
+        self._single = False
 
     def select(self, *_args, **_kwargs):
         return self
 
     def eq(self, column, value):
         self._rows = [row for row in self._rows if row.get(column) == value]
+        return self
+
+    def maybe_single(self):
+        self._single = True
         return self
 
     def in_(self, column, values):
@@ -1798,7 +1807,7 @@ class _FakeResultQuery:
 
     def execute(self):
         result = MagicMock()
-        result.data = self._rows
+        result.data = (self._rows[0] if self._rows else None) if self._single else self._rows
         return result
 
 
@@ -1807,6 +1816,12 @@ class _FakeResultClient:
         self._tables = {
             "assessment_answers": answers,
             "assessment_question_answers": answer_keys,
+            # Empty by default -- get_active_assessment() (086_assessment_
+            # verification.sql's passed/skill_verified lookup) naturally
+            # gets None back, matching its own "deactivated/gone" posture,
+            # without every pre-existing test in this file needing to know
+            # about a feature unrelated to what each of them verifies.
+            "assessments": [],
         }
 
     def table(self, name):
@@ -2415,6 +2430,7 @@ def test_result_uses_build_user_client_never_service_role():
             return_value=_row_attempt(id=str(attempt_id), status="COMPLETED"),
         ) as mock_get_attempt,
         patch.object(assessment_service, "get_attempt_result_rows", return_value=[]) as mock_rows,
+        patch.object(assessment_service, "get_active_assessment", return_value=None),
     ):
         client.get(_result_url(attempt_id), headers={"Authorization": "Bearer token"})
 
@@ -2681,3 +2697,317 @@ def test_service_get_attempt_questions_filters_and_orders_by_attempt_id():
     mock_client.table.return_value.select.return_value.eq.return_value.order.assert_called_once_with(
         "display_order"
     )
+
+
+# ============================================================
+# 086_assessment_verification.sql: passed / skill_verified computation
+# and the assessment history endpoint.
+# ============================================================
+
+
+def _history_url() -> str:
+    return "/api/v1/attempts"
+
+
+def _row_assessment_for_verification(**overrides):
+    row = {
+        "id": str(uuid4()),
+        "skill_id": str(uuid4()),
+        "title": "Python Intermediate Assessment",
+        "description": None,
+        "difficulty": "Intermediate",
+        "duration_minutes": 30,
+        "question_count": 10,
+        "passing_percentage": "70.00",
+        "is_active": True,
+        "created_at": "2026-01-01T00:00:00Z",
+        "updated_at": "2026-01-01T00:00:00Z",
+    }
+    row.update(overrides)
+    return row
+
+
+def test_service_get_assessment_by_id_does_not_filter_on_is_active():
+    """Unlike get_active_assessment, must read a deactivated assessment
+    too -- verified by asserting is_active is never part of the query
+    chain here."""
+    mock_client = MagicMock()
+    response = MagicMock()
+    response.data = _row_assessment_for_verification()
+    mock_client.table.return_value.select.return_value.eq.return_value.maybe_single.return_value.execute.return_value = response
+
+    assessment_id = uuid4()
+    result = assessment_service.get_assessment_by_id(mock_client, assessment_id)
+
+    mock_client.table.assert_called_once_with("assessments")
+    mock_client.table.return_value.select.return_value.eq.assert_called_once_with(
+        "id", str(assessment_id)
+    )
+    assert result == response.data
+
+
+def test_service_get_assessment_by_id_returns_none_when_missing():
+    mock_client = MagicMock()
+    mock_client.table.return_value.select.return_value.eq.return_value.maybe_single.return_value.execute.return_value = None
+
+    assert assessment_service.get_assessment_by_id(mock_client, uuid4()) is None
+
+
+def test_service_get_skill_verification_true_when_row_is_verified():
+    mock_client = MagicMock()
+    response = MagicMock()
+    response.data = {"is_verified": True}
+    chain = mock_client.table.return_value.select.return_value.eq.return_value.eq.return_value.eq
+    chain.return_value.maybe_single.return_value.execute.return_value = response
+
+    student_id, skill_id = "student-1", "skill-1"
+    result = assessment_service.get_skill_verification(mock_client, student_id, skill_id, "Advanced")
+
+    mock_client.table.assert_called_once_with("student_skills")
+    assert result is True
+
+
+def test_service_get_skill_verification_false_when_no_matching_row():
+    """No row for this exact (skill_id, proficiency_level) pair -- reports
+    False, never an error, never implies a row should exist."""
+    mock_client = MagicMock()
+    chain = mock_client.table.return_value.select.return_value.eq.return_value.eq.return_value.eq
+    chain.return_value.maybe_single.return_value.execute.return_value = None
+
+    result = assessment_service.get_skill_verification(mock_client, "student-1", "skill-1", "Advanced")
+    assert result is False
+
+
+def test_service_get_skill_verification_false_when_row_not_verified():
+    mock_client = MagicMock()
+    response = MagicMock()
+    response.data = {"is_verified": False}
+    chain = mock_client.table.return_value.select.return_value.eq.return_value.eq.return_value.eq
+    chain.return_value.maybe_single.return_value.execute.return_value = response
+
+    result = assessment_service.get_skill_verification(mock_client, "student-1", "skill-1", "Advanced")
+    assert result is False
+
+
+def test_compute_pass_fail_for_not_required_evaluation():
+    attempt = _row_completed_attempt(evaluation_status="NOT_REQUIRED", percentage="85.00")
+    assessment = _row_assessment_for_verification(passing_percentage="70.00")
+    with patch.object(assessment_service, "get_skill_verification", return_value=True) as mock_verify:
+        passed, verified = assessment_service.compute_pass_and_verification(
+            MagicMock(), "student-1", attempt, assessment
+        )
+    assert passed is True
+    assert verified is True
+    mock_verify.assert_called_once_with(
+        ANY, "student-1", assessment["skill_id"], assessment["difficulty"]
+    )
+
+
+def test_compute_pass_fail_below_passing_percentage():
+    attempt = _row_completed_attempt(evaluation_status="NOT_REQUIRED", percentage="60.00")
+    assessment = _row_assessment_for_verification(passing_percentage="70.00")
+    with patch.object(assessment_service, "get_skill_verification", return_value=False):
+        passed, verified = assessment_service.compute_pass_and_verification(
+            MagicMock(), "student-1", attempt, assessment
+        )
+    assert passed is False
+    assert verified is False
+
+
+def test_compute_pass_uses_final_percentage_when_evaluation_complete():
+    """A mixed/AI-evaluated attempt: the raw (objective-only) percentage
+    must NOT be used once evaluation_status is COMPLETE."""
+    attempt = _row_completed_attempt(
+        evaluation_status="COMPLETE", percentage="40.00", final_percentage="90.00"
+    )
+    assessment = _row_assessment_for_verification(passing_percentage="70.00")
+    with patch.object(assessment_service, "get_skill_verification", return_value=True):
+        passed, verified = assessment_service.compute_pass_and_verification(
+            MagicMock(), "student-1", attempt, assessment
+        )
+    assert passed is True
+    assert verified is True
+
+
+def test_compute_pass_returns_none_while_evaluation_pending():
+    """Neither passed nor skill_verified is guessed while human evaluation
+    is still outstanding -- never silently treated as NOT_REQUIRED."""
+    for status_value in ("PENDING", "PARTIAL", "NEEDS_RECONCILIATION"):
+        attempt = _row_completed_attempt(evaluation_status=status_value, percentage="95.00")
+        assessment = _row_assessment_for_verification(passing_percentage="70.00")
+        passed, verified = assessment_service.compute_pass_and_verification(
+            MagicMock(), "student-1", attempt, assessment
+        )
+        assert passed is None, status_value
+        assert verified is None, status_value
+
+
+def test_compute_pass_returns_none_when_percentage_is_missing():
+    attempt = _row_completed_attempt(evaluation_status="NOT_REQUIRED", percentage=None)
+    assessment = _row_assessment_for_verification()
+    passed, verified = assessment_service.compute_pass_and_verification(
+        MagicMock(), "student-1", attempt, assessment
+    )
+    assert passed is None
+    assert verified is None
+
+
+def test_score_response_includes_passed_and_skill_verified():
+    attempt_id = uuid4()
+    scored_row = _row_completed_attempt(
+        id=str(attempt_id), evaluation_status="NOT_REQUIRED", percentage="90.00"
+    )
+    with (
+        authenticated_as("STUDENT"),
+        patch.object(
+            assessment_service,
+            "get_own_attempt",
+            return_value=_row_attempt(id=str(attempt_id), submitted_at="2026-01-01T00:05:00Z"),
+        ),
+        patch.object(assessment_service, "score_attempt", return_value=scored_row),
+        patch.object(
+            assessment_service,
+            "get_assessment_by_id",
+            return_value=_row_assessment_for_verification(passing_percentage="70.00"),
+        ),
+        patch.object(assessment_service, "get_skill_verification", return_value=True),
+    ):
+        response = client.post(_score_url(attempt_id), headers={"Authorization": "Bearer token"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["passed"] is True
+    assert body["skill_verified"] is True
+
+
+def test_result_response_includes_passed_and_skill_verified():
+    attempt_id = uuid4()
+    q_id = uuid4()
+    rows = [
+        _result_answer_row(
+            attempt_id=str(attempt_id),
+            question_id=str(q_id),
+            question=_result_question(id=str(q_id), display_order=1),
+        )
+    ]
+    fake_client = _FakeResultClient(rows, [_result_answer_key_row(question_id=str(q_id))])
+
+    with (
+        authenticated_as("STUDENT"),
+        patch.object(
+            assessment_service,
+            "get_own_attempt",
+            return_value=_row_attempt(
+                id=str(attempt_id),
+                status="COMPLETED",
+                evaluation_status="NOT_REQUIRED",
+                percentage="95.00",
+            ),
+        ),
+        patch("app.api.attempts.build_user_client", return_value=fake_client),
+        patch.object(
+            assessment_service,
+            "get_active_assessment",
+            return_value=_row_assessment_for_verification(passing_percentage="70.00"),
+        ),
+        patch.object(assessment_service, "get_skill_verification", return_value=True),
+    ):
+        response = client.get(_result_url(attempt_id), headers={"Authorization": "Bearer token"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["passed"] is True
+    assert body["skill_verified"] is True
+
+
+def test_service_list_own_attempts_scopes_to_student_and_orders_by_started_at():
+    mock_client = MagicMock()
+    response = MagicMock()
+    response.data = [_row_completed_attempt()]
+    mock_client.table.return_value.select.return_value.eq.return_value.order.return_value.execute.return_value = response
+
+    result = assessment_service.list_own_attempts(mock_client, "student-1")
+
+    mock_client.table.assert_called_once_with("assessment_attempts")
+    mock_client.table.return_value.select.return_value.eq.assert_called_once_with(
+        "student_id", "student-1"
+    )
+    mock_client.table.return_value.select.return_value.eq.return_value.order.assert_called_once_with(
+        "started_at", desc=True
+    )
+    assert result == response.data
+
+
+def test_history_requires_student_role():
+    with authenticated_as("INDUSTRY"):
+        response = client.get(_history_url(), headers={"Authorization": "Bearer token"})
+    assert response.status_code == 403
+
+
+def test_history_missing_token_returns_401():
+    response = client.get(_history_url())
+    assert response.status_code == 401
+
+
+def test_history_empty_for_a_student_with_no_attempts():
+    with (
+        authenticated_as("STUDENT"),
+        patch.object(assessment_service, "list_own_attempts", return_value=[]),
+    ):
+        response = client.get(_history_url(), headers={"Authorization": "Bearer token"})
+    assert response.status_code == 200
+    assert response.json()["attempts"] == []
+
+
+def test_history_computes_passed_and_skill_verified_per_row():
+    attempt_id = uuid4()
+    history_row = _row_completed_attempt(
+        id=str(attempt_id),
+        evaluation_status="NOT_REQUIRED",
+        percentage="88.00",
+        assessment=_row_assessment_for_verification(passing_percentage="70.00"),
+    )
+    with (
+        authenticated_as("STUDENT"),
+        patch.object(assessment_service, "list_own_attempts", return_value=[history_row]),
+        patch.object(assessment_service, "get_skill_verification", return_value=True),
+    ):
+        response = client.get(_history_url(), headers={"Authorization": "Bearer token"})
+
+    assert response.status_code == 200
+    item = response.json()["attempts"][0]
+    assert item["passed"] is True
+    assert item["skill_verified"] is True
+    assert item["assessment"]["id"] == history_row["assessment"]["id"]
+
+
+def test_history_reports_none_when_assessment_embed_is_none():
+    """A deactivated assessment's embed comes back None via RLS -- the
+    row is still returned (real historical data), but passed/
+    skill_verified cannot be computed for it."""
+    history_row = _row_completed_attempt(evaluation_status="NOT_REQUIRED", assessment=None)
+    with (
+        authenticated_as("STUDENT"),
+        patch.object(assessment_service, "list_own_attempts", return_value=[history_row]),
+    ):
+        response = client.get(_history_url(), headers={"Authorization": "Bearer token"})
+
+    assert response.status_code == 200
+    item = response.json()["attempts"][0]
+    assert item["assessment"] is None
+    assert item["passed"] is None
+    assert item["skill_verified"] is None
+
+
+def test_history_error_returns_clean_500():
+    with (
+        authenticated_as("STUDENT"),
+        patch.object(
+            assessment_service,
+            "list_own_attempts",
+            side_effect=RuntimeError("connection refused to internal db host 10.0.0.5"),
+        ),
+    ):
+        response = client.get(_history_url(), headers={"Authorization": "Bearer token"})
+    assert response.status_code == 500
+    assert "10.0.0.5" not in str(response.json())

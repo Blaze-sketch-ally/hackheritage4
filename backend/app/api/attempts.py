@@ -37,11 +37,58 @@ from app.schemas.assessment import (
     AssessmentQuestionResponse,
     AssessmentResultQuestionResponse,
     AssessmentResultResponse,
+    AttemptHistoryItemResponse,
+    AttemptHistoryResponse,
     SubmitAttemptResponse,
 )
 from app.services import assessment_service
 
 router = APIRouter(prefix="/attempts", tags=["attempts"])
+
+
+@router.get("", response_model=AttemptHistoryResponse)
+def list_attempt_history(
+    current_user: CurrentUser = Depends(require_student),
+) -> AttemptHistoryResponse:
+    """Every attempt the calling student has ever made, most recent first
+    (086_assessment_verification.sql). passed/skill_verified are computed
+    per row via assessment_service.compute_pass_and_verification -- both
+    None for a row whose assessment embed came back None (deactivated
+    since), and both None while evaluation is still PENDING/PARTIAL/
+    NEEDS_RECONCILIATION for that row."""
+    client = build_user_client(current_user.access_token)
+    try:
+        rows = assessment_service.list_own_attempts(client, current_user.id)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not load your assessment history.",
+        ) from exc
+
+    items: list[AttemptHistoryItemResponse] = []
+    for row in rows:
+        assessment = row.get("assessment")
+        passed: bool | None = None
+        skill_verified: bool | None = None
+        if assessment is not None:
+            passed, skill_verified = assessment_service.compute_pass_and_verification(
+                client, current_user.id, row, assessment
+            )
+        items.append(
+            AttemptHistoryItemResponse(
+                id=row["id"],
+                status=row["status"],
+                started_at=row["started_at"],
+                submitted_at=row["submitted_at"],
+                score=row["score"],
+                total_marks=row["total_marks"],
+                percentage=row["percentage"],
+                passed=passed,
+                skill_verified=skill_verified,
+                assessment=assessment,
+            )
+        )
+    return AttemptHistoryResponse(attempts=items)
 
 
 @router.post("/{attempt_id}/answers", response_model=AssessmentAnswerResponse)
@@ -338,7 +385,21 @@ def score_attempt(
             detail="Could not score the attempt.",
         ) from exc
 
-    return SubmitAttemptResponse(**row)
+    # service_client (already constructed above) is required here too --
+    # RLS on `assessments` restricts SELECT to is_active = true, and the
+    # parent assessment must remain readable even if deactivated between
+    # attempt creation and scoring (086_assessment_verification.sql).
+    assessment = assessment_service.get_assessment_by_id(
+        service_client, UUID(row["assessment_id"])
+    )
+    passed, skill_verified = (
+        assessment_service.compute_pass_and_verification(
+            user_client, current_user.id, row, assessment
+        )
+        if assessment is not None
+        else (None, None)
+    )
+    return SubmitAttemptResponse(**row, passed=passed, skill_verified=skill_verified)
 
 
 @router.get("/{attempt_id}/result", response_model=AssessmentResultResponse)
@@ -443,7 +504,20 @@ def get_attempt_result(
             detail="Could not construct the result.",
         ) from exc
 
+    # Graceful, not a hard failure, unlike the question/answer_key embeds
+    # above -- an assessment deactivated after this attempt completed is a
+    # known, narrow limitation (see assessment_service.list_own_attempts'
+    # own docstring for the same posture), not a corrupted result.
+    assessment = assessment_service.get_active_assessment(client, UUID(attempt["assessment_id"]))
+    passed, skill_verified = (
+        assessment_service.compute_pass_and_verification(client, current_user.id, attempt, assessment)
+        if assessment is not None
+        else (None, None)
+    )
+
     return AssessmentResultResponse(
         attempt=AssessmentAttemptResponse(**attempt),
         questions=questions,
+        passed=passed,
+        skill_verified=skill_verified,
     )

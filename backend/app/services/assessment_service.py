@@ -33,7 +33,7 @@ from supabase import Client
 
 _ASSESSMENT_COLUMNS = (
     "id, skill_id, title, description, difficulty, duration_minutes, "
-    "question_count, is_active, created_at, updated_at"
+    "question_count, passing_percentage, is_active, created_at, updated_at"
 )
 
 # options embedded via PostgREST's nested-resource syntax (a single query,
@@ -178,6 +178,85 @@ def get_active_assessment(client: Client, assessment_id: UUID) -> dict | None:
         .execute()
     )
     return response.data if response is not None else None
+
+
+def get_assessment_by_id(client: Client, assessment_id: UUID) -> dict | None:
+    """One assessment regardless of is_active -- unlike get_active_assessment,
+    used only for post-attempt enrichment (passing_percentage/skill_id for
+    the score/result/history responses), where a since-deactivated
+    assessment must not make an already-scored attempt's response
+    unfetchable. Mirrors the same "is_active governs discoverability, not
+    historical facts" principle score_assessment_attempt() itself already
+    applies (see that function's own header comment in the migration)."""
+    response = (
+        client.table("assessments")
+        .select(_ASSESSMENT_COLUMNS)
+        .eq("id", str(assessment_id))
+        .maybe_single()
+        .execute()
+    )
+    return response.data if response is not None else None
+
+
+def get_skill_verification(
+    client: Client, student_id: str, skill_id: str, proficiency_level: str
+) -> bool:
+    """Whether the student's own student_skills row for this EXACT
+    (skill_id, proficiency_level) pair is currently verified. False --
+    never an error -- when no such row exists at all (the student never
+    declared this skill at this level): this function only ever reports
+    existing state, never implies a row should exist. RLS ("Students can
+    view their own skills") already scopes this to the caller when called
+    with a user-scoped client."""
+    response = (
+        client.table("student_skills")
+        .select("is_verified")
+        .eq("student_id", student_id)
+        .eq("skill_id", skill_id)
+        .eq("proficiency_level", proficiency_level)
+        .maybe_single()
+        .execute()
+    )
+    row = response.data if response is not None else None
+    return bool(row and row.get("is_verified"))
+
+
+def compute_pass_and_verification(
+    client: Client, student_id: str, attempt: dict, assessment: dict
+) -> tuple[bool | None, bool | None]:
+    """Derives (passed, skill_verified) for one COMPLETED attempt, honoring
+    F8.4's evaluation_status axis (049_evaluation_status_and_final_score.sql)
+    -- the same eligibility contract get_student_skill_scores() already
+    uses:
+      - NOT_REQUIRED -> percentage is the authoritative result.
+      - COMPLETE -> final_percentage is (the raw percentage reflects only
+        the objective portion for a mixed/AI-evaluated attempt).
+      - PENDING/PARTIAL/NEEDS_RECONCILIATION/anything else -> the outcome
+        genuinely isn't known yet; both values are None rather than a
+        guess, never silently treated as NOT_REQUIRED.
+
+    skill_verified reflects get_skill_verification() -- the CURRENT
+    is_verified state after 086_assessment_verification.sql's extension to
+    score_assessment_attempt()/fold_in_attempt_evaluation() may have just
+    set it -- never fabricated from `passed` alone (a passing score with a
+    since-revised proficiency_level, or no matching student_skills row at
+    all, must not be reported as verified)."""
+    evaluation_status = attempt.get("evaluation_status")
+    if evaluation_status == "NOT_REQUIRED":
+        percentage = attempt.get("percentage")
+    elif evaluation_status == "COMPLETE":
+        percentage = attempt.get("final_percentage")
+    else:
+        return None, None
+
+    if percentage is None:
+        return None, None
+
+    passed = Decimal(str(percentage)) >= Decimal(str(assessment["passing_percentage"]))
+    skill_verified = get_skill_verification(
+        client, student_id, str(assessment["skill_id"]), assessment["difficulty"]
+    )
+    return passed, skill_verified
 
 
 def list_visible_questions(client: Client, assessment_id: UUID) -> list[dict]:
@@ -337,7 +416,13 @@ def get_attempt_question_ids(client: Client, attempt_id: UUID) -> set[str]:
 
 _ATTEMPT_COLUMNS = (
     "id, student_id, assessment_id, status, started_at, submitted_at, "
-    "score, total_marks, percentage, created_at, updated_at"
+    "score, total_marks, percentage, evaluation_status, final_percentage, "
+    "created_at, updated_at"
+)
+
+_HISTORY_ATTEMPT_COLUMNS = (
+    "id, status, started_at, submitted_at, score, total_marks, percentage, "
+    f"evaluation_status, final_percentage, assessment:assessments({_ASSESSMENT_COLUMNS})"
 )
 
 _ANSWER_COLUMNS = (
@@ -832,3 +917,35 @@ def get_attempt_result_rows(client: Client, attempt_id: UUID) -> list[dict]:
         key=lambda row: (row["question"]["display_order"] if row.get("question") else float("inf"))
     )
     return rows
+
+
+# ------------------------------------------------------------
+# Assessment history
+# ------------------------------------------------------------
+
+
+def list_own_attempts(client: Client, student_id: str) -> list[dict]:
+    """Every attempt the caller has ever made, most recent first, with its
+    assessment embedded -- the read behind the assessment history page.
+    RLS ("Students can view their own attempts") already scopes this to
+    the caller; the explicit .eq("student_id", ...) here is defense in
+    depth, matching every other read in this module.
+
+    The embedded "assessment" can come back None for an attempt whose
+    assessment has since been deactivated ("Authenticated users can view
+    active assessments" requires is_active = true, and no widened policy
+    exists for this embed) -- a known, narrow limitation: that row's
+    skill/difficulty/passing_percentage simply aren't shown, and passed/
+    skill_verified cannot be computed for it either (see
+    app.api.attempts.list_attempt_history). This function does not drop
+    such a row or treat it as an error; it is real historical data (the
+    attempt itself always exists) with an unavailable content embed, and
+    callers decide how to render that."""
+    response = (
+        client.table("assessment_attempts")
+        .select(_HISTORY_ATTEMPT_COLUMNS)
+        .eq("student_id", student_id)
+        .order("started_at", desc=True)
+        .execute()
+    )
+    return response.data or []
