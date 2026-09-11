@@ -17,6 +17,7 @@ const FILES = [
   "components/student/job-training/job-training-detail-view.tsx",
   "components/student/job-training/job-training-program-content.tsx",
   "components/student/job-training/job-training-status-badge.tsx",
+  "components/student/dashboard/dashboard-job-training.tsx",
   "app/student/job-training/page.tsx",
   "app/student/job-training/[enrollmentId]/page.tsx",
 ];
