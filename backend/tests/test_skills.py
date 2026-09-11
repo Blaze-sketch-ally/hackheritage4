@@ -152,6 +152,26 @@ def test_list_active_skills_blank_search_is_treated_as_no_filter():
     mock_client.table.return_value.select.return_value.eq.return_value.ilike.assert_not_called()
 
 
+def test_list_active_skills_whitespace_only_search_is_treated_as_no_filter():
+    mock_client = MagicMock()
+    _mock_skills_response(mock_client, [])
+
+    skill_service.list_active_skills(mock_client, search="   ")
+
+    mock_client.table.return_value.select.return_value.eq.return_value.ilike.assert_not_called()
+
+
+def test_list_active_skills_strips_surrounding_whitespace_from_search():
+    mock_client = MagicMock()
+    _mock_skills_response(mock_client, [])
+
+    skill_service.list_active_skills(mock_client, search="  python  ")
+
+    mock_client.table.return_value.select.return_value.eq.return_value.ilike.assert_called_once_with(
+        "name", "%python%"
+    )
+
+
 def test_list_active_skills_orders_by_name():
     mock_client = MagicMock()
     _mock_skills_response(mock_client, [])

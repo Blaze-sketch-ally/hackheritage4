@@ -27,8 +27,8 @@ def list_active_skills(client: Client, search: str | None = None) -> list[dict]:
     defence in depth (matches every other catalog read in this project,
     e.g. app.services.career_role_service.list_career_roles)."""
     query = client.table("skills").select(_SELECT).eq("is_active", True)
-    if search:
-        query = query.ilike("name", f"%{search}%")
+    if search and search.strip():
+        query = query.ilike("name", f"%{search.strip()}%")
     response = query.order("name").execute()
     return [_shape(row) for row in (response.data or [])]
 
