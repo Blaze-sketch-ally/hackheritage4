@@ -24,10 +24,13 @@ from uuid import UUID
 from supabase import Client
 
 _PROJECT_COLUMNS = (
-    "id, student_id, title, description, technologies, project_url, github_url, created_at, updated_at"
+    "id, student_id, title, description, technologies, project_url, github_url, "
+    "start_date, end_date, is_ongoing, created_at, updated_at, "
+    "portfolio_project_skills(skill_id)"
 )
 _CERTIFICATION_COLUMNS = (
-    "id, student_id, name, issuer, issue_date, credential_url, created_at, updated_at"
+    "id, student_id, name, issuer, issue_date, expiry_date, credential_id, credential_url, "
+    "created_at, updated_at"
 )
 _ACHIEVEMENT_COLUMNS = (
     "id, student_id, title, description, achievement_date, issuing_organization, url, "
@@ -38,6 +41,27 @@ _ACHIEVEMENT_COLUMNS = (
 # ============================================================
 # portfolio_projects
 # ============================================================
+
+
+def _shape_project(row: dict) -> dict:
+    """Flatten the nested portfolio_project_skills embed into a plain
+    `skill_ids` list -- mirrors internship_service._shape's handling of
+    internship_skills."""
+    links = row.pop("portfolio_project_skills", None) or []
+    row["skill_ids"] = [link["skill_id"] for link in links]
+    return row
+
+
+def _replace_project_skills(client: Client, project_id: str, skill_ids: list[UUID]) -> None:
+    """Delete-then-reinsert the full skill set for a project -- same
+    shape as internship_service._replace_skills. The FK on `skill_id`
+    (references skills(id)) rejects an unknown skill outright."""
+    deduped = list(dict.fromkeys(str(sid) for sid in skill_ids))
+    client.table("portfolio_project_skills").delete().eq("project_id", project_id).execute()
+    if deduped:
+        client.table("portfolio_project_skills").insert(
+            [{"project_id": project_id, "skill_id": sid} for sid in deduped]
+        ).execute()
 
 
 def list_projects(client: Client, student_id: str) -> list[dict]:
@@ -53,7 +77,7 @@ def list_projects(client: Client, student_id: str) -> list[dict]:
         .order("created_at", desc=True)
         .execute()
     )
-    return response.data or []
+    return [_shape_project(row) for row in response.data or []]
 
 
 def get_project(client: Client, project_id: UUID) -> dict | None:
@@ -66,7 +90,9 @@ def get_project(client: Client, project_id: UUID) -> dict | None:
         .maybe_single()
         .execute()
     )
-    return response.data if response is not None else None
+    if response is None or response.data is None:
+        return None
+    return _shape_project(response.data)
 
 
 def create_project(client: Client, student_id: str, payload: dict) -> dict:
@@ -74,10 +100,15 @@ def create_project(client: Client, student_id: str, payload: dict) -> dict:
     client-supplied (ProjectCreateRequest has no such field). RLS's own
     INSERT policy ("...auth.uid() = student_id and is_student(...)") is
     the real enforcement; this function's shape is defense in depth."""
+    skill_ids = payload.pop("skill_ids", None) or []
     response = (
         client.table("portfolio_projects").insert({**payload, "student_id": student_id}).execute()
     )
-    return response.data[0]
+    row = response.data[0]
+    if skill_ids:
+        _replace_project_skills(client, row["id"], skill_ids)
+    refreshed = get_project(client, row["id"])
+    return refreshed if refreshed is not None else _shape_project(row)
 
 
 def update_project(client: Client, project_id: UUID, payload: dict) -> dict | None:
@@ -85,11 +116,17 @@ def update_project(client: Client, project_id: UUID, payload: dict) -> dict | No
     student_id) is enforced entirely by RLS's symmetric USING/WITH CHECK
     -- see the migration's own header comment. Returns None if the row
     doesn't exist or isn't owned by the caller."""
+    skill_ids = payload.pop("skill_ids", None)
     response = (
         client.table("portfolio_projects").update(payload).eq("id", str(project_id)).execute()
     )
     rows = response.data or []
-    return rows[0] if rows else None
+    if not rows:
+        return None
+    if skill_ids is not None:
+        _replace_project_skills(client, str(project_id), skill_ids)
+    refreshed = get_project(client, project_id)
+    return refreshed if refreshed is not None else _shape_project(rows[0])
 
 
 def delete_project(client: Client, project_id: UUID) -> bool:

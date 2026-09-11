@@ -1,7 +1,8 @@
 """Pydantic schemas for the Portfolio API (Phase 1N).
 
 Mirrors database/migrations/025_portfolio_projects_and_certifications.sql
-exactly -- no invented columns. Two normalized resources (projects,
+plus 085_portfolio_project_dates_and_skills_certification_expiry.sql --
+no invented columns. Two normalized resources (projects,
 certifications), not a single generic "portfolio" shape -- see that
 migration's own header comment for why they aren't merged.
 
@@ -48,6 +49,10 @@ class ProjectCreateRequest(BaseModel):
     technologies: list[str] = Field(default_factory=list)
     project_url: str | None = Field(default=None, max_length=2048)
     github_url: str | None = Field(default=None, max_length=2048)
+    start_date: date | None = None
+    end_date: date | None = None
+    is_ongoing: bool = False
+    skill_ids: list[UUID] = Field(default_factory=list)
 
     _validate_project_url = field_validator("project_url")(_validate_optional_url)
     _validate_github_url = field_validator("github_url")(_validate_optional_url)
@@ -65,13 +70,18 @@ class ProjectUpdateRequest(BaseModel):
     technologies: list[str] | None = None
     project_url: str | None = Field(default=None, max_length=2048)
     github_url: str | None = Field(default=None, max_length=2048)
+    start_date: date | None = None
+    end_date: date | None = None
+    is_ongoing: bool | None = None
+    skill_ids: list[UUID] | None = None
 
     _validate_project_url = field_validator("project_url")(_validate_optional_url)
     _validate_github_url = field_validator("github_url")(_validate_optional_url)
 
 
 class ProjectResponse(BaseModel):
-    """Mirrors `portfolio_projects`."""
+    """Mirrors `portfolio_projects` plus its `portfolio_project_skills`
+    edge table (085_portfolio_project_dates_and_skills_certification_expiry.sql)."""
 
     id: UUID
     student_id: UUID
@@ -80,6 +90,10 @@ class ProjectResponse(BaseModel):
     technologies: list[str]
     project_url: str | None
     github_url: str | None
+    start_date: date | None = None
+    end_date: date | None = None
+    is_ongoing: bool = False
+    skill_ids: list[UUID] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 
@@ -99,6 +113,8 @@ class CertificationCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     issuer: str = Field(min_length=1, max_length=200)
     issue_date: date | None = None
+    expiry_date: date | None = None
+    credential_id: str | None = Field(default=None, max_length=200)
     credential_url: str | None = Field(default=None, max_length=2048)
 
     _validate_credential_url = field_validator("credential_url")(_validate_optional_url)
@@ -110,6 +126,8 @@ class CertificationUpdateRequest(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=200)
     issuer: str | None = Field(default=None, min_length=1, max_length=200)
     issue_date: date | None = None
+    expiry_date: date | None = None
+    credential_id: str | None = Field(default=None, max_length=200)
     credential_url: str | None = Field(default=None, max_length=2048)
 
     _validate_credential_url = field_validator("credential_url")(_validate_optional_url)
@@ -123,6 +141,8 @@ class CertificationResponse(BaseModel):
     name: str
     issuer: str
     issue_date: date | None
+    expiry_date: date | None = None
+    credential_id: str | None = None
     credential_url: str | None
     created_at: datetime
     updated_at: datetime

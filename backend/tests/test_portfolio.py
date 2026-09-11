@@ -11,7 +11,7 @@ service/route layer's own logic (role guards, identity handling,
 validation), not RLS itself.
 """
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
@@ -464,6 +464,52 @@ def test_create_project_accepts_valid_https_url():
     assert response.status_code == 201
 
 
+def test_create_project_accepts_dates_ongoing_flag_and_skill_ids():
+    """085_portfolio_project_dates_and_skills_certification_expiry.sql
+    fields: start_date/end_date/is_ongoing/skill_ids round-trip through
+    the route."""
+    skill_id = str(uuid4())
+    with (
+        authenticated_as("STUDENT", user_id="student-1"),
+        patch.object(
+            portfolio_service,
+            "create_project",
+            return_value=_project_row(
+                start_date="2025-01-01", end_date=None, is_ongoing=True, skill_ids=[skill_id]
+            ),
+        ),
+    ):
+        response = client.post(
+            "/api/v1/portfolio/projects",
+            json={
+                "title": "X",
+                "description": "Y",
+                "start_date": "2025-01-01",
+                "is_ongoing": True,
+                "skill_ids": [skill_id],
+            },
+            headers={"Authorization": "Bearer token"},
+        )
+    assert response.status_code == 201
+    body = response.json()
+    assert body["is_ongoing"] is True
+    assert body["skill_ids"] == [skill_id]
+
+
+def test_project_response_defaults_new_fields_when_service_omits_them():
+    """A row shaped by the pre-085 service (no start_date/skill_ids keys)
+    must still validate -- the new fields are additive, not required."""
+    with (
+        authenticated_as("STUDENT", user_id="student-1"),
+        patch.object(portfolio_service, "list_projects", return_value=[_project_row()]),
+    ):
+        response = client.get("/api/v1/portfolio/projects", headers={"Authorization": "Bearer token"})
+    assert response.status_code == 200
+    project = response.json()["projects"][0]
+    assert project["is_ongoing"] is False
+    assert project["skill_ids"] == []
+
+
 def test_create_certification_rejects_missing_issuer():
     with authenticated_as("STUDENT", user_id="student-1"):
         response = client.post(
@@ -492,6 +538,32 @@ def test_create_certification_rejects_invalid_credential_url():
             headers={"Authorization": "Bearer token"},
         )
     assert response.status_code == 422
+
+
+def test_create_certification_accepts_expiry_date_and_credential_id():
+    with (
+        authenticated_as("STUDENT", user_id="student-1"),
+        patch.object(
+            portfolio_service,
+            "create_certification",
+            return_value=_certification_row(expiry_date="2027-06-01", credential_id="ABC-123"),
+        ),
+    ):
+        response = client.post(
+            "/api/v1/portfolio/certifications",
+            json={
+                "name": "X",
+                "issuer": "Y",
+                "issue_date": "2025-06-01",
+                "expiry_date": "2027-06-01",
+                "credential_id": "ABC-123",
+            },
+            headers={"Authorization": "Bearer token"},
+        )
+    assert response.status_code == 201
+    body = response.json()
+    assert body["expiry_date"] == "2027-06-01"
+    assert body["credential_id"] == "ABC-123"
 
 
 def test_create_project_rejects_malformed_payload():
@@ -581,3 +653,119 @@ def test_industry_cannot_modify_portfolio_no_write_routes_exist():
     for path, methods in portfolio_paths.items():
         if path.startswith("/api/v1/applications/"):
             assert set(methods.keys()) == {"get"}, f"{path} must be read-only for industry"
+
+
+# ============================================================
+# Service layer: portfolio_project_skills
+# (085_portfolio_project_dates_and_skills_certification_expiry.sql)
+# ============================================================
+
+
+def test_create_project_writes_skill_ids_into_the_edge_table():
+    supabase = MagicMock()
+    skill_id = str(uuid4())
+    with patch.object(portfolio_service, "get_project", return_value=_project_row(id="proj-1")):
+        supabase.table.return_value.insert.return_value.execute.return_value.data = [
+            {"id": "proj-1"}
+        ]
+        portfolio_service.create_project(
+            supabase, "student-1", {"title": "T", "description": "D", "skill_ids": [skill_id]}
+        )
+
+    insert_calls = supabase.table.return_value.insert.call_args_list
+    # First insert is the project row itself; second is the skill edge.
+    assert insert_calls[0].args[0]["title"] == "T"
+    assert "skill_ids" not in insert_calls[0].args[0]
+    assert insert_calls[1].args[0] == [{"project_id": "proj-1", "skill_id": skill_id}]
+
+
+def test_create_project_without_skill_ids_never_touches_the_edge_table():
+    supabase = MagicMock()
+    with patch.object(portfolio_service, "get_project", return_value=_project_row(id="proj-1")):
+        supabase.table.return_value.insert.return_value.execute.return_value.data = [
+            {"id": "proj-1"}
+        ]
+        portfolio_service.create_project(supabase, "student-1", {"title": "T", "description": "D"})
+
+    assert supabase.table.return_value.insert.call_count == 1
+
+
+def test_update_project_replaces_skill_ids_when_provided():
+    supabase = MagicMock()
+    skill_id = str(uuid4())
+    with (
+        patch.object(portfolio_service, "get_project", return_value=_project_row(id="proj-1")),
+        patch.object(portfolio_service, "_replace_project_skills") as replace_skills,
+    ):
+        supabase.table.return_value.update.return_value.eq.return_value.execute.return_value.data = [
+            {"id": "proj-1"}
+        ]
+        portfolio_service.update_project(supabase, "proj-1", {"skill_ids": [skill_id]})
+
+    replace_skills.assert_called_once_with(supabase, "proj-1", [skill_id])
+    updated_payload = supabase.table.return_value.update.call_args.args[0]
+    assert "skill_ids" not in updated_payload
+
+
+def test_update_project_leaves_skills_untouched_when_field_is_absent():
+    """exclude_unset semantics: skill_ids missing entirely from the
+    payload means "don't touch the skill list", distinct from an empty
+    list (which clears it)."""
+    supabase = MagicMock()
+    with (
+        patch.object(portfolio_service, "get_project", return_value=_project_row(id="proj-1")),
+        patch.object(portfolio_service, "_replace_project_skills") as replace_skills,
+    ):
+        supabase.table.return_value.update.return_value.eq.return_value.execute.return_value.data = [
+            {"id": "proj-1"}
+        ]
+        portfolio_service.update_project(supabase, "proj-1", {"title": "Updated"})
+
+    replace_skills.assert_not_called()
+
+
+def test_update_project_clears_skills_when_given_an_empty_list():
+    supabase = MagicMock()
+    with (
+        patch.object(portfolio_service, "get_project", return_value=_project_row(id="proj-1")),
+        patch.object(portfolio_service, "_replace_project_skills") as replace_skills,
+    ):
+        supabase.table.return_value.update.return_value.eq.return_value.execute.return_value.data = [
+            {"id": "proj-1"}
+        ]
+        portfolio_service.update_project(supabase, "proj-1", {"skill_ids": []})
+
+    replace_skills.assert_called_once_with(supabase, "proj-1", [])
+
+
+def test_replace_project_skills_dedupes_and_reinserts():
+    supabase = MagicMock()
+    skill_id = str(uuid4())
+    portfolio_service._replace_project_skills(supabase, "proj-1", [skill_id, skill_id])
+
+    supabase.table.return_value.delete.return_value.eq.assert_called_once_with(
+        "project_id", "proj-1"
+    )
+    inserted = supabase.table.return_value.insert.call_args.args[0]
+    assert inserted == [{"project_id": "proj-1", "skill_id": skill_id}]
+
+
+def test_replace_project_skills_with_no_skills_only_deletes():
+    supabase = MagicMock()
+    portfolio_service._replace_project_skills(supabase, "proj-1", [])
+
+    supabase.table.return_value.delete.return_value.eq.assert_called_once_with(
+        "project_id", "proj-1"
+    )
+    supabase.table.return_value.insert.assert_not_called()
+
+
+def test_shape_project_flattens_the_skill_edge_embed():
+    skill_a, skill_b = str(uuid4()), str(uuid4())
+    row = {
+        "id": "proj-1",
+        "portfolio_project_skills": [{"skill_id": skill_a}, {"skill_id": skill_b}],
+    }
+    shaped = portfolio_service._shape_project(row)
+    assert shaped["skill_ids"] == [skill_a, skill_b]
+    assert "portfolio_project_skills" not in shaped
