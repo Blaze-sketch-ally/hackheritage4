@@ -1,0 +1,22 @@
+{
+  "common": {
+    "appName": "SkillBridge",
+    "language": "Language",
+    "selectLanguage": "Select language",
+    "loading": "Loading…",
+    "error": "Something went wrong",
+    "save": "Save",
+    "cancel": "Cancel",
+    "close": "Close",
+    "betaLabel": "Beta"
+  },
+  "navigation": {
+    "dashboard": "Dashboard",
+    "profile": "Profile",
+    "settings": "Settings",
+    "logout": "Log out"
+  },
+  "dashboard": {
+    "welcomeUser": "Welcome, {{name}}!"
+  }
+}

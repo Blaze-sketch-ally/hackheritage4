@@ -1,0 +1,21 @@
+{
+  "common": {
+    "appName": "SkillBridge",
+    "language": "ভাষা",
+    "selectLanguage": "ভাষা নির্বাচন করুন",
+    "loading": "লোড হচ্ছে…",
+    "error": "কিছু একটা ভুল হয়েছে",
+    "save": "সংরক্ষণ করুন",
+    "cancel": "বাতিল করুন",
+    "close": "বন্ধ করুন"
+  },
+  "navigation": {
+    "dashboard": "ড্যাশবোর্ড",
+    "profile": "প্রোফাইল",
+    "settings": "সেটিংস",
+    "logout": "লগ আউট"
+  },
+  "dashboard": {
+    "welcomeUser": "স্বাগতম, {{name}}!"
+  }
+}
