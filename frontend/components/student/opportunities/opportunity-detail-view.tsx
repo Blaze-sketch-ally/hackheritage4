@@ -16,6 +16,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { SkillMatchCard } from "@/components/student/opportunities/skill-match-card";
 import { ApplicationStatusBadge } from "@/components/student/opportunities/application-status-badge";
+import { toast } from "@/components/ui/sonner";
 import { ApiError } from "@/lib/api";
 import {
   applyToOpportunity,
@@ -175,13 +176,15 @@ export function OpportunityDetailView({ opportunityId }: { opportunityId: string
       setState((prev) =>
         prev.status === "ready" ? { ...prev, existingApplication: application } : prev,
       );
+      toast.success("Application submitted successfully!");
     } catch (err) {
       const apiErr = err instanceof ApiError ? err : new ApiError(0, "Could not submit your application.");
-      setApplyError(
+      const errorMsg =
         apiErr.status === 409
           ? "You have already applied, or this posting is no longer accepting applications."
-          : apiErr.message,
-      );
+          : apiErr.message;
+      setApplyError(errorMsg);
+      toast.error(errorMsg);
     } finally {
       setApplying(false);
     }

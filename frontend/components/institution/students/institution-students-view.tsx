@@ -8,6 +8,7 @@ import { ConfirmationDialog } from "@/components/common/confirmation-dialog";
 import { EmptyState } from "@/components/common/empty-state";
 import { FormError } from "@/components/auth/form-error";
 import { FormSuccess } from "@/components/auth/form-success";
+import { toast } from "@/components/ui/sonner";
 import { ApiError } from "@/lib/api";
 import { approveLinkRequest, getIncomingLinkRequests, rejectLinkRequest } from "@/lib/institution-links";
 import type { InstitutionLinkRequest } from "@/types/institution-link";
@@ -107,9 +108,13 @@ export function InstitutionStudentsView() {
           ? { ...prev, requests: prev.requests.map((r) => (r.id === id ? updated : r)) }
           : prev,
       );
-      setActionSuccess(ACTION_COPY[action].done);
+      const doneMsg = ACTION_COPY[action].done;
+      setActionSuccess(doneMsg);
+      toast.success(doneMsg);
     } catch (err) {
-      setActionError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
+      const errMsg = err instanceof ApiError ? err.message : "Something went wrong. Please try again.";
+      setActionError(errMsg);
+      toast.error(errMsg);
     } finally {
       setPending(null);
     }

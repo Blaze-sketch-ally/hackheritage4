@@ -10,6 +10,7 @@ import { FormError } from "@/components/auth/form-error";
 import { FormSuccess } from "@/components/auth/form-success";
 import { Filters } from "@/components/common/filters";
 import { SearchBar } from "@/components/common/search-bar";
+import { toast } from "@/components/ui/sonner";
 import { ApiError } from "@/lib/api";
 import { getApplications } from "@/lib/industry/applications";
 import { cancelInterview, completeInterview, getInterviews } from "@/lib/industry/interviews";
@@ -189,11 +190,14 @@ export function InterviewsListView() {
     try {
       const updated = await RUNNERS[action](id);
       upsertInterview(updated);
-      setActionSuccess(ACTION_COPY[action].done);
+      const doneMsg = ACTION_COPY[action].done;
+      setActionSuccess(doneMsg);
+      toast.success(doneMsg);
     } catch (err) {
-      setActionError(
-        err instanceof ApiError ? err.message : "Something went wrong. Please try again.",
-      );
+      const msg =
+        err instanceof ApiError ? err.message : "Something went wrong. Please try again.";
+      setActionError(msg);
+      toast.error(msg);
     } finally {
       setPendingId(null);
     }

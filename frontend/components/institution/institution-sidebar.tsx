@@ -24,6 +24,7 @@ interface NavItem {
   label: string;
   href: string;
   icon: LucideIcon;
+  badge?: string;
 }
 
 interface NavGroup {
@@ -65,14 +66,14 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Engagement",
     items: [
       { label: "Collaborations", href: "/institution/collaborations", icon: Network },
-      { label: "Events", href: "/institution/events", icon: CalendarDays },
+      { label: "Events", href: "/institution/events", icon: CalendarDays, badge: "Soon" },
     ],
   },
   {
     label: "Insights",
     items: [
       { label: "Analytics", href: "/institution/analytics", icon: BarChart3 },
-      { label: "Reports", href: "/institution/reports", icon: FileText },
+      { label: "Reports", href: "/institution/reports", icon: FileText, badge: "Soon" },
     ],
   },
   {
@@ -132,7 +133,12 @@ export function InstitutionSidebar({ onNavigate }: { onNavigate?: () => void }) 
                   )}
                 >
                   <Icon className="size-4 shrink-0" aria-hidden="true" />
-                  {item.label}
+                  <span className="flex-1 truncate">{item.label}</span>
+                  {item.badge ? (
+                    <span className="rounded-full bg-muted/80 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                      {item.badge}
+                    </span>
+                  ) : null}
                 </Link>
               );
             })}

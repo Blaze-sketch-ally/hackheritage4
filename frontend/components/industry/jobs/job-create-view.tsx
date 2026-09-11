@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { AlertCircle, ArrowLeft } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
+import { toast } from "@/components/ui/sonner";
 import { ApiError } from "@/lib/api";
 import { createJob } from "@/lib/industry/jobs";
 import { getSkillCatalog, type CatalogSkill } from "@/lib/industry/skills";
@@ -40,9 +41,12 @@ export function JobCreateView() {
     setError(null);
     try {
       const created = await createJob(data);
+      toast.success("Job posting created successfully!");
       router.push(`/industry/jobs/${created.id}`);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not create the job. Please try again.");
+      const msg = err instanceof ApiError ? err.message : "Could not create the job. Please try again.";
+      setError(msg);
+      toast.error(msg);
       setSubmitting(false);
     }
   }

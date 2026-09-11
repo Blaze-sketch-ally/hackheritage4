@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ApiError } from "@/lib/api";
+import { toast } from "sonner";
 import { createQuestion, listAssessmentsForFaculty } from "@/lib/faculty/question-bank";
 import type { Assessment, Difficulty, QuestionType } from "@/types/assessment";
 import type { QuestionOptionInput } from "@/types/question-bank";
@@ -162,6 +163,7 @@ export function QuestionCreateForm() {
           ? { correct_option_ids: Array.from(correctIds) }
           : { correct_answer_text: shortAnswerText, explanation: explanation || null },
       });
+      toast.success("Question created and submitted for review.");
       router.push(`/faculty/questions/${created.id}`);
     } catch (err) {
       setSubmitError(err instanceof ApiError ? err.message : "Could not create the question.");

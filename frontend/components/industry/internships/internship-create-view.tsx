@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { AlertCircle, ArrowLeft } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
+import { toast } from "@/components/ui/sonner";
 import { ApiError } from "@/lib/api";
 import { createInternship } from "@/lib/industry/internships";
 import { getSkillCatalog, type CatalogSkill } from "@/lib/industry/skills";
@@ -40,11 +41,13 @@ export function InternshipCreateView() {
     setError(null);
     try {
       const created = await createInternship(data);
+      toast.success("Internship posting created successfully!");
       router.push(`/industry/internships/${created.id}`);
     } catch (err) {
-      setError(
-        err instanceof ApiError ? err.message : "Could not create the internship. Please try again.",
-      );
+      const msg =
+        err instanceof ApiError ? err.message : "Could not create the internship. Please try again.";
+      setError(msg);
+      toast.error(msg);
       setSubmitting(false);
     }
   }

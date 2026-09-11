@@ -11,6 +11,7 @@ import { ConfirmationDialog } from "@/components/common/confirmation-dialog";
 import { FormError } from "@/components/auth/form-error";
 import { FormSuccess } from "@/components/auth/form-success";
 import { ApplicationStatusBadge } from "@/components/student/opportunities/application-status-badge";
+import { toast } from "@/components/ui/sonner";
 import { ApiError } from "@/lib/api";
 import { listMyApplications, withdrawApplication } from "@/lib/student/opportunities";
 import { listMyInternshipWorkspaces } from "@/lib/student/internship-workspace";
@@ -73,20 +74,24 @@ export function MyApplicationsView() {
           ? { ...s, applications: s.applications.map((a) => (a.id === updated.id ? updated : a)) }
           : s,
       );
+      const msg = target.opportunity?.title
+        ? `Withdrew your application for “${target.opportunity.title}”.`
+        : "Your application has been withdrawn.";
       setFeedback({
         kind: "success",
-        message: target.opportunity?.title
-          ? `Withdrew your application for “${target.opportunity.title}”.`
-          : "Your application has been withdrawn.",
+        message: msg,
       });
+      toast.success(msg);
     } catch (err) {
+      const errMsg =
+        err instanceof ApiError
+          ? err.message
+          : "Could not withdraw this application. Please try again.";
       setFeedback({
         kind: "error",
-        message:
-          err instanceof ApiError
-            ? err.message
-            : "Could not withdraw this application. Please try again.",
+        message: errMsg,
       });
+      toast.error(errMsg);
     } finally {
       setWithdrawPending(false);
       setWithdrawTarget(null);
@@ -186,57 +191,59 @@ export function MyApplicationsView() {
           )
         ) : null}
 
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Opportunity</TableHead>
-              <TableHead>Type</TableHead>
-              <TableHead>Company</TableHead>
-              <TableHead>Applied on</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Next steps</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {state.applications.map((app) => {
-              const opp = app.opportunity;
-              const type = opp?.source_type ?? app.opportunity_type;
-              return (
-                <TableRow key={app.id}>
-                  <TableCell className="font-medium">
-                    {opp?.title && opp.id ? (
-                      <Link href={`${DETAIL_BASE[type]}/${opp.id}`} className="hover:underline">
-                        {opp.title}
-                      </Link>
-                    ) : (
-                      opp?.title ?? "—"
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="secondary">{TYPE_LABEL[type]}</Badge>
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {opp?.industry?.company_name ?? "—"}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {app.applied_at ? new Date(app.applied_at).toLocaleDateString() : "—"}
-                  </TableCell>
-                  <TableCell>
-                    <ApplicationStatusBadge status={app.status} />
-                  </TableCell>
-                  <TableCell>
-                    <NextStepCell
-                      application={app}
-                      workspace={state.workspacesByApplication[app.id]}
-                      jobTraining={state.jobTrainingByApplication[app.id]}
-                      onWithdraw={setWithdrawTarget}
-                    />
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
+        <div className="overflow-x-auto">
+          <Table className="min-w-[600px]">
+            <TableHeader>
+              <TableRow>
+                <TableHead>Opportunity</TableHead>
+                <TableHead>Type</TableHead>
+                <TableHead>Company</TableHead>
+                <TableHead>Applied on</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Next steps</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {state.applications.map((app) => {
+                const opp = app.opportunity;
+                const type = opp?.source_type ?? app.opportunity_type;
+                return (
+                  <TableRow key={app.id}>
+                    <TableCell className="font-medium">
+                      {opp?.title && opp.id ? (
+                        <Link href={`${DETAIL_BASE[type]}/${opp.id}`} className="hover:underline">
+                          {opp.title}
+                        </Link>
+                      ) : (
+                        opp?.title ?? "—"
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="secondary">{TYPE_LABEL[type]}</Badge>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {opp?.industry?.company_name ?? "—"}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {app.applied_at ? new Date(app.applied_at).toLocaleDateString() : "—"}
+                    </TableCell>
+                    <TableCell>
+                      <ApplicationStatusBadge status={app.status} />
+                    </TableCell>
+                    <TableCell>
+                      <NextStepCell
+                        application={app}
+                        workspace={state.workspacesByApplication[app.id]}
+                        jobTraining={state.jobTrainingByApplication[app.id]}
+                        onWithdraw={setWithdrawTarget}
+                      />
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </div>
       </CardContent>
 
       <ConfirmationDialog

@@ -3,6 +3,8 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 const mocks = vi.hoisted(() => ({
+  getWorkspaceCompletion: vi.fn(),
+  verifyWorkspaceCompletion: vi.fn(),
   getWorkspaceStipend: vi.fn(),
   createWorkspaceStipend: vi.fn(),
   updateWorkspaceStipend: vi.fn(),

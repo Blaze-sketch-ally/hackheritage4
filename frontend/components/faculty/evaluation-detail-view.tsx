@@ -22,6 +22,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { EvaluationStatusBadge } from "@/components/faculty/evaluation-status-badge";
 import { ApiError } from "@/lib/api";
+import { toast } from "sonner";
 import { getEvaluation, listCandidateRubrics, saveEvaluation, updateEvaluationStatus } from "@/lib/faculty/evaluations";
 import type { EvaluationDetail, Rubric } from "@/types/evaluation";
 
@@ -119,9 +120,12 @@ export function EvaluationDetailView({ evaluationId }: { evaluationId: string })
     setTransitioning(true);
     try {
       await updateEvaluationStatus(evaluationId, "IN_PROGRESS");
+      toast.success("Evaluation started.");
       refetch();
     } catch (err) {
-      setTransitionError(err instanceof ApiError ? err.message : "Could not start this evaluation.");
+      const message = err instanceof ApiError ? err.message : "Could not start this evaluation.";
+      setTransitionError(message);
+      toast.error(message);
       setTransitioning(false);
     }
   }
@@ -135,9 +139,12 @@ export function EvaluationDetailView({ evaluationId }: { evaluationId: string })
         awarded_marks: marks.trim() === "" ? null : marks.trim(),
         feedback: feedback.trim() === "" ? null : feedback.trim(),
       });
+      toast.success("Evaluation draft saved.");
       refetch();
     } catch (err) {
-      setSaveError(err instanceof ApiError ? err.message : "Could not save this evaluation.");
+      const message = err instanceof ApiError ? err.message : "Could not save this evaluation.";
+      setSaveError(message);
+      toast.error(message);
       setSaving(false);
     }
   }
@@ -147,9 +154,12 @@ export function EvaluationDetailView({ evaluationId }: { evaluationId: string })
     setTransitioning(true);
     try {
       await updateEvaluationStatus(evaluationId, "SUBMITTED");
+      toast.success("Evaluation submitted.");
       refetch();
     } catch (err) {
-      setTransitionError(err instanceof ApiError ? err.message : "Could not submit this evaluation.");
+      const message = err instanceof ApiError ? err.message : "Could not submit this evaluation.";
+      setTransitionError(message);
+      toast.error(message);
       setTransitioning(false);
     }
   }
@@ -159,9 +169,12 @@ export function EvaluationDetailView({ evaluationId }: { evaluationId: string })
     setTransitioning(true);
     try {
       await updateEvaluationStatus(evaluationId, "FINALIZED");
+      toast.success("Evaluation finalized.");
       refetch();
     } catch (err) {
-      setTransitionError(err instanceof ApiError ? err.message : "Could not finalize this evaluation.");
+      const message = err instanceof ApiError ? err.message : "Could not finalize this evaluation.";
+      setTransitionError(message);
+      toast.error(message);
       setTransitioning(false);
     }
   }

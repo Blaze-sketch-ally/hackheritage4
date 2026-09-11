@@ -20,6 +20,7 @@ import { ErrorState } from "@/components/common/error-state";
 import { Loading } from "@/components/common/loading";
 import { ApiError } from "@/lib/api";
 import { getInstitutionDepartments } from "@/lib/institution/departments";
+import { toast } from "@/components/ui/sonner";
 import type { DepartmentSummary } from "@/types/institution-department";
 import { DepartmentForm } from "@/components/institution/departments/department-form";
 
@@ -84,6 +85,7 @@ export function DepartmentList() {
 
   function handleSaved() {
     setFormOpen(false);
+    toast.success(editing ? "Department updated successfully!" : "Department created successfully!");
     setState({ status: "loading" });
     setReloadKey((k) => k + 1);
   }
@@ -159,49 +161,51 @@ export function DepartmentList() {
         ) : (
           <Card>
             <CardContent className="p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Department</TableHead>
-                    <TableHead>Code</TableHead>
-                    <TableHead className="text-right">Students</TableHead>
-                    <TableHead className="text-right">Placed</TableHead>
-                    <TableHead className="text-right">Unplaced</TableHead>
-                    <TableHead className="text-right">Placement %</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filtered.map((d) => (
-                    <TableRow key={d.id}>
-                      <TableCell
-                        className="cursor-pointer font-medium hover:underline"
-                        onClick={() => router.push(`/institution/departments/${d.id}`)}
-                      >
-                        {d.name}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">{d.code ?? "—"}</TableCell>
-                      <TableCell className="text-right tabular-nums">{d.student_count}</TableCell>
-                      <TableCell className="text-right tabular-nums">{d.placed_count}</TableCell>
-                      <TableCell className="text-right tabular-nums">{d.unplaced_count}</TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {d.placement_rate != null ? `${d.placement_rate}%` : "—"}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={d.is_active ? "default" : "secondary"}>
-                          {d.is_active ? "Active" : "Inactive"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Button size="sm" variant="outline" onClick={() => openEdit(d)}>
-                          Edit
-                        </Button>
-                      </TableCell>
+              <div className="overflow-x-auto">
+                <Table className="min-w-[700px]">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Department</TableHead>
+                      <TableHead>Code</TableHead>
+                      <TableHead className="text-right">Students</TableHead>
+                      <TableHead className="text-right">Placed</TableHead>
+                      <TableHead className="text-right">Unplaced</TableHead>
+                      <TableHead className="text-right">Placement %</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {filtered.map((d) => (
+                      <TableRow key={d.id}>
+                        <TableCell
+                          className="cursor-pointer font-medium hover:underline"
+                          onClick={() => router.push(`/institution/departments/${d.id}`)}
+                        >
+                          {d.name}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">{d.code ?? "—"}</TableCell>
+                        <TableCell className="text-right tabular-nums">{d.student_count}</TableCell>
+                        <TableCell className="text-right tabular-nums">{d.placed_count}</TableCell>
+                        <TableCell className="text-right tabular-nums">{d.unplaced_count}</TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {d.placement_rate != null ? `${d.placement_rate}%` : "—"}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={d.is_active ? "default" : "secondary"}>
+                            {d.is_active ? "Active" : "Inactive"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button size="sm" variant="outline" onClick={() => openEdit(d)}>
+                            Edit
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
             </CardContent>
           </Card>
         )

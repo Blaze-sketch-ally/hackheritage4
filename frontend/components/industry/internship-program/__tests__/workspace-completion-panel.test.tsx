@@ -5,6 +5,12 @@ import userEvent from "@testing-library/user-event";
 const mocks = vi.hoisted(() => ({
   getWorkspaceCompletion: vi.fn(),
   verifyWorkspaceCompletion: vi.fn(),
+  getWorkspaceStipend: vi.fn(),
+  createWorkspaceStipend: vi.fn(),
+  updateWorkspaceStipend: vi.fn(),
+  approveWorkspaceStipend: vi.fn(),
+  releaseWorkspaceStipend: vi.fn(),
+  cancelWorkspaceStipend: vi.fn(),
 }));
 
 vi.mock("@/lib/industry/internship-workspaces", () => mocks);

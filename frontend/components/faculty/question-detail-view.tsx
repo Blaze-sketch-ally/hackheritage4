@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/hooks/use-auth";
 import { ApiError } from "@/lib/api";
+import { toast } from "sonner";
 import { approveQuestion, getQuestion, rejectQuestion, updateQuestion } from "@/lib/faculty/question-bank";
 import type { QuestionBank } from "@/types/question-bank";
 
@@ -109,8 +110,11 @@ export function QuestionDetailView({ questionId }: { questionId: string }) {
       });
       setQuestion(updated);
       setEditing(false);
+      toast.success("Question changes saved.");
     } catch (err) {
-      setSaveError(err instanceof ApiError ? err.message : "Could not save changes.");
+      const message = err instanceof ApiError ? err.message : "Could not save changes.";
+      setSaveError(message);
+      toast.error(message);
     } finally {
       setSaving(false);
     }
@@ -135,8 +139,11 @@ export function QuestionDetailView({ questionId }: { questionId: string }) {
         review_status: "PENDING",
       });
       setQuestion(updated);
+      toast.success("Question resubmitted for review.");
     } catch (err) {
-      setSaveError(err instanceof ApiError ? err.message : "Could not resubmit the question.");
+      const message = err instanceof ApiError ? err.message : "Could not resubmit the question.";
+      setSaveError(message);
+      toast.error(message);
     } finally {
       setSaving(false);
     }
@@ -150,8 +157,11 @@ export function QuestionDetailView({ questionId }: { questionId: string }) {
       const updated = action === "approve" ? await approveQuestion(questionId, note) : await rejectQuestion(questionId, note);
       setQuestion(updated);
       setReviewNote("");
+      toast.success(action === "approve" ? "Question approved." : "Question rejected.");
     } catch (err) {
-      setReviewError(err instanceof ApiError ? err.message : "Could not update the question.");
+      const message = err instanceof ApiError ? err.message : "Could not update the question.";
+      setReviewError(message);
+      toast.error(message);
     } finally {
       setReviewing(false);
     }

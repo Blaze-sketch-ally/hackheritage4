@@ -24,6 +24,23 @@
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
+
+  /* Role-specific Semantic Tokens */
+  --role-student: oklch(0.55 0.22 264);
+  --role-student-foreground: oklch(0.985 0 0);
+  --role-student-subtle: oklch(0.55 0.22 264 / 10%);
+  --role-faculty: oklch(0.58 0.16 160);
+  --role-faculty-foreground: oklch(0.985 0 0);
+  --role-faculty-subtle: oklch(0.58 0.16 160 / 10%);
+  --role-industry: oklch(0.56 0.24 290);
+  --role-industry-foreground: oklch(0.985 0 0);
+  --role-industry-subtle: oklch(0.56 0.24 290 / 10%);
+  --role-institution: oklch(0.52 0.18 245);
+  --role-institution-foreground: oklch(0.985 0 0);
+  --role-institution-subtle: oklch(0.52 0.18 245 / 10%);
+  --role-admin: oklch(0.45 0.02 240);
+  --role-admin-foreground: oklch(0.985 0 0);
+  --role-admin-subtle: oklch(0.45 0.02 240 / 10%);
 }
 
 .dark {
@@ -46,6 +63,23 @@
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);
+
+  /* Role-specific Semantic Tokens (Dark Mode) */
+  --role-student: oklch(0.68 0.19 264);
+  --role-student-foreground: oklch(0.985 0 0);
+  --role-student-subtle: oklch(0.68 0.19 264 / 15%);
+  --role-faculty: oklch(0.7 0.14 160);
+  --role-faculty-foreground: oklch(0.985 0 0);
+  --role-faculty-subtle: oklch(0.7 0.14 160 / 15%);
+  --role-industry: oklch(0.7 0.2 290);
+  --role-industry-foreground: oklch(0.985 0 0);
+  --role-industry-subtle: oklch(0.7 0.2 290 / 15%);
+  --role-institution: oklch(0.65 0.16 245);
+  --role-institution-foreground: oklch(0.985 0 0);
+  --role-institution-subtle: oklch(0.65 0.16 245 / 15%);
+  --role-admin: oklch(0.6 0.02 240);
+  --role-admin-foreground: oklch(0.985 0 0);
+  --role-admin-subtle: oklch(0.6 0.02 240 / 15%);
 }
 
 @theme inline {
@@ -70,6 +104,21 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-role-student: var(--role-student);
+  --color-role-student-foreground: var(--role-student-foreground);
+  --color-role-student-subtle: var(--role-student-subtle);
+  --color-role-faculty: var(--role-faculty);
+  --color-role-faculty-foreground: var(--role-faculty-foreground);
+  --color-role-faculty-subtle: var(--role-faculty-subtle);
+  --color-role-industry: var(--role-industry);
+  --color-role-industry-foreground: var(--role-industry-foreground);
+  --color-role-industry-subtle: var(--role-industry-subtle);
+  --color-role-institution: var(--role-institution);
+  --color-role-institution-foreground: var(--role-institution-foreground);
+  --color-role-institution-subtle: var(--role-institution-subtle);
+  --color-role-admin: var(--role-admin);
+  --color-role-admin-foreground: var(--role-admin-foreground);
+  --color-role-admin-subtle: var(--role-admin-subtle);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);

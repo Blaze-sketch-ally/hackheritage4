@@ -22,6 +22,7 @@ interface NavItem {
   label: string;
   href?: string;
   icon: LucideIcon;
+  badge?: string;
 }
 
 interface NavGroup {
@@ -47,11 +48,11 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Engagement",
     items: [
-      { label: "Projects", href: "/industry/projects", icon: FolderKanban },
-      { label: "Mentorship", href: "/industry/mentorship", icon: GraduationCap },
-      { label: "Training", href: "/industry/training", icon: GraduationCap },
-      { label: "Workshops", href: "/industry/workshops", icon: CalendarCheck },
-      { label: "Collaborations", href: "/industry/collaborations", icon: Handshake },
+      { label: "Projects", href: "/industry/projects", icon: FolderKanban, badge: "Soon" },
+      { label: "Mentorship", href: "/industry/mentorship", icon: GraduationCap, badge: "Soon" },
+      { label: "Training", href: "/industry/training", icon: GraduationCap, badge: "Soon" },
+      { label: "Workshops", href: "/industry/workshops", icon: CalendarCheck, badge: "Soon" },
+      { label: "Collaborations", href: "/industry/collaborations", icon: Handshake, badge: "Soon" },
       { label: "Faculty Opportunities", href: "/industry/faculty-opportunities", icon: GraduationCap },
     ],
   },
@@ -107,7 +108,12 @@ export function IndustrySidebar({ onNavigate }: { onNavigate?: () => void }) {
                   )}
                 >
                   <Icon className="size-4 shrink-0" aria-hidden="true" />
-                  {item.label}
+                  <span className="flex-1 truncate">{item.label}</span>
+                  {item.badge ? (
+                    <span className="rounded-full bg-muted/80 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                      {item.badge}
+                    </span>
+                  ) : null}
                 </Link>
               );
             })}

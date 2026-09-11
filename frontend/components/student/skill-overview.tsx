@@ -14,7 +14,7 @@ export function SkillOverview({ radar, studentSkills }: { radar: SkillRadarPoint
       <CardHeader>
         <CardTitle>Skill Overview</CardTitle>
         <CardDescription>
-          Chart is demo data. The list reflects your actual self-reported skills — take an assessment
+          Aggregated proficiency across your skill categories. Take an assessment
           for an objective, verified score.
         </CardDescription>
         <CardAction>

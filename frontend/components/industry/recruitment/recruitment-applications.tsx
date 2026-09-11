@@ -10,6 +10,7 @@ import { FormError } from "@/components/auth/form-error";
 import { FormSuccess } from "@/components/auth/form-success";
 import { Filters } from "@/components/common/filters";
 import { SearchBar } from "@/components/common/search-bar";
+import { toast } from "@/components/ui/sonner";
 import { ApiError } from "@/lib/api";
 import {
   getApplications,
@@ -157,11 +158,14 @@ export function RecruitmentApplications({
           summary,
         };
       });
-      setActionSuccess(`Moved to “${APPLICATION_STATUS_LABELS[target]}”.`);
+      const successMsg = `Moved to “${APPLICATION_STATUS_LABELS[target]}”.`;
+      setActionSuccess(successMsg);
+      toast.success(successMsg);
     } catch (err) {
-      setActionError(
-        err instanceof ApiError ? err.message : "Something went wrong. Please try again.",
-      );
+      const errMsg =
+        err instanceof ApiError ? err.message : "Something went wrong. Please try again.";
+      setActionError(errMsg);
+      toast.error(errMsg);
     } finally {
       setPendingId(null);
     }

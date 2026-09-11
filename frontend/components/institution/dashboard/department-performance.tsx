@@ -27,39 +27,41 @@ export function DepartmentPerformance({ departments }: { departments: Department
             description="This appears once students are linked to your institution."
           />
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Department</TableHead>
-                <TableHead className="text-right">Students</TableHead>
-                <TableHead className="text-right">Placed</TableHead>
-                <TableHead className="text-right">Placement %</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {departments.map((d) => (
-                <TableRow key={d.department}>
-                  <TableCell className="font-medium">
-                    {d.department_id ? (
-                      <Link
-                        href={`/institution/departments/${d.department_id}`}
-                        className="hover:underline"
-                      >
-                        {d.department}
-                      </Link>
-                    ) : (
-                      d.department
-                    )}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">{d.total_students}</TableCell>
-                  <TableCell className="text-right tabular-nums">{d.placed_students}</TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {d.placement_percentage != null ? `${d.placement_percentage}%` : "—"}
-                  </TableCell>
+          <div className="overflow-x-auto">
+            <Table className="min-w-[500px]">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Department</TableHead>
+                  <TableHead className="text-right">Students</TableHead>
+                  <TableHead className="text-right">Placed</TableHead>
+                  <TableHead className="text-right">Placement %</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {departments.map((d) => (
+                  <TableRow key={d.department}>
+                    <TableCell className="font-medium">
+                      {d.department_id ? (
+                        <Link
+                          href={`/institution/departments/${d.department_id}`}
+                          className="hover:underline"
+                        >
+                          {d.department}
+                        </Link>
+                      ) : (
+                        d.department
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">{d.total_students}</TableCell>
+                    <TableCell className="text-right tabular-nums">{d.placed_students}</TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {d.placement_percentage != null ? `${d.placement_percentage}%` : "—"}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
         )}
       </CardContent>
     </Card>

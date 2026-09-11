@@ -391,86 +391,88 @@ function StudentTable({
   return (
     <Card>
       <CardContent className="p-0">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <SortHead field="name" label="Student" sortBy={sortBy} sortDir={sortDir} onSort={onSort} />
-              <SortHead field="department" label="Department" sortBy={sortBy} sortDir={sortDir} onSort={onSort} />
-              <TableHead>Batch</TableHead>
-              <SortHead field="cgpa" label="CGPA" sortBy={sortBy} sortDir={sortDir} onSort={onSort} className="text-right" />
-              <TableHead>Skills</TableHead>
-              <SortHead field="placement_status" label="Placement" sortBy={sortBy} sortDir={sortDir} onSort={onSort} />
-              <TableHead>Internship</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {students.map((student) => (
-              <TableRow
-                key={student.id}
-                className="cursor-pointer"
-                onClick={() => onOpen(student.id)}
-              >
-                <TableCell>
-                  <div className="flex items-center gap-2.5">
-                    <Avatar className="size-8">
-                      <AvatarImage src={student.avatar_url ?? undefined} alt="" />
-                      <AvatarFallback className="text-xs">{initials(student.full_name)}</AvatarFallback>
-                    </Avatar>
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium">
-                        {student.full_name?.trim() || student.username || "Unnamed student"}
-                      </p>
-                      {student.username ? (
-                        <p className="truncate text-xs text-muted-foreground">@{student.username}</p>
-                      ) : null}
-                    </div>
-                  </div>
-                </TableCell>
-                <TableCell className="text-sm">{student.department ?? "Unspecified"}</TableCell>
-                <TableCell className="text-sm tabular-nums">{student.batch ?? "—"}</TableCell>
-                <TableCell className="text-right text-sm tabular-nums">
-                  {student.cgpa != null ? student.cgpa.toFixed(1) : "—"}
-                </TableCell>
-                <TableCell>
-                  <div className="flex max-w-40 flex-wrap gap-1">
-                    {student.top_skills.length === 0 ? (
-                      <span className="text-xs text-muted-foreground/60">—</span>
-                    ) : (
-                      student.top_skills.slice(0, 3).map((s) => (
-                        <Badge key={s} variant="outline" className="text-[10px]">
-                          {s}
-                        </Badge>
-                      ))
-                    )}
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <Badge variant={placementBadgeVariant(student.placement_status)}>
-                    {PLACEMENT_STATUS_LABELS[student.placement_status]}
-                  </Badge>
-                </TableCell>
-                <TableCell>
-                  <Badge variant={internshipBadgeVariant(student.internship_status)}>
-                    {INTERNSHIP_STATUS_LABELS[student.internship_status]}
-                  </Badge>
-                </TableCell>
-                <TableCell className="text-right">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onOpen(student.id);
-                    }}
-                  >
-                    View
-                  </Button>
-                </TableCell>
+        <div className="overflow-x-auto">
+          <Table className="min-w-[800px]">
+            <TableHeader>
+              <TableRow>
+                <SortHead field="name" label="Student" sortBy={sortBy} sortDir={sortDir} onSort={onSort} />
+                <SortHead field="department" label="Department" sortBy={sortBy} sortDir={sortDir} onSort={onSort} />
+                <TableHead>Batch</TableHead>
+                <SortHead field="cgpa" label="CGPA" sortBy={sortBy} sortDir={sortDir} onSort={onSort} className="text-right" />
+                <TableHead>Skills</TableHead>
+                <SortHead field="placement_status" label="Placement" sortBy={sortBy} sortDir={sortDir} onSort={onSort} />
+                <TableHead>Internship</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+            </TableHeader>
+            <TableBody>
+              {students.map((student) => (
+                <TableRow
+                  key={student.id}
+                  className="cursor-pointer"
+                  onClick={() => onOpen(student.id)}
+                >
+                  <TableCell>
+                    <div className="flex items-center gap-2.5">
+                      <Avatar className="size-8">
+                        <AvatarImage src={student.avatar_url ?? undefined} alt="" />
+                        <AvatarFallback className="text-xs">{initials(student.full_name)}</AvatarFallback>
+                      </Avatar>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium">
+                          {student.full_name?.trim() || student.username || "Unnamed student"}
+                        </p>
+                        {student.username ? (
+                          <p className="truncate text-xs text-muted-foreground">@{student.username}</p>
+                        ) : null}
+                      </div>
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-sm">{student.department ?? "Unspecified"}</TableCell>
+                  <TableCell className="text-sm tabular-nums">{student.batch ?? "—"}</TableCell>
+                  <TableCell className="text-right text-sm tabular-nums">
+                    {student.cgpa != null ? student.cgpa.toFixed(1) : "—"}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex max-w-40 flex-wrap gap-1">
+                      {student.top_skills.length === 0 ? (
+                        <span className="text-xs text-muted-foreground/60">—</span>
+                      ) : (
+                        student.top_skills.slice(0, 3).map((s) => (
+                          <Badge key={s} variant="outline" className="text-[10px]">
+                            {s}
+                          </Badge>
+                        ))
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={placementBadgeVariant(student.placement_status)}>
+                      {PLACEMENT_STATUS_LABELS[student.placement_status]}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={internshipBadgeVariant(student.internship_status)}>
+                      {INTERNSHIP_STATUS_LABELS[student.internship_status]}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onOpen(student.id);
+                      }}
+                    >
+                      View
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
       </CardContent>
     </Card>
   );
