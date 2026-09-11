@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { MobileNavOverlay } from "@/components/layout/mobile-nav-overlay";
 import { StudentHeader } from "@/components/student/student-header";
 import { StudentSidebar } from "@/components/student/student-sidebar";
 import { listMyJobTraining } from "@/lib/student/job-training";
@@ -36,21 +37,9 @@ export function StudentShell({ profile, children }: { profile: Profile; children
         <StudentSidebar hasJobTraining={hasJobTraining} />
       </aside>
 
-      {mobileOpen ? (
-        <div className="fixed inset-0 z-40 lg:hidden">
-          <div
-            className="absolute inset-0 bg-black/30"
-            onClick={() => setMobileOpen(false)}
-            aria-hidden="true"
-          />
-          <aside className="absolute inset-y-0 left-0 w-64 bg-card shadow-lg">
-            <StudentSidebar
-              hasJobTraining={hasJobTraining}
-              onNavigate={() => setMobileOpen(false)}
-            />
-          </aside>
-        </div>
-      ) : null}
+      <MobileNavOverlay open={mobileOpen} onClose={() => setMobileOpen(false)}>
+        <StudentSidebar hasJobTraining={hasJobTraining} onNavigate={() => setMobileOpen(false)} />
+      </MobileNavOverlay>
 
       <div className="flex min-w-0 flex-1 flex-col">
         <StudentHeader profile={profile} onMenuClick={() => setMobileOpen(true)} />

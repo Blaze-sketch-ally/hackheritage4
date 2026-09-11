@@ -29,6 +29,7 @@ export interface Assessment {
   difficulty: Difficulty;
   duration_minutes: number | null;
   question_count: number | null;
+  passing_percentage: string;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -91,7 +92,15 @@ export interface AssessmentAnswer {
 /** Mirrors `SubmitAttemptResponse` -- despite the name, this is the
  * response shape of `POST /attempts/{id}/score`, not `/submit` (`/submit`
  * itself returns a plain AssessmentAttempt). Score fields are required
- * here, matching the one moment they're guaranteed non-null. */
+ * here, matching the one moment they're guaranteed non-null.
+ *
+ * passed/skill_verified are both server-computed
+ * (086_assessment_verification.sql) -- never recompute either client-side.
+ * Both are null while evaluation_status is PENDING/PARTIAL/
+ * NEEDS_RECONCILIATION (a mixed/AI-evaluated attempt still awaiting/
+ * reconciling human evaluation): the outcome genuinely isn't known yet.
+ * The UI must render a distinct "pending evaluation" state for null,
+ * never treat it as false. */
 export interface ScoredAttempt {
   id: string;
   student_id: string;
@@ -102,6 +111,8 @@ export interface ScoredAttempt {
   score: string;
   total_marks: string;
   percentage: string;
+  passed: boolean | null;
+  skill_verified: boolean | null;
 }
 
 /** Mirrors `AssessmentAnswerKeyResponse`. Only ever appears inside an
@@ -126,8 +137,36 @@ export interface AssessmentResultQuestion {
 }
 
 /** Mirrors `AssessmentResultResponse`. POST-COMPLETION ONLY -- the
- * backend itself never constructs this for a non-COMPLETED attempt. */
+ * backend itself never constructs this for a non-COMPLETED attempt.
+ * Same server-computed passed/skill_verified meaning as ScoredAttempt --
+ * see that type's own docstring for the null-while-pending contract. */
 export interface AssessmentResult {
   attempt: AssessmentAttempt;
   questions: AssessmentResultQuestion[];
+  passed: boolean | null;
+  skill_verified: boolean | null;
+}
+
+/** Mirrors `AttemptHistoryItemResponse`. assessment/passed/skill_verified
+ * are all null only when that assessment has since been deactivated (no
+ * passing_percentage/skill_id to compare against) -- the attempt itself
+ * is always real historical data regardless. passed/skill_verified are
+ * also null while evaluation is still PENDING/PARTIAL/
+ * NEEDS_RECONCILIATION, same contract as ScoredAttempt. */
+export interface AttemptHistoryItem {
+  id: string;
+  status: AttemptStatus;
+  started_at: string;
+  submitted_at: string | null;
+  score: string | null;
+  total_marks: string | null;
+  percentage: string | null;
+  passed: boolean | null;
+  skill_verified: boolean | null;
+  assessment: Assessment | null;
+}
+
+/** Mirrors `AttemptHistoryResponse` -- `GET /api/v1/attempts`. */
+export interface AttemptHistoryResponse {
+  attempts: AttemptHistoryItem[];
 }

@@ -6,6 +6,7 @@ import type {
   AssessmentQuestion,
   AssessmentResult,
   AssessmentResultQuestion,
+  AttemptHistoryResponse,
   ScoredAttempt,
 } from "@/types/assessment";
 
@@ -98,6 +99,13 @@ export function scoreAttempt(attemptId: string): Promise<ScoredAttempt> {
  * exist or isn't the caller's own. */
 export function getAttemptResult(attemptId: string): Promise<AssessmentResult> {
   return api.get(`/api/v1/attempts/${attemptId}/result`);
+}
+
+/** Every attempt the caller has ever made, most recent first
+ * (086_assessment_verification.sql) -- the read behind the assessment
+ * history / dashboard summary. */
+export function listAttemptHistory(): Promise<AttemptHistoryResponse> {
+  return api.get("/api/v1/attempts");
 }
 
 /** True when a result question's student_answer represents "never

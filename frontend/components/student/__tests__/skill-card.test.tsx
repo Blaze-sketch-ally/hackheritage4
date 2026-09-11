@@ -27,6 +27,7 @@ function assessment(overrides: Partial<Assessment> = {}): Assessment {
     difficulty: "Advanced",
     duration_minutes: 20,
     question_count: 15,
+    passing_percentage: "70.00",
     is_active: true,
     created_at: "2026-01-01T00:00:00Z",
     updated_at: "2026-01-01T00:00:00Z",
