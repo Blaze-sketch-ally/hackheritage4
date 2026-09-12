@@ -268,10 +268,10 @@ function EligibleStudentsPanel({ driveId }: { driveId: string }) {
   useEffect(() => {
     let cancelled = false;
     getPlacementDriveStudents(driveId)
-      ?.then(({ students }) => {
+      .then(({ students }) => {
         if (!cancelled) setState({ status: "ready", students });
       })
-      ?.catch((err) => {
+      .catch((err) => {
         if (cancelled) return;
         setState({
           status: "error",
