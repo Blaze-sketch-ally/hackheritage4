@@ -144,10 +144,10 @@ export function WorkspaceStipendPanel({
   useEffect(() => {
     let cancelled = false;
     getWorkspaceStipend(workspaceId)
-      ?.then((summary) => {
+      .then((summary) => {
         if (!cancelled) setState({ status: "ready", stipend: summary.stipend });
       })
-      ?.catch((err: unknown) => {
+      .catch((err: unknown) => {
         if (cancelled) return;
         setState({
           status: "error",

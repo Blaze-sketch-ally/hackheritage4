@@ -40,10 +40,10 @@ export function WorkspaceCompletionPanel({
   useEffect(() => {
     let cancelled = false;
     getWorkspaceCompletion(workspaceId)
-      ?.then((summary) => {
+      .then((summary) => {
         if (!cancelled) setState({ status: "ready", summary });
       })
-      ?.catch((err: unknown) => {
+      .catch((err: unknown) => {
         if (cancelled) return;
         setState({
           status: "error",

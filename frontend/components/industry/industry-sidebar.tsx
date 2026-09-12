@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { SkillBridgeBrand } from "@/components/branding/skillbridge-brand";
 import {
+  BadgeCheck,
   BarChart3,
   Briefcase,
   CalendarCheck,
@@ -32,8 +33,8 @@ interface NavGroup {
 }
 
 // Every href below points at a route that already exists in app/industry/
-// (some are scaffold placeholder pages, linked anyway — matching the
-// convention already established in StudentSidebar/FacultySidebar).
+// and is fully built -- matching the convention already established in
+// StudentSidebar/FacultySidebar.
 const NAV_GROUPS: NavGroup[] = [
   { items: [{ label: "Dashboard", href: "/industry/dashboard", icon: LayoutDashboard }] },
   {
@@ -43,17 +44,18 @@ const NAV_GROUPS: NavGroup[] = [
       { label: "Jobs", href: "/industry/jobs", icon: Briefcase },
       { label: "Applicants", href: "/industry/applicants", icon: Users },
       { label: "Shortlisted", href: "/industry/shortlisted", icon: Trophy },
+      { label: "Selected", href: "/industry/selected", icon: BadgeCheck },
       { label: "Interviews", href: "/industry/interviews", icon: CalendarCheck },
     ],
   },
   {
     label: "Engagement",
     items: [
-      { label: "Projects", href: "/industry/projects", icon: FolderKanban, badge: "Soon" },
-      { label: "Mentorship", href: "/industry/mentorship", icon: GraduationCap, badge: "Soon" },
-      { label: "Training", href: "/industry/training", icon: GraduationCap, badge: "Soon" },
-      { label: "Workshops", href: "/industry/workshops", icon: CalendarCheck, badge: "Soon" },
-      { label: "Collaborations", href: "/industry/collaborations", icon: Handshake, badge: "Soon" },
+      { label: "Projects", href: "/industry/projects", icon: FolderKanban },
+      { label: "Mentorship", href: "/industry/mentorship", icon: GraduationCap },
+      { label: "Training", href: "/industry/training", icon: GraduationCap },
+      { label: "Workshops", href: "/industry/workshops", icon: CalendarCheck },
+      { label: "Collaborations", href: "/industry/collaborations", icon: Handshake },
       { label: "Faculty Opportunities", href: "/industry/faculty-opportunities", icon: GraduationCap },
     ],
   },
@@ -103,6 +105,7 @@ export function IndustrySidebar({ onNavigate }: { onNavigate?: () => void }) {
                   key={item.href}
                   href={item.href!}
                   onClick={onNavigate}
+                  aria-current={active ? "page" : undefined}
                   className={cn(
                     "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium transition-colors",
                     active

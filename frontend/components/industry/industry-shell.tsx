@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { AppHeader } from "@/components/layout/app-header";
+import { MobileNavOverlay } from "@/components/layout/mobile-nav-overlay";
 import { IndustrySidebar } from "@/components/industry/industry-sidebar";
 import type { Profile } from "@/types/user";
 
@@ -14,18 +15,9 @@ export function IndustryShell({ profile, children }: { profile: Profile; childre
         <IndustrySidebar />
       </aside>
 
-      {mobileOpen ? (
-        <div className="fixed inset-0 z-40 lg:hidden">
-          <div
-            className="absolute inset-0 bg-black/30"
-            onClick={() => setMobileOpen(false)}
-            aria-hidden="true"
-          />
-          <aside className="absolute inset-y-0 left-0 w-64 bg-card shadow-lg">
-            <IndustrySidebar onNavigate={() => setMobileOpen(false)} />
-          </aside>
-        </div>
-      ) : null}
+      <MobileNavOverlay open={mobileOpen} onClose={() => setMobileOpen(false)}>
+        <IndustrySidebar onNavigate={() => setMobileOpen(false)} />
+      </MobileNavOverlay>
 
       <div className="flex min-w-0 flex-1 flex-col">
         <AppHeader

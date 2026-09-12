@@ -1,22 +1,10 @@
-import { FeatureRoadmapStub } from "@/components/common/feature-roadmap-stub";
+import { AnalyticsView } from "@/components/industry/analytics/analytics-view";
 
+// The industry layout (app/industry/layout.tsx) already guarantees an
+// authenticated INDUSTRY user reaches this point. Every metric is
+// computed server-side from this account's own records via the single
+// GET /api/v1/analytics/industry aggregation endpoint -- no analytics
+// table, no fabricated history.
 export default function IndustryAnalyticsPage() {
-  return (
-    <FeatureRoadmapStub
-      title="Recruitment & Talent Analytics"
-      role="Industry"
-      badge="Analytics · Q4 2026"
-      estimatedRelease="Q4 2026"
-      iconName="bar-chart"
-      description="Deep analytical insights into your hiring funnel velocity, applicant qualification rates, assessment scores, and university talent distribution."
-      highlights={[
-        "Full-funnel conversion metrics from application to hire",
-        "Skill proficiency distribution across applicant cohorts",
-        "Institution-wise candidate performance and yield comparison",
-        "Exportable compliance & affirmative hiring reports",
-      ]}
-      backHref="/industry/dashboard"
-      backLabel="Back to Dashboard"
-    />
-  );
+  return <AnalyticsView />;
 }
