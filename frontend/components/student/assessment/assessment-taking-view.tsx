@@ -291,6 +291,9 @@ export function AssessmentTakingView({ assessmentId }: { assessmentId: string })
           {assessment?.question_count != null && (
             <Badge variant="outline">{assessment.question_count} questions</Badge>
           )}
+          {assessment?.passing_percentage != null && (
+            <Badge variant="outline">Passing score: {assessment.passing_percentage}%</Badge>
+          )}
         </CardContent>
         <CardFooter className="flex-col items-stretch gap-2">
           {startError && (
@@ -412,19 +415,56 @@ export function AssessmentTakingView({ assessmentId }: { assessmentId: string })
 }
 
 function AssessmentResultView({ result }: { result: AssessmentResult }) {
-  const { attempt, questions } = result;
+  const { attempt, passed, skill_verified, questions } = result;
   return (
     <div className="flex flex-col gap-5">
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Assessment complete</CardTitle>
+          <div className="flex items-center justify-between gap-2">
+            <CardTitle className="text-lg">Assessment complete</CardTitle>
+            {passed === null ? (
+              <Badge variant="outline">Evaluation pending</Badge>
+            ) : (
+              <Badge
+                variant="outline"
+                className={
+                  passed
+                    ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                    : "border-destructive/30 bg-destructive/10 text-destructive"
+                }
+              >
+                {passed ? "PASSED" : "NOT PASSED"}
+              </Badge>
+            )}
+          </div>
           <CardDescription>
             Submitted {attempt.submitted_at ? new Date(attempt.submitted_at).toLocaleString() : "—"}
           </CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-wrap gap-4">
-          <Stat label="Score" value={`${attempt.score ?? "—"} / ${attempt.total_marks ?? "—"}`} />
-          <Stat label="Percentage" value={attempt.percentage != null ? `${attempt.percentage}%` : "—"} />
+        <CardContent className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-center gap-4">
+            <Stat label="Score" value={`${attempt.score ?? "—"} / ${attempt.total_marks ?? "—"}`} />
+            <Stat label="Percentage" value={attempt.percentage != null ? `${attempt.percentage}%` : "—"} />
+            {passed !== null && (
+              <div className="flex items-center gap-1.5 text-sm">
+                {skill_verified ? (
+                  <>
+                    <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
+                    <span className="text-emerald-600 dark:text-emerald-400">Skill Verified</span>
+                  </>
+                ) : (
+                  <span className="text-muted-foreground">Skill remains unverified</span>
+                )}
+              </div>
+            )}
+          </div>
+          {passed && !skill_verified && (
+            <p className="text-xs text-muted-foreground">
+              Passing an assessment verifies a skill only when it is already in your profile at this
+              exact level. Add it under Skills &amp; Assessment (or set the matching level), then
+              retake to verify — an assessment never creates a skill on its own.
+            </p>
+          )}
         </CardContent>
         <CardFooter>
           <Button
