@@ -4,7 +4,7 @@
  *
  * Job Training is the post-selection experience for a student SELECTED for
  * a JOB whose industry has authored a training program
- * (database/migrations/052_job_training.sql). It is COMPLETELY separate
+ * (database/migrations/081_job_training.sql). It is COMPLETELY separate
  * from:
  *   - the universal Learning & Courses catalog (/student/learning), and
  *   - the Internship Workspace (/student/my-internships), which is what a
@@ -108,4 +108,37 @@ export interface StudentJobTrainingDetail {
   program: StudentJobProgramMeta;
   modules: StudentJobProgramModule[];
   skills: StudentJobProgramSkill[];
+}
+
+// ============================================================
+// industry self-heal endpoint response
+// (POST /api/v1/applications/{id}/provision-job-training)
+// ============================================================
+
+/** The raw enrollment row, as returned to the OWNING INDUSTRY from the
+ * self-heal endpoint. Never returned to a student. */
+export interface JobTrainingEnrollmentRef {
+  id: string;
+  application_id: string;
+  job_id: string;
+  student_id: string;
+  industry_id: string;
+  enrollment_status: string;
+  created_at: string | null;
+  completed_at: string | null;
+  revoked_at: string | null;
+}
+
+export type JobTrainingProvisionOutcome =
+  | "CREATED"
+  | "ALREADY_EXISTS"
+  | "SKIPPED_NO_PROGRAM"
+  | "SKIPPED_NOT_SELECTED"
+  | "SKIPPED_NOT_JOB"
+  | "REVOKED_BLOCKED";
+
+export interface ProvisionJobTrainingResponse {
+  outcome: JobTrainingProvisionOutcome;
+  detail: string;
+  enrollment: JobTrainingEnrollmentRef | null;
 }

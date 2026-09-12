@@ -6,6 +6,8 @@ const mocks = vi.hoisted(() => ({
   getApplication: vi.fn(),
   updateApplicationStatus: vi.fn(),
   getApplicationMatch: vi.fn(),
+  provisionJobTraining: vi.fn(),
+  getJobTrainingProgram: vi.fn(),
   push: vi.fn(),
 }));
 
@@ -13,6 +15,10 @@ vi.mock("@/lib/industry/applications", () => ({
   getApplication: mocks.getApplication,
   updateApplicationStatus: mocks.updateApplicationStatus,
   getApplicationMatch: mocks.getApplicationMatch,
+  provisionJobTraining: mocks.provisionJobTraining,
+}));
+vi.mock("@/lib/industry/job-training", () => ({
+  getJobTrainingProgram: mocks.getJobTrainingProgram,
 }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
 
@@ -153,6 +159,9 @@ describe("ApplicationDetailView", () => {
         },
       }),
     );
+    // The Training panel does its own read-only program-status check —
+    // no program exists yet, matching the SKIPPED_NO_PROGRAM outcome above.
+    mocks.getJobTrainingProgram.mockRejectedValueOnce(new ApiError(404, "not found"));
 
     render(<ApplicationDetailView applicationId="app-1" />);
     await screen.findByRole("heading", { name: /Applicant 11112222/ });
@@ -235,5 +244,127 @@ describe("ApplicationDetailView", () => {
     await userEvent.click(screen.getByRole("button", { name: /calculate skill match/i }));
     await waitFor(() => expect(mocks.getApplicationMatch).toHaveBeenCalledWith("app-1"));
     expect(await screen.findByText("66")).toBeInTheDocument();
+  });
+
+  // ============================================================
+  // Job Training "Assign Training" panel (JOB + SELECTED only)
+  // ============================================================
+
+  it("shows the Assign Training panel for a SELECTED JOB application with a published program", async () => {
+    mocks.getApplication.mockResolvedValueOnce(
+      application({
+        status: "SELECTED",
+        opportunity_type: "JOB",
+        internship_id: null,
+        job_id: "job-1",
+        opportunity: { id: "job-1", title: "Site Reliability Engineer", status: "PUBLISHED" },
+      }),
+    );
+    mocks.getJobTrainingProgram.mockResolvedValueOnce({
+      job: { id: "job-1", title: "Site Reliability Engineer", status: "PUBLISHED" },
+      program: {
+        id: "prog-1",
+        job_id: "job-1",
+        title: "SRE Onboarding",
+        summary: null,
+        estimated_weeks: 8,
+        status: "PUBLISHED",
+        published_at: "2026-11-03T09:00:00Z",
+        created_at: null,
+        updated_at: null,
+      },
+      modules: [],
+      skills: [],
+      available_skills: [],
+    });
+
+    render(<ApplicationDetailView applicationId="app-1" />);
+    await screen.findByRole("heading", { name: /Applicant 11112222/ });
+
+    expect(await screen.findByText("SRE Onboarding")).toBeInTheDocument();
+    expect(screen.getByText("Status: Not assigned")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Assign Training" })).toBeInTheDocument();
+  });
+
+  it("does not show the Assign Training panel for a non-SELECTED JOB application", async () => {
+    mocks.getApplication.mockResolvedValueOnce(
+      application({
+        status: "SHORTLISTED",
+        opportunity_type: "JOB",
+        internship_id: null,
+        job_id: "job-1",
+        opportunity: { id: "job-1", title: "Site Reliability Engineer", status: "PUBLISHED" },
+      }),
+    );
+
+    render(<ApplicationDetailView applicationId="app-1" />);
+    await screen.findByRole("heading", { name: /Applicant 11112222/ });
+
+    expect(screen.queryByText("Status: Not assigned")).not.toBeInTheDocument();
+    expect(mocks.getJobTrainingProgram).not.toHaveBeenCalled();
+  });
+
+  it("does not show the Assign Training panel for a SELECTED internship application", async () => {
+    mocks.getApplication.mockResolvedValueOnce(application({ status: "SELECTED" }));
+
+    render(<ApplicationDetailView applicationId="app-1" />);
+    await screen.findByRole("heading", { name: /Applicant 11112222/ });
+
+    expect(screen.queryByText("Status: Not assigned")).not.toBeInTheDocument();
+    expect(mocks.getJobTrainingProgram).not.toHaveBeenCalled();
+  });
+
+  it("shows Training Assigned immediately after a SELECTED transition that auto-provisioned it", async () => {
+    mocks.getApplication.mockResolvedValueOnce(
+      application({
+        status: "INTERVIEW_SCHEDULED",
+        opportunity_type: "JOB",
+        internship_id: null,
+        job_id: "job-1",
+      }),
+    );
+    mocks.updateApplicationStatus.mockResolvedValueOnce(
+      application({
+        status: "SELECTED",
+        opportunity_type: "JOB",
+        internship_id: null,
+        job_id: "job-1",
+        provisioning: {
+          kind: "JOB_TRAINING",
+          outcome: "CREATED",
+          provisioned: true,
+          message: "Selected — Job Training enrollment created.",
+          enrollment_id: "enr-1",
+        },
+      }),
+    );
+    mocks.getJobTrainingProgram.mockResolvedValueOnce({
+      job: { id: "job-1", title: "Site Reliability Engineer", status: "PUBLISHED" },
+      program: {
+        id: "prog-1",
+        job_id: "job-1",
+        title: "SRE Onboarding",
+        summary: null,
+        estimated_weeks: 8,
+        status: "PUBLISHED",
+        published_at: "2026-11-03T09:00:00Z",
+        created_at: null,
+        updated_at: null,
+      },
+      modules: [],
+      skills: [],
+      available_skills: [],
+    });
+
+    render(<ApplicationDetailView applicationId="app-1" />);
+    await screen.findByRole("heading", { name: /Applicant 11112222/ });
+
+    await userEvent.click(screen.getByRole("button", { name: "Mark selected" }));
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Mark selected" }));
+
+    expect(await screen.findByText("Training Assigned")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Assign Training" })).not.toBeInTheDocument();
+    expect(mocks.provisionJobTraining).not.toHaveBeenCalled();
   });
 });

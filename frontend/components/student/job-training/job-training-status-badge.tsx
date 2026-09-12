@@ -6,7 +6,7 @@ import {
 
 type Style = { className?: string; variant?: "outline" | "destructive" | "secondary" };
 
-// database/migrations/052_job_training.sql -- job_training_enrollments.enrollment_status.
+// database/migrations/081_job_training.sql -- job_training_enrollments.enrollment_status.
 // The student never sets this. REVOKED is never rendered (the list omits
 // it, the detail 404s) but is covered for completeness.
 const STATUS_STYLE: Record<JobTrainingEnrollmentStatus, Style> = {

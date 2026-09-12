@@ -287,6 +287,7 @@ def _provision_internship_workspace(client: Client, application_id: str) -> dict
                 "retry from this application."
             ),
             "internship_id": None,
+            "enrollment_id": None,
         }
     provisioned = result.outcome in ("CREATED", "ALREADY_EXISTS")
     workspace = result.workspace or {}
@@ -296,6 +297,7 @@ def _provision_internship_workspace(client: Client, application_id: str) -> dict
         "provisioned": provisioned,
         "message": _INTERNSHIP_WORKSPACE_MESSAGES.get(result.outcome, "Selected."),
         "internship_id": workspace.get("internship_id") if provisioned else None,
+        "enrollment_id": None,
     }
 
 
@@ -313,11 +315,15 @@ def _provision_job_training(client: Client, application_id: str) -> dict:
                 "retry from this application."
             ),
             "internship_id": None,
+            "enrollment_id": None,
         }
+    provisioned = result.outcome in ("CREATED", "ALREADY_EXISTS")
+    enrollment = result.enrollment or {}
     return {
         "kind": kind,
         "outcome": result.outcome,
-        "provisioned": result.outcome in ("CREATED", "ALREADY_EXISTS"),
+        "provisioned": provisioned,
         "message": _JOB_TRAINING_MESSAGES.get(result.outcome, "Selected."),
         "internship_id": None,
+        "enrollment_id": enrollment.get("id") if provisioned else None,
     }
