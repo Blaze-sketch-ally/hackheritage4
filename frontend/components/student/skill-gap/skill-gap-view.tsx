@@ -12,6 +12,7 @@ import type { JobRole, SkillGapAnalysis } from "@/types/skill-gap";
 import { TargetRoleSelector } from "@/components/student/skill-gap/target-role-selector";
 import { JobRoleAnalysisView } from "@/components/student/skill-gap/job-role-analysis-view";
 import { PersonalAnalysisView } from "@/components/student/skill-gap/personal-analysis-view";
+import { YouTubeLearningPanel } from "@/components/student/learning/youtube-learning-panel";
 
 type LoadState =
   | { status: "loading" }
@@ -151,6 +152,8 @@ export function SkillGapView() {
           ) : (
             <PersonalAnalysisView analysis={state.analysis} />
           )}
+
+          <YouTubeLearningPanel />
         </>
       ) : null}
     </div>

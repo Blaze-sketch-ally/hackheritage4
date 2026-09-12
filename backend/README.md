@@ -16,7 +16,8 @@ mounted.
 - Pydantic / pydantic-settings
 - Supabase (PostgreSQL, Auth, Storage) as the data layer, via the `supabase`
   Python client — server-side only, using the service-role key
-- LLM API access, isolated behind `app/ai/` (not implemented yet)
+- LLM API access via Groq, isolated behind `app/ai/` (Phase 1: client +
+  config foundation and `GET /api/v1/ai/health` only; no agent endpoints yet)
 
 ## Requirements
 
@@ -64,7 +65,7 @@ See `.env.example`. Names only — never commit real values.
 |---|---|
 | `SUPABASE_URL` | Supabase project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server-side Supabase key. **Never** expose this to the frontend. |
-| `AI_API_KEY` | LLM provider key, used once `app/ai/` is implemented |
+| `GROQ_API_KEY` | Groq API key, used by `app/ai/` (Phase 1: config/client foundation; see `app/ai/config.py` for optional `GROQ_MODEL`/`GROQ_TIMEOUT_SECONDS`/`GROQ_MAX_RETRIES` overrides) |
 | `FRONTEND_URL` | Used for CORS (`app/main.py` allows this origin); defaults to `http://localhost:3000` |
 
 ## Structure
@@ -107,3 +108,34 @@ every push/PR.
 - Authentication and business-logic endpoints are not implemented yet on
   this backend — the equivalent auth flows currently run directly against
   Supabase from the frontend (see `frontend/lib/auth.ts`).
+
+
+### Phase 4: AI course recommendations
+
+`POST /api/v1/ai/course-recommendations` requires a STUDENT bearer token and
+accepts no student ID. It reads the existing canonical skill-gap output, selects
+up to five skills, and reuses `learning_recommendation_service` to retrieve mapped
+catalog resources. No database mutation or new migration is involved.
+
+Candidates retain catalog metadata, with unknown price/rating/certificate fields
+left null. Groq receives at most twelve candidates with C refs and skill G refs,
+without URLs, identity, applications, or learning-progress data. Its flat output
+selects ranks, learning order, and one of three rationale codes: SKILL_MATCH,
+LEVEL_MATCH, FOUNDATION. Grounding checks each code's source-data prerequisites
+and renders the explanation server-side. No generated prose or metadata is
+returned, preventing invented certificate/completion/verification claims.
+
+External discovery is **not configured or connected**. The
+`CourseDiscoveryProvider` protocol and normalization boundary support future
+reviewed adapters; `get_external_provider()` currently returns an unavailable
+provider. Adding an API key alone does not activate discovery: a real adapter,
+source contract, and configuration must first be implemented. No scraping or fake
+provider URLs are used. Catalog resources can already link to external websites;
+these remain INTERNAL candidates because their metadata comes from the catalog.
+
+Response metadata distinguishes CONFIGURATION_REQUIRED / AVAILABLE / FAILED for
+external discovery, source failures for internal discovery, and AI / DETERMINISTIC /
+NO_GAPS / NO_COURSES ranking states. Groq failure or ungroundable output preserves
+source-backed recommendations in deterministic source order. Empty skills/courses
+skip Groq. URLs are checked for HTTP(S) syntax, not fetched or independently audited
+for availability. Rank is advisory and distinct from canonical skill priority.

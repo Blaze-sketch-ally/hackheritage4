@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api import (
+    ai,
     analytics,
     applications,
     assessments,
@@ -71,6 +72,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
         content={"detail": "Something went wrong. Please try again."},
     )
 
+app.include_router(ai.router, prefix="/api/v1")
 app.include_router(analytics.router, prefix="/api/v1")
 app.include_router(applications.router, prefix="/api/v1")
 app.include_router(assessments.router, prefix="/api/v1")

@@ -7,7 +7,6 @@ class Settings(BaseSettings):
     supabase_url: str = ""
     supabase_anon_key: str = ""
     supabase_service_role_key: str = ""
-    ai_api_key: str = ""
     frontend_url: str = "http://localhost:3000"
     # Extra origins CORS should also allow, comma-separated (e.g. a preview
     # deployment domain alongside the primary production frontend_url).

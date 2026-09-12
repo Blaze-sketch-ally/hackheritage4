@@ -25,14 +25,16 @@ are still placeholder stubs pending a provisioning path. See
   Recharts — deployed on Vercel
 - **Backend**: Python, FastAPI, Pydantic — deployed on Render/Railway
 - **Database/Auth/Storage**: Supabase (PostgreSQL)
-- **AI**: LLM API accessed through FastAPI, isolated in `backend/app/ai/`
+- **AI**: Groq (LLM API) accessed through FastAPI, isolated in
+  `backend/app/ai/` (Phase 1: client/config foundation + `GET
+  /api/v1/ai/health` only; no agents yet)
 
 ## Architecture
 
 ```
 Browser -> Next.js Frontend -> REST/JSON -> FastAPI Backend -> Supabase PostgreSQL
                                                              -> Supabase Storage
-                                                  FastAPI -> LLM / AI API
+                                                  FastAPI -> Groq (LLM API)
 ```
 
 Next.js owns UI/pages/components/client interactions. FastAPI owns business
@@ -118,7 +120,7 @@ so never put a secret here):
 | `SUPABASE_URL` | Supabase project URL |
 | `SUPABASE_ANON_KEY` | Anon key, used for RLS-scoped per-user requests |
 | `SUPABASE_SERVICE_ROLE_KEY` | Service-role key, bypasses RLS — used in 3 narrow spots only. **Never** expose this to the frontend. |
-| `AI_API_KEY` | LLM provider key |
+| `GROQ_API_KEY` | Groq API key (LLM provider), used by `backend/app/ai/` |
 | `FRONTEND_URL` | The deployed frontend origin, used for CORS |
 | `ADDITIONAL_CORS_ORIGINS` | Optional, comma-separated extra origins to allow (e.g. a preview deployment) |
 
@@ -157,7 +159,7 @@ executed against a live production environment.
 - Start command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
   (also available as `backend/Procfile` for platforms that read it).
 - Set the backend environment variables above (`SUPABASE_URL`,
-  `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `AI_API_KEY`,
+  `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `GROQ_API_KEY`,
   `FRONTEND_URL`) with `FRONTEND_URL` set to the deployed Vercel domain
   (not `localhost`).
 - Confirm the platform's health check is `GET /health`.

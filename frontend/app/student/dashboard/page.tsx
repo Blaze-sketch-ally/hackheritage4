@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { CareerChatWidget } from "@/components/ai/career-chat-widget";
 import { DashboardAiSuggestions } from "@/components/student/dashboard/dashboard-ai-suggestions";
 import { DashboardAnnouncements } from "@/components/student/dashboard/dashboard-announcements";
 import { DashboardApplications } from "@/components/student/dashboard/dashboard-applications";
@@ -71,6 +72,8 @@ export default async function StudentDashboardPage() {
           <DashboardAiSuggestions />
         </div>
       </div>
+
+      <CareerChatWidget />
     </div>
   );
 }

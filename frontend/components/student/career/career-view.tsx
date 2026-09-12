@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ErrorState } from "@/components/common/error-state";
+import { CareerGuidancePanel } from "@/components/student/career/career-guidance-panel";
 import { ReadinessSummary } from "@/components/student/skill-gap/readiness-summary";
 import { SkillGapList } from "@/components/student/skill-gap/skill-gap-list";
 import { TargetRoleSelector } from "@/components/student/skill-gap/target-role-selector";
@@ -106,6 +107,15 @@ export function CareerView({ careerGoals }: { careerGoals: string | null }) {
       </div>
 
       <CareerDirectionCard careerGoals={careerGoals} />
+
+      <CareerGuidancePanel />
+
+      <div>
+        <h2 className="text-base font-semibold">Skill Gap Details</h2>
+        <p className="text-sm text-muted-foreground">
+          The full canonical breakdown behind your AI guidance above.
+        </p>
+      </div>
 
       {state.status === "loading" && <CareerSkeleton />}
 

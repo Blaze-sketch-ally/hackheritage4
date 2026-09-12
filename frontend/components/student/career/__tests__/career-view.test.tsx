@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
@@ -7,9 +7,18 @@ const mocks = vi.hoisted(() => ({
   listJobRoles: vi.fn(),
   setTargetJobRole: vi.fn(),
   clearTargetJobRole: vi.fn(),
+  getCareerGuidance: vi.fn(),
 }));
 
 vi.mock("@/lib/student/skill-gap", () => mocks);
+// The AI Career Guidance panel fetches independently of the deterministic
+// Skill Gap workspace this file otherwise tests -- give it a harmless
+// "nothing yet" response by default so it never becomes a second source
+// of "43%"-style text and collides with the canonical assertions below.
+vi.mock("@/lib/student/career-guidance", () => ({
+  getCareerGuidance: mocks.getCareerGuidance,
+  describeNextAction: (action: { entity_name: string }) => action.entity_name,
+}));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 // TargetRoleSelector renders a base-ui Select whose popup isn't testable
 // under jsdom in this project (see skill-gap-view.test.tsx); stub it to a
@@ -120,7 +129,30 @@ const personalAnalysis: SkillGapPersonalAnalysis = {
   prerequisite_gaps: [],
 };
 
+const emptyGuidance = {
+  career_summary: { mode: "PERSONAL", target_role: null, readiness_score: null, headline: null },
+  priority_skills: [],
+  learning_recommendations: [],
+  youtube_videos: [],
+  opportunity_recommendations: [],
+  assessment_recommendations: [],
+  next_actions: [],
+  meta: {
+    provider: "groq",
+    model: "test",
+    ai_available: false,
+    agents_used: {
+      skill_gap_agent: { available: true, fallback_used: false, detail: null },
+      course_agent: { available: true, fallback_used: false, detail: null },
+      opportunity_agent: { available: true, fallback_used: false, detail: null },
+      career_advisor: { available: true, fallback_used: true, detail: "No grounded data to synthesize yet." },
+    },
+  },
+  disclaimer: "This career plan combines your canonical skill, course, and opportunity data.",
+};
+
 describe("CareerView", () => {
+  beforeEach(() => mocks.getCareerGuidance.mockResolvedValue(emptyGuidance));
   afterEach(() => vi.resetAllMocks());
 
   it("shows a loading state, then the target role and canonical readiness", async () => {

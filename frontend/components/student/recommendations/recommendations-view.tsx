@@ -8,6 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { ErrorState } from "@/components/common/error-state";
 import { LearningRecommendationCard } from "@/components/student/recommendations/learning-recommendation-card";
 import { OpportunityRecommendationCard } from "@/components/student/recommendations/opportunity-recommendation-card";
+import { YouTubeLearningPanel } from "@/components/student/learning/youtube-learning-panel";
 import { ApiError } from "@/lib/api";
 import { getRecommendations } from "@/lib/student/recommendations";
 import type { StudentRecommendationsResponse } from "@/types/student-recommendation";
@@ -129,6 +130,8 @@ export function RecommendationsView() {
           </div>
         )}
       </section>
+
+      <YouTubeLearningPanel />
     </div>
   );
 }

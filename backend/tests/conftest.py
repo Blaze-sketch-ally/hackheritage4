@@ -56,6 +56,7 @@ def authenticated_as(role: str | None, user_id: str = "student-1"):
     # parenthesised `with` -- CPython caps statically nested blocks at 20,
     # and the flat `with (...)` form still counts each context as a block.
     route_modules = (
+        "ai",
         "analytics",
         "applications",
         "assessments",

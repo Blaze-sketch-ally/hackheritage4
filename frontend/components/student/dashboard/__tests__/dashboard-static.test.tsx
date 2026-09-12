@@ -12,7 +12,6 @@ vi.mock("@/lib/student/events", () => ({ listEvents: mocks.listEvents }));
 
 import { DashboardRecommendations } from "@/components/student/dashboard/dashboard-recommendations";
 import { DashboardAnnouncements } from "@/components/student/dashboard/dashboard-announcements";
-import { DashboardAiSuggestions } from "@/components/student/dashboard/dashboard-ai-suggestions";
 import { ApiError } from "@/lib/api";
 
 // Strings that appeared in the deleted S1 mock data — none may ever resurface.
@@ -123,11 +122,5 @@ describe("DashboardAnnouncements (real S4 events preview)", () => {
   });
 });
 
-describe("DashboardAiSuggestions", () => {
-  it("stays an honest coming-soon state pointing at the real Skill Gap analysis", () => {
-    const { container } = render(<DashboardAiSuggestions />);
-    expect(screen.getByText(/coming soon/i)).toBeInTheDocument();
-    expect(container.querySelector('a[href="/student/skill-gap"]')).not.toBeNull();
-    for (const s of FORMER_MOCK_CONTENT) expect(screen.queryByText(s)).not.toBeInTheDocument();
-  });
-});
+// DashboardAiSuggestions is now the real Phase 6 Career Readiness card --
+// see dashboard-ai-suggestions.test.tsx for its dedicated coverage.
