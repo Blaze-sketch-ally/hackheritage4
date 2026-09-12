@@ -2859,6 +2859,7 @@ def test_score_response_includes_passed_and_skill_verified():
     )
     with (
         authenticated_as("STUDENT"),
+        patch("app.api.attempts.get_supabase", return_value=MagicMock()),
         patch.object(
             assessment_service,
             "get_own_attempt",
