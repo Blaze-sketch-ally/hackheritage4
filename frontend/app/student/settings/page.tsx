@@ -1,22 +1,32 @@
-import { FeatureRoadmapStub } from "@/components/common/feature-roadmap-stub";
+import { redirect } from "next/navigation";
+import { SettingsView } from "@/components/student/settings/settings-view";
+import { createClient } from "@/lib/supabase/server";
+import { fetchProfile } from "@/lib/profile";
+import { fetchStudentProfile } from "@/lib/student/profile";
 
-export default function StudentSettingsPage() {
+export default async function StudentSettingsPage() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  // The student layout already guarantees an authenticated STUDENT reaches
+  // this point -- this is a defensive fallback, not a second role check.
+  if (!user) redirect("/login");
+
+  const [profile, studentProfile] = await Promise.all([
+    fetchProfile(supabase, user.id),
+    fetchStudentProfile(supabase, user.id),
+  ]);
+
+  if (!profile) redirect("/login");
+
   return (
-    <FeatureRoadmapStub
-      title="Student Account & Security Settings"
-      role="Student"
-      badge="Roadmap · Q4 2026"
-      estimatedRelease="Q4 2026"
-      iconName="settings"
-      description="Configure your portal experience, multi-factor authentication, email alert preferences, and privacy controls."
-      highlights={[
-        "Granular notification preferences for application updates and interview invites",
-        "Two-factor authentication (2FA) and active session management",
-        "Privacy controls for recruiter profile discovery and contact permissions",
-        "Data export (JSON / PDF) for verified skills and assessment transcripts",
-      ]}
-      backHref="/student/dashboard"
-      backLabel="Back to Dashboard"
+    <SettingsView
+      profile={profile}
+      studentProfile={studentProfile}
+      email={user.email ?? null}
+      emailVerified={Boolean(user.email_confirmed_at)}
     />
   );
 }
