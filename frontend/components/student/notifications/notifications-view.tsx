@@ -12,6 +12,8 @@ import {
   markAllNotificationsRead,
   markNotificationRead,
 } from "@/lib/student/notifications";
+import { listMyApplications } from "@/lib/student/opportunities";
+import { opportunityHref } from "@/types/student-notification";
 import type { StudentNotification } from "@/types/student-notification";
 
 type Filter = "all" | "unread";
@@ -27,6 +29,14 @@ export function NotificationsView() {
   const [reloadKey, setReloadKey] = useState(0);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
+  // "APPLICATION" notifications carry an applications.id, not an
+  // opportunity id -- resolved here (once per load, not per item) via the
+  // student's own listMyApplications(), the same endpoint the
+  // Applications page and opportunity detail page already use. A
+  // notification whose application no longer appears there (withdrawn
+  // apps still appear; a genuinely vanished one wouldn't) simply falls
+  // back to relatedHref()'s generic /student/applications link.
+  const [applicationHrefById, setApplicationHrefById] = useState<Map<string, string>>(new Map());
 
   useEffect(() => {
     let cancelled = false;
@@ -34,6 +44,22 @@ export function NotificationsView() {
       .then(({ notifications, unread_count }) => {
         if (!cancelled)
           setState({ status: "ready", notifications, unreadCount: unread_count });
+
+        const needsResolution = notifications.some((n) => n.related_entity_type === "APPLICATION");
+        if (!needsResolution) return;
+        listMyApplications()
+          .then(({ applications }) => {
+            if (cancelled) return;
+            const map = new Map<string, string>();
+            for (const app of applications) {
+              if (app.opportunity) map.set(app.id, opportunityHref(app.opportunity.source_type, app.opportunity.id));
+            }
+            setApplicationHrefById(map);
+          })
+          .catch(() => {
+            // Best-effort: leave the map empty -- affected notifications
+            // fall back to relatedHref()'s generic list link.
+          });
       })
       .catch((err) => {
         if (!cancelled) {
@@ -145,6 +171,7 @@ export function NotificationsView() {
               notification={notification}
               onMarkRead={handleMarkRead}
               busy={busyId === notification.id}
+              applicationHrefById={applicationHrefById}
             />
           ))}
         </div>

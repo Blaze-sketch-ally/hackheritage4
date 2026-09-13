@@ -8,6 +8,7 @@ import { DashboardInstitution } from "@/components/student/dashboard/dashboard-i
 import { DashboardJobTraining } from "@/components/student/dashboard/dashboard-job-training";
 import { DashboardKpis } from "@/components/student/dashboard/dashboard-kpis";
 import { DashboardLearning } from "@/components/student/dashboard/dashboard-learning";
+import { DashboardNextActions } from "@/components/student/dashboard/dashboard-next-actions";
 import { DashboardRecommendations } from "@/components/student/dashboard/dashboard-recommendations";
 import { ProfileCompletion } from "@/components/student/profile-completion";
 import { SkillOverview } from "@/components/student/skill-overview";
@@ -56,6 +57,8 @@ export default async function StudentDashboardPage() {
       </div>
 
       <DashboardKpis skills={skillsSummary} />
+
+      <DashboardNextActions />
 
       <div className="grid gap-6 xl:grid-cols-3">
         <div className="space-y-6 xl:col-span-2">

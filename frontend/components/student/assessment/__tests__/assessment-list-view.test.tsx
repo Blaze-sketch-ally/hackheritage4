@@ -2,12 +2,18 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-const { listAssessments, fetchStudentSkills } = vi.hoisted(() => ({
+const { listAssessments, fetchStudentSkills, getAttemptHistory } = vi.hoisted(() => ({
   listAssessments: vi.fn(),
   fetchStudentSkills: vi.fn(),
+  getAttemptHistory: vi.fn().mockResolvedValue([]),
 }));
 
-vi.mock("@/lib/student/assessment", () => ({ listAssessments }));
+vi.mock("@/lib/student/assessment", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/student/assessment")>(
+    "@/lib/student/assessment",
+  );
+  return { ...actual, listAssessments, getAttemptHistory };
+});
 vi.mock("@/lib/student/skills", () => ({ fetchStudentSkills }));
 vi.mock("@/lib/supabase/client", () => ({ createClient: () => ({}) }));
 
@@ -100,7 +106,7 @@ describe("AssessmentListView", () => {
       "Python Intermediate Assessment",
       "Python Advanced Assessment",
     ]);
-    expect(screen.getAllByRole("button", { name: "Start assessment" })).toHaveLength(3);
+    expect(screen.getAllByRole("button", { name: "Start Assessment" })).toHaveLength(3);
   });
 
   it("only renders sections for the student's selected skills", async () => {
@@ -189,7 +195,7 @@ describe("AssessmentListView", () => {
     renderView();
 
     const section = (await screen.findByRole("heading", { name: "Python" })).closest("section")!;
-    expect(within(section).getByRole("button", { name: "Start assessment" })).toHaveAttribute(
+    expect(within(section).getByRole("button", { name: "Start Assessment" })).toHaveAttribute(
       "href",
       "/student/assessment/a-42",
     );

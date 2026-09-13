@@ -16,6 +16,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { SkillMatchCard } from "@/components/student/opportunities/skill-match-card";
 import { ApplicationStatusBadge } from "@/components/student/opportunities/application-status-badge";
+import { NextStepCell } from "@/components/student/opportunities/my-applications-view";
 import { ApiError } from "@/lib/api";
 import {
   applyToOpportunity,
@@ -23,7 +24,11 @@ import {
   getOpportunityMatch,
   listMyApplications,
 } from "@/lib/student/opportunities";
+import { listMyInternshipWorkspaces } from "@/lib/student/internship-workspace";
+import { listMyJobTraining } from "@/lib/student/job-training";
 import { EMPLOYMENT_TYPE_LABELS, type EmploymentType } from "@/types/job";
+import type { InternshipWorkspaceSummary } from "@/types/internship-workspace";
+import type { JobTrainingEnrollmentSummary } from "@/types/job-training";
 import type {
   OpportunityMatch,
   StudentApplication,
@@ -119,6 +124,8 @@ type LoadState =
       opportunity: StudentOpportunityDetail;
       match: OpportunityMatch | null;
       existingApplication: StudentApplication | null;
+      workspace: InternshipWorkspaceSummary | null;
+      jobTraining: JobTrainingEnrollmentSummary | null;
     };
 
 /** One implementation, rendered from /student/internships/[id] and
@@ -151,8 +158,24 @@ export function OpportunityDetailView({ opportunityId }: { opportunityId: string
           match = null;
         }
 
+        // Best-effort, same pattern as MyApplicationsView: a SELECTED
+        // internship's workspace, or a SELECTED job's training enrollment,
+        // so the existing "Open Workspace"/"Open Job Training" next step
+        // can be shown here too -- never blocks loading the posting itself.
+        let workspace: InternshipWorkspaceSummary | null = null;
+        let jobTraining: JobTrainingEnrollmentSummary | null = null;
+        if (existingApplication) {
+          const [workspaces, jobTrainings] = await Promise.all([
+            listMyInternshipWorkspaces().then((r) => r.workspaces).catch(() => []),
+            listMyJobTraining().then((r) => r.enrollments).catch(() => []),
+          ]);
+          workspace = workspaces.find((w) => w.application_id === existingApplication.id) ?? null;
+          jobTraining =
+            jobTrainings.find((e) => e.application_id === existingApplication.id) ?? null;
+        }
+
         if (cancelled) return;
-        setState({ status: "ready", opportunity, match, existingApplication });
+        setState({ status: "ready", opportunity, match, existingApplication, workspace, jobTraining });
       } catch (err) {
         if (cancelled) return;
         setState({
@@ -230,7 +253,7 @@ export function OpportunityDetailView({ opportunityId }: { opportunityId: string
     );
   }
 
-  const { opportunity, match, existingApplication } = state;
+  const { opportunity, match, existingApplication, workspace, jobTraining } = state;
   const company = opportunity.industry?.company_name;
   const detailRows = opportunityDetailRows(opportunity);
 
@@ -326,11 +349,18 @@ export function OpportunityDetailView({ opportunityId }: { opportunityId: string
             )}
 
             {existingApplication ? (
-              <div className="flex flex-wrap items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2.5 text-sm">
-                <CheckCircle2 className="size-4 text-emerald-600" aria-hidden="true" />
-                <span className="font-medium">Applied</span>
-                <span className="text-muted-foreground">— current status:</span>
-                <ApplicationStatusBadge status={existingApplication.status} />
+              <div className="space-y-2 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2.5 text-sm">
+                <div className="flex flex-wrap items-center gap-2">
+                  <CheckCircle2 className="size-4 text-emerald-600" aria-hidden="true" />
+                  <span className="font-medium">Applied</span>
+                  <span className="text-muted-foreground">— current status:</span>
+                  <ApplicationStatusBadge status={existingApplication.status} />
+                </div>
+                <NextStepCell
+                  application={existingApplication}
+                  workspace={workspace ?? undefined}
+                  jobTraining={jobTraining ?? undefined}
+                />
               </div>
             ) : (
               <div className="space-y-2">

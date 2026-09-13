@@ -20,6 +20,11 @@ import type { StudentApplication, StudentApplicationStatus } from "@/types/stude
 import type { StudentLearningResource } from "@/types/student-learning";
 import type { AttemptHistoryItem } from "@/types/assessment";
 import type { SkillGapAnalysis } from "@/types/skill-gap";
+import type { InternshipWorkspaceSummary } from "@/types/internship-workspace";
+import type { ProjectApplication } from "@/types/project-application";
+import type { TrainingApplication } from "@/types/training-application";
+import type { WorkshopApplication } from "@/types/workshop-application";
+import { opportunityHref } from "@/types/student-notification";
 
 // ---- Skills ----
 
@@ -158,4 +163,123 @@ export function toReadinessDisplay(analysis: SkillGapAnalysis): ReadinessDisplay
     totalSkills: analysis.counts.total_active_skills,
     verifiedSkills: analysis.counts.verified_skills,
   };
+}
+
+// ---- Next actions (Phase 3) ----
+//
+// Every input here is the verbatim response of an endpoint already used
+// elsewhere in the Student Portal (Phase 1's opportunity/participation
+// detail pages, the "My Applications" tabs) -- this function fetches
+// nothing and invents no status/eligibility rule beyond what those
+// existing views already apply (WORKSPACE_ELIGIBLE-style sets). Job
+// Training is deliberately excluded: DashboardJobTraining already covers
+// that case, and duplicating it here would create two competing cards for
+// the same event.
+
+export interface NextAction {
+  key: string;
+  kind: "interview" | "workspace";
+  title: string;
+  subtitle: string;
+  ctaLabel: string;
+  href: string;
+}
+
+const PROJECT_WORKSPACE_STATUSES = new Set(["SELECTED", "ACTIVE"]);
+const TRAINING_WORKSPACE_STATUSES = new Set(["ACCEPTED"]);
+const WORKSHOP_WORKSPACE_STATUSES = new Set(["ACCEPTED"]);
+
+function formatInterviewWhen(iso: string): string {
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.getTime())) return "Interview scheduled";
+  return `Interview: ${parsed.toLocaleString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  })}`;
+}
+
+/**
+ * Up to 3 genuinely actionable items, highest priority first:
+ *   1. Upcoming (live, scheduled) interviews -- soonest first.
+ *   2. Selected/accepted opportunities that now have an open workspace
+ *      (Internship, Project, Training, Workshop), in that fixed order.
+ * Every destination reuses an existing Phase 1/2 route -- no new routing
+ * logic, no per-item network request (all five inputs are already
+ * O(1) list endpoints the dashboard/detail pages already call).
+ */
+export function buildNextActions(input: {
+  applications: StudentApplication[];
+  internshipWorkspaces: InternshipWorkspaceSummary[];
+  projectApplications: ProjectApplication[];
+  trainingApplications: TrainingApplication[];
+  workshopApplications: WorkshopApplication[];
+}): NextAction[] {
+  const interviews: NextAction[] = input.applications
+    .filter((a) => a.status === "INTERVIEW_SCHEDULED" && a.interview != null && a.opportunity != null)
+    .sort((a, b) => Date.parse(a.interview!.scheduled_at) - Date.parse(b.interview!.scheduled_at))
+    .map((a) => ({
+      key: `interview-${a.id}`,
+      kind: "interview" as const,
+      title: a.opportunity!.title ?? "Upcoming interview",
+      subtitle: formatInterviewWhen(a.interview!.scheduled_at),
+      ctaLabel: "View Interview Details",
+      href: opportunityHref(a.opportunity!.source_type, a.opportunity!.id),
+    }));
+
+  const workspaceByApplicationId = new Map(input.internshipWorkspaces.map((w) => [w.application_id, w]));
+  const internshipActions: NextAction[] = [];
+  for (const a of input.applications) {
+    if (a.status !== "SELECTED" || a.opportunity_type !== "INTERNSHIP") continue;
+    const workspace = workspaceByApplicationId.get(a.id);
+    if (!workspace) continue;
+    internshipActions.push({
+      key: `internship-${a.id}`,
+      kind: "workspace",
+      title: a.opportunity?.title ?? "Internship",
+      subtitle: "Your internship workspace is ready.",
+      ctaLabel: "Open Internship Workspace",
+      href: `/student/my-internships/${workspace.id}`,
+    });
+  }
+
+  const projectActions: NextAction[] = input.projectApplications
+    .filter((a) => PROJECT_WORKSPACE_STATUSES.has(a.status))
+    .map((a) => ({
+      key: `project-${a.id}`,
+      kind: "workspace" as const,
+      title: a.project?.title ?? "Project",
+      subtitle: "Your project workspace is ready.",
+      ctaLabel: "Open Project Workspace",
+      href: `/student/industry-projects/${a.project_id}/workspace`,
+    }));
+
+  const trainingActions: NextAction[] = input.trainingApplications
+    .filter((a) => TRAINING_WORKSPACE_STATUSES.has(a.status))
+    .map((a) => ({
+      key: `training-${a.id}`,
+      kind: "workspace" as const,
+      title: a.training?.title ?? "Training program",
+      subtitle: "Your training workspace is ready.",
+      ctaLabel: "Open Training Workspace",
+      href: `/student/trainings/${a.training_id}/workspace`,
+    }));
+
+  const workshopActions: NextAction[] = input.workshopApplications
+    .filter((a) => WORKSHOP_WORKSPACE_STATUSES.has(a.status))
+    .map((a) => ({
+      key: `workshop-${a.id}`,
+      kind: "workspace" as const,
+      title: a.workshop?.title ?? "Workshop",
+      subtitle: "Your workshop workspace is ready.",
+      ctaLabel: "Open Workshop Workspace",
+      href: `/student/workshops/${a.workshop_id}/workspace`,
+    }));
+
+  return [...interviews, ...internshipActions, ...projectActions, ...trainingActions, ...workshopActions].slice(
+    0,
+    3,
+  );
 }

@@ -333,7 +333,7 @@ describe("AssessmentTakingView", () => {
     expect(screen.getByText("Skill remains unverified")).toBeInTheDocument();
     // The "why wasn't it verified" hint is only for a PASS that still
     // didn't verify -- a failing result must not show it.
-    expect(screen.queryByText(/never creates a skill on its own/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/never lower a level you've already proven/i)).not.toBeInTheDocument();
   });
 
   it("explains why a passing result did not verify a skill", async () => {
@@ -387,7 +387,7 @@ describe("AssessmentTakingView", () => {
 
     expect(await screen.findByText("PASSED")).toBeInTheDocument();
     expect(screen.getByText("Skill remains unverified")).toBeInTheDocument();
-    expect(screen.getByText(/never creates a skill on its own/i)).toBeInTheDocument();
+    expect(screen.getByText(/never lower a level you've already proven/i)).toBeInTheDocument();
   });
 
   it("a scoring failure lets the student retry without re-submitting", async () => {

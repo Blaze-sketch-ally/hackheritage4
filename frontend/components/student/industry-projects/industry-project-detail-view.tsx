@@ -2,21 +2,29 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { AlertCircle, ArrowLeft, Building2, RefreshCw } from "lucide-react";
+import { AlertCircle, ArrowLeft, ArrowUpRight, Building2, RefreshCw } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConfirmationDialog } from "@/components/common/confirmation-dialog";
 import { FormError } from "@/components/auth/form-error";
 import { FormSuccess } from "@/components/auth/form-success";
 import { ApiError } from "@/lib/api";
-import { applyToProject, getProject } from "@/lib/student/industry-projects";
+import { applyToProject, getProject, listMyProjectApplications } from "@/lib/student/industry-projects";
 import { PROJECT_WORK_MODE_LABELS } from "@/types/industry-project";
+import { PROJECT_APPLICATION_STATUS_LABELS, type ProjectApplication } from "@/types/project-application";
 import type { StudentProject } from "@/types/student-project";
+
+// Same eligibility set as the "My Applications" tab
+// (industry-projects-list-view.tsx) -- kept local rather than shared,
+// matching this codebase's existing per-area convention (each opportunity
+// type owns its own copy of this tiny constant).
+const WORKSPACE_ELIGIBLE = new Set(["SELECTED", "ACTIVE", "COMPLETED"]);
 
 type LoadState =
   | { status: "loading" }
   | { status: "error"; error: ApiError }
-  | { status: "ready"; project: StudentProject };
+  | { status: "ready"; project: StudentProject; application: ProjectApplication | null };
 
 function formatDate(value: string | null): string {
   if (!value) return "Not set";
@@ -45,8 +53,17 @@ export function IndustryProjectDetailView({ projectId }: { projectId: string }) 
 
   useEffect(() => {
     let cancelled = false;
-    getProject(projectId)
-      .then((project) => !cancelled && setState({ status: "ready", project }))
+    Promise.all([
+      getProject(projectId),
+      listMyProjectApplications()
+        .then((r) => r.applications)
+        .catch(() => [] as ProjectApplication[]),
+    ])
+      .then(([project, applications]) => {
+        if (cancelled) return;
+        const application = applications.find((a) => a.project_id === projectId) ?? null;
+        setState({ status: "ready", project, application });
+      })
       .catch((err) => {
         if (!cancelled)
           setState({
@@ -64,8 +81,10 @@ export function IndustryProjectDetailView({ projectId }: { projectId: string }) 
     setApplying(true);
     setActionError(null);
     try {
-      await applyToProject(projectId);
-      setState((s) => (s.status === "ready" ? { ...s, project: { ...s.project, has_applied: true } } : s));
+      const application = await applyToProject(projectId);
+      setState((s) =>
+        s.status === "ready" ? { ...s, project: { ...s.project, has_applied: true }, application } : s,
+      );
       setActionSuccess("Application submitted.");
     } catch (err) {
       setActionError(
@@ -120,8 +139,19 @@ export function IndustryProjectDetailView({ projectId }: { projectId: string }) 
                 </p>
               )}
             </div>
-            {state.project.has_applied ? (
-              <Button disabled>Applied</Button>
+            {state.application ? (
+              <div className="flex flex-col items-start gap-1.5 sm:items-end">
+                <Badge variant="ghost">{PROJECT_APPLICATION_STATUS_LABELS[state.application.status]}</Badge>
+                {WORKSPACE_ELIGIBLE.has(state.application.status) && (
+                  <Button
+                    size="sm"
+                    render={<Link href={`/student/industry-projects/${projectId}/workspace`} />}
+                    nativeButton={false}
+                  >
+                    Open Project Workspace <ArrowUpRight className="size-3.5" />
+                  </Button>
+                )}
+              </div>
             ) : (
               <Button onClick={() => setConfirmApply(true)} disabled={applying}>
                 Apply
