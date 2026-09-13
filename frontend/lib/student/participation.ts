@@ -73,3 +73,33 @@ export function getEvaluation(workspaceId: string): Promise<EvaluationResponse> 
 export function getCompletion(workspaceId: string): Promise<CompletionResponse> {
   return api.get(`${BASE}/workspaces/${workspaceId}/completion`);
 }
+
+// ---- Submission eligibility ----
+//
+// IMPORTANT: the backend (participation_submission_service.create_submission,
+// and the "Students can submit to their own participation workspace" INSERT
+// policy, 064_participation_submissions_feedback.sql) enforces NO eligibility
+// rule at all beyond workspace ownership + the assignment being published --
+// a student can technically POST a new attempt at any time, regardless of
+// any prior submission's status. There is no partial-unique-index or
+// trigger here comparable to assessment_attempts' "one IN_PROGRESS attempt"
+// guard. The lifecycle below (no-submission / pending-review /
+// needs-revision / accepted) is therefore a FRONTEND-ONLY UX policy, not a
+// security boundary -- this helper exists so that policy is expressed once,
+// correctly, and testably, instead of as an inline (and previously
+// inverted) boolean at the call site.
+
+/** Whether the student should be offered a Submit/Resubmit action for an
+ * assignment, given its most recent submission (if any):
+ *   - no submission yet                        -> true  (first submission)
+ *   - submission exists, not yet reviewed       -> false (SUBMITTED/UNDER_REVIEW -- wait for Industry)
+ *   - latest review is NEEDS_REVISION           -> true  (the one case that explicitly asks for another attempt)
+ *   - latest review is ACCEPTED or REVIEWED     -> false (both are a completed verdict -- REVIEWED is
+ *                                                         Industry's neutral "reviewed, nothing further
+ *                                                         requested" option, distinct from NEEDS_REVISION;
+ *                                                         it does not invite a new attempt any more than
+ *                                                         ACCEPTED does) */
+export function canSubmitAssignment(latestSubmission: SubmissionResponse | undefined): boolean {
+  if (!latestSubmission) return true;
+  return latestSubmission.latest_review?.status === "NEEDS_REVISION";
+}

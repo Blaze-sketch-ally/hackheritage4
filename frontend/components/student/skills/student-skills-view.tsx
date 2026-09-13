@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { GraduationCap, Search } from "lucide-react";
+import Link from "next/link";
+import { GraduationCap, Search, TrendingUp } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { ConfirmationDialog } from "@/components/common/confirmation-dialog";
 import { EmptyState } from "@/components/common/empty-state";
 import { FormSuccess } from "@/components/auth/form-success";
@@ -212,9 +214,20 @@ export function StudentSkillsView({
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-semibold">My Skills</h1>
-        <p className="text-sm text-muted-foreground">Build and manage your professional skill profile.</p>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-xl font-semibold">My Skills</h1>
+          <p className="text-sm text-muted-foreground">Build and manage your professional skill profile.</p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-fit"
+          render={<Link href="/student/skill-gap" />}
+          nativeButton={false}
+        >
+          <TrendingUp className="size-3.5" /> View Skill Gap Analysis
+        </Button>
       </div>
 
       <FormSuccess message={successMessage} />

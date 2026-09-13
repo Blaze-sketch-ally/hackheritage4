@@ -2,21 +2,26 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { AlertCircle, ArrowLeft, Building2, RefreshCw } from "lucide-react";
+import { AlertCircle, ArrowLeft, ArrowUpRight, Building2, RefreshCw } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConfirmationDialog } from "@/components/common/confirmation-dialog";
 import { FormError } from "@/components/auth/form-error";
 import { FormSuccess } from "@/components/auth/form-success";
 import { ApiError } from "@/lib/api";
-import { applyToTraining, getTraining } from "@/lib/student/training";
+import { applyToTraining, getTraining, listMyTrainingApplications } from "@/lib/student/training";
 import { TRAINING_WORK_MODE_LABELS } from "@/types/industry-training";
+import { TRAINING_APPLICATION_STATUS_LABELS, type TrainingApplication } from "@/types/training-application";
 import type { StudentTraining } from "@/types/student-training";
+
+// Same eligibility set as the "My Applications" tab (trainings-list-view.tsx).
+const WORKSPACE_ELIGIBLE = new Set(["ACCEPTED", "COMPLETED"]);
 
 type LoadState =
   | { status: "loading" }
   | { status: "error"; error: ApiError }
-  | { status: "ready"; training: StudentTraining };
+  | { status: "ready"; training: StudentTraining; application: TrainingApplication | null };
 
 function formatDate(value: string | null): string {
   if (!value) return "Not set";
@@ -45,8 +50,17 @@ export function TrainingDetailView({ trainingId }: { trainingId: string }) {
 
   useEffect(() => {
     let cancelled = false;
-    getTraining(trainingId)
-      .then((training) => !cancelled && setState({ status: "ready", training }))
+    Promise.all([
+      getTraining(trainingId),
+      listMyTrainingApplications()
+        .then((r) => r.applications)
+        .catch(() => [] as TrainingApplication[]),
+    ])
+      .then(([training, applications]) => {
+        if (cancelled) return;
+        const application = applications.find((a) => a.training_id === trainingId) ?? null;
+        setState({ status: "ready", training, application });
+      })
       .catch((err) => {
         if (!cancelled)
           setState({
@@ -64,8 +78,10 @@ export function TrainingDetailView({ trainingId }: { trainingId: string }) {
     setApplying(true);
     setActionError(null);
     try {
-      await applyToTraining(trainingId);
-      setState((s) => (s.status === "ready" ? { ...s, training: { ...s.training, has_applied: true } } : s));
+      const application = await applyToTraining(trainingId);
+      setState((s) =>
+        s.status === "ready" ? { ...s, training: { ...s.training, has_applied: true }, application } : s,
+      );
       setActionSuccess("Application submitted.");
     } catch (err) {
       setActionError(
@@ -120,8 +136,19 @@ export function TrainingDetailView({ trainingId }: { trainingId: string }) {
                 </p>
               )}
             </div>
-            {state.training.has_applied ? (
-              <Button disabled>Applied</Button>
+            {state.application ? (
+              <div className="flex flex-col items-start gap-1.5 sm:items-end">
+                <Badge variant="ghost">{TRAINING_APPLICATION_STATUS_LABELS[state.application.status]}</Badge>
+                {WORKSPACE_ELIGIBLE.has(state.application.status) && (
+                  <Button
+                    size="sm"
+                    render={<Link href={`/student/trainings/${trainingId}/workspace`} />}
+                    nativeButton={false}
+                  >
+                    Open Training Workspace <ArrowUpRight className="size-3.5" />
+                  </Button>
+                )}
+              </div>
             ) : (
               <Button onClick={() => setConfirmApply(true)} disabled={applying}>
                 Apply

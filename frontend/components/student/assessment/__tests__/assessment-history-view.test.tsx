@@ -3,7 +3,12 @@ import { render, screen } from "@testing-library/react";
 
 const { getAttemptHistory } = vi.hoisted(() => ({ getAttemptHistory: vi.fn() }));
 
-vi.mock("@/lib/student/assessment", () => ({ getAttemptHistory }));
+vi.mock("@/lib/student/assessment", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/student/assessment")>(
+    "@/lib/student/assessment",
+  );
+  return { ...actual, getAttemptHistory };
+});
 
 import { AssessmentHistoryView } from "@/components/student/assessment/assessment-history-view";
 
@@ -61,7 +66,7 @@ describe("AssessmentHistoryView", () => {
     ]);
     render(<AssessmentHistoryView />);
 
-    expect(await screen.findByText("Failed")).toBeInTheDocument();
+    expect(await screen.findByText("Not Passed")).toBeInTheDocument();
     expect(screen.getByText("Not Verified")).toBeInTheDocument();
   });
 

@@ -6,9 +6,12 @@ const mocks = vi.hoisted(() => ({
   getMyLinkRequests: vi.fn(),
 }));
 
-vi.mock("@/lib/student/institution", () => ({
-  getMyInstitutionWorkspace: mocks.getMyInstitutionWorkspace,
-}));
+vi.mock("@/lib/student/institution", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/student/institution")>(
+    "@/lib/student/institution",
+  );
+  return { ...actual, getMyInstitutionWorkspace: mocks.getMyInstitutionWorkspace };
+});
 
 vi.mock("@/lib/institution-links", () => ({
   getMyLinkRequests: mocks.getMyLinkRequests,
@@ -41,7 +44,35 @@ describe("DashboardInstitution", () => {
       requests: [{ id: "r1", student_id: "s1", institution_id: "inst-1", status: "PENDING", created_at: null, updated_at: null, student_name: null, student_username: null, institution_name: "ABC University" }],
     });
     render(<DashboardInstitution />);
-    expect(await screen.findByText("Institution verification pending")).toBeInTheDocument();
+    expect(await screen.findByText("ABC University — Verification Pending")).toBeInTheDocument();
+    expect(screen.getByText("Your institution connection is awaiting TPO approval.")).toBeInTheDocument();
+  });
+
+  it("shows verified (awaiting sync) when the link request is APPROVED but student_profiles hasn't caught up yet", async () => {
+    // Regression test for the reported bug: TPO approval sets
+    // institution_link_requests.status = 'APPROVED', but the DB trigger
+    // that writes student_profiles.institution_id silently no-ops when
+    // the student has no student_profiles row yet -- GET /student/institution
+    // then still reports linked: false. The card must not fall back to
+    // "Connect to your Institution" in that case.
+    mocks.getMyInstitutionWorkspace.mockResolvedValueOnce(EMPTY_WORKSPACE);
+    mocks.getMyLinkRequests.mockResolvedValueOnce({
+      requests: [{ id: "r1", student_id: "s1", institution_id: "inst-1", status: "APPROVED", created_at: null, updated_at: null, student_name: null, student_username: null, institution_name: "Heritage Institute of Technology" }],
+    });
+    render(<DashboardInstitution />);
+    expect(await screen.findByText("Heritage Institute of Technology")).toBeInTheDocument();
+    expect(screen.getByText("Verified")).toBeInTheDocument();
+    expect(screen.queryByText("Connect to your Institution")).not.toBeInTheDocument();
+  });
+
+  it("shows a rejected message when the most recent request was REJECTED", async () => {
+    mocks.getMyInstitutionWorkspace.mockResolvedValueOnce(EMPTY_WORKSPACE);
+    mocks.getMyLinkRequests.mockResolvedValueOnce({
+      requests: [{ id: "r1", student_id: "s1", institution_id: "inst-1", status: "REJECTED", created_at: null, updated_at: null, student_name: null, student_username: null, institution_name: "ABC University" }],
+    });
+    render(<DashboardInstitution />);
+    expect(await screen.findByText("ABC University declined your request")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /find my institution/i })).toBeInTheDocument();
   });
 
   it("shows the verified summary with counts when linked", async () => {
@@ -54,6 +85,9 @@ describe("DashboardInstitution", () => {
     render(<DashboardInstitution />);
     expect(await screen.findByText("ABC University")).toBeInTheDocument();
     expect(screen.getByText("Verified")).toBeInTheDocument();
+    expect(screen.getByText("2")).toBeInTheDocument();
+    expect(screen.getByText("1")).toBeInTheDocument();
+    expect(screen.getByText("3")).toBeInTheDocument();
     expect(mocks.getMyLinkRequests).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: /view/i })).toHaveAttribute("href", "/student/institution");
   });

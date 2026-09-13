@@ -2,21 +2,26 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { AlertCircle, ArrowLeft, Building2, RefreshCw } from "lucide-react";
+import { AlertCircle, ArrowLeft, ArrowUpRight, Building2, RefreshCw } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConfirmationDialog } from "@/components/common/confirmation-dialog";
 import { FormError } from "@/components/auth/form-error";
 import { FormSuccess } from "@/components/auth/form-success";
 import { ApiError } from "@/lib/api";
-import { applyToWorkshop, getWorkshop } from "@/lib/student/workshops";
+import { applyToWorkshop, getWorkshop, listMyWorkshopApplications } from "@/lib/student/workshops";
 import { WORKSHOP_WORK_MODE_LABELS } from "@/types/industry-workshop";
+import { WORKSHOP_APPLICATION_STATUS_LABELS, type WorkshopApplication } from "@/types/workshop-application";
 import type { StudentWorkshop } from "@/types/student-workshop";
+
+// Same eligibility set as the "My Applications" tab (workshops-list-view.tsx).
+const WORKSPACE_ELIGIBLE = new Set(["ACCEPTED", "COMPLETED"]);
 
 type LoadState =
   | { status: "loading" }
   | { status: "error"; error: ApiError }
-  | { status: "ready"; workshop: StudentWorkshop };
+  | { status: "ready"; workshop: StudentWorkshop; application: WorkshopApplication | null };
 
 function formatDate(value: string | null): string {
   if (!value) return "Not set";
@@ -45,8 +50,17 @@ export function WorkshopDetailView({ workshopId }: { workshopId: string }) {
 
   useEffect(() => {
     let cancelled = false;
-    getWorkshop(workshopId)
-      .then((workshop) => !cancelled && setState({ status: "ready", workshop }))
+    Promise.all([
+      getWorkshop(workshopId),
+      listMyWorkshopApplications()
+        .then((r) => r.applications)
+        .catch(() => [] as WorkshopApplication[]),
+    ])
+      .then(([workshop, applications]) => {
+        if (cancelled) return;
+        const application = applications.find((a) => a.workshop_id === workshopId) ?? null;
+        setState({ status: "ready", workshop, application });
+      })
       .catch((err) => {
         if (!cancelled)
           setState({
@@ -64,8 +78,10 @@ export function WorkshopDetailView({ workshopId }: { workshopId: string }) {
     setApplying(true);
     setActionError(null);
     try {
-      await applyToWorkshop(workshopId);
-      setState((s) => (s.status === "ready" ? { ...s, workshop: { ...s.workshop, has_applied: true } } : s));
+      const application = await applyToWorkshop(workshopId);
+      setState((s) =>
+        s.status === "ready" ? { ...s, workshop: { ...s.workshop, has_applied: true }, application } : s,
+      );
       setActionSuccess("Application submitted.");
     } catch (err) {
       setActionError(
@@ -120,8 +136,19 @@ export function WorkshopDetailView({ workshopId }: { workshopId: string }) {
                 </p>
               )}
             </div>
-            {state.workshop.has_applied ? (
-              <Button disabled>Applied</Button>
+            {state.application ? (
+              <div className="flex flex-col items-start gap-1.5 sm:items-end">
+                <Badge variant="ghost">{WORKSHOP_APPLICATION_STATUS_LABELS[state.application.status]}</Badge>
+                {WORKSPACE_ELIGIBLE.has(state.application.status) && (
+                  <Button
+                    size="sm"
+                    render={<Link href={`/student/workshops/${workshopId}/workspace`} />}
+                    nativeButton={false}
+                  >
+                    Open Workshop Workspace <ArrowUpRight className="size-3.5" />
+                  </Button>
+                )}
+              </div>
             ) : (
               <Button onClick={() => setConfirmApply(true)} disabled={applying}>
                 Apply

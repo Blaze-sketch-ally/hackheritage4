@@ -260,7 +260,13 @@ export function MyApplicationsView() {
   );
 }
 
-function NextStepCell({
+/** Exported so pages other than the applications table (e.g. an
+ * opportunity's own detail page) can show the same status-driven next
+ * action without a second implementation of this branching. `onWithdraw`
+ * is optional -- a caller that doesn't want a withdraw action here (it
+ * already lives elsewhere, or doesn't apply to that surface) simply omits
+ * it, and the withdraw button is skipped rather than crashing. */
+export function NextStepCell({
   application,
   workspace,
   jobTraining,
@@ -269,7 +275,7 @@ function NextStepCell({
   application: StudentApplication;
   workspace: InternshipWorkspaceSummary | undefined;
   jobTraining: JobTrainingEnrollmentSummary | undefined;
-  onWithdraw: (application: StudentApplication) => void;
+  onWithdraw?: (application: StudentApplication) => void;
 }) {
   const type = application.opportunity?.source_type ?? application.opportunity_type;
   const isSelected = application.status === "SELECTED";
@@ -294,7 +300,7 @@ function NextStepCell({
         ) : (
           <InterviewPending />
         )}
-        <WithdrawButton onClick={() => onWithdraw(application)} />
+        {onWithdraw && <WithdrawButton onClick={() => onWithdraw(application)} />}
       </div>
     );
   }
@@ -353,7 +359,7 @@ function NextStepCell({
 
   // ---- Active candidate application (APPLIED / UNDER_REVIEW / SHORTLISTED):
   // the only "next step" the student controls is withdrawing. ----
-  if (withdrawable) {
+  if (withdrawable && onWithdraw) {
     return <WithdrawButton onClick={() => onWithdraw(application)} />;
   }
 

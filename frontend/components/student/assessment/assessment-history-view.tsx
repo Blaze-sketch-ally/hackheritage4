@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { AlertCircle, CheckCircle2, History, RefreshCw } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { AttemptStatusBadge } from "@/components/student/assessment/attempt-status-badge";
 import { ApiError } from "@/lib/api";
-import { getAttemptHistory } from "@/lib/student/assessment";
+import { attemptDisplayStatus, getAttemptHistory } from "@/lib/student/assessment";
 import type { AttemptHistoryItem } from "@/types/assessment";
 
 type LoadState =
@@ -95,6 +96,7 @@ export function AssessmentHistoryView() {
             <TableHead>Percentage</TableHead>
             <TableHead>Status</TableHead>
             <TableHead>Verification</TableHead>
+            <TableHead>Action</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -121,7 +123,7 @@ function HistoryRow({ attempt }: { attempt: AttemptHistoryItem }) {
       </TableCell>
       <TableCell>{attempt.percentage != null ? `${attempt.percentage}%` : "—"}</TableCell>
       <TableCell>
-        <StatusBadge attempt={attempt} />
+        <AttemptStatusBadge status={attemptDisplayStatus(attempt)} />
       </TableCell>
       <TableCell>
         {attempt.skill_verified === true ? (
@@ -134,31 +136,48 @@ function HistoryRow({ attempt }: { attempt: AttemptHistoryItem }) {
           "—"
         )}
       </TableCell>
+      <TableCell>
+        <HistoryRowAction attempt={attempt} />
+      </TableCell>
     </TableRow>
   );
 }
 
-function StatusBadge({ attempt }: { attempt: AttemptHistoryItem }) {
-  if (attempt.status === "ABANDONED") {
-    return <Badge variant="outline">Abandoned</Badge>;
-  }
+/** The only genuinely supported destination for any attempt is the
+ * assessment's own taking route (/student/assessment/{assessment_id}):
+ * AssessmentTakingView resumes a real IN_PROGRESS attempt there via
+ * GET .../attempts/current, but there is no route or API that reconstructs
+ * a COMPLETED attempt's historical result by attempt id -- so a completed
+ * row links to the same place with an honest "View Assessment" label
+ * (which will offer a retake), never a fabricated "View Result". No
+ * action for ABANDONED (nothing to resume) or a since-deleted assessment. */
+function HistoryRowAction({ attempt }: { attempt: AttemptHistoryItem }) {
+  const assessmentId = attempt.assessment?.id;
+  if (!assessmentId) return <span className="text-muted-foreground">—</span>;
+
   if (attempt.status === "IN_PROGRESS") {
-    return <Badge variant="outline">In Progress</Badge>;
-  }
-  // COMPLETED
-  if (attempt.passed === true) {
     return (
-      <Badge variant="outline" className="border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-        Passed
-      </Badge>
+      <Button
+        size="sm"
+        variant="outline"
+        render={<Link href={`/student/assessment/${assessmentId}`} />}
+        nativeButton={false}
+      >
+        Resume
+      </Button>
     );
   }
-  if (attempt.passed === false) {
+  if (attempt.status === "COMPLETED") {
     return (
-      <Badge variant="outline" className="border-destructive/30 bg-destructive/10 text-destructive">
-        Failed
-      </Badge>
+      <Button
+        size="sm"
+        variant="outline"
+        render={<Link href={`/student/assessment/${assessmentId}`} />}
+        nativeButton={false}
+      >
+        View Assessment
+      </Button>
     );
   }
-  return <Badge variant="outline">Completed</Badge>;
+  return <span className="text-muted-foreground">—</span>;
 }

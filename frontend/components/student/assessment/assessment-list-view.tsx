@@ -6,11 +6,18 @@ import { AlertCircle, Clock, GraduationCap, ListChecks, RefreshCw } from "lucide
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { AttemptStatusBadge } from "@/components/student/assessment/attempt-status-badge";
 import { ApiError } from "@/lib/api";
-import { listAssessments } from "@/lib/student/assessment";
+import {
+  attemptDisplayStatus,
+  getAttemptHistory,
+  latestAttemptByAssessmentId,
+  listAssessments,
+  type AttemptDisplayStatus,
+} from "@/lib/student/assessment";
 import { createClient } from "@/lib/supabase/client";
 import { fetchStudentSkills, type StudentSkill } from "@/lib/student/skills";
-import type { Assessment, Difficulty } from "@/types/assessment";
+import type { Assessment, AttemptHistoryItem, Difficulty } from "@/types/assessment";
 
 /** The order assessments are listed within a skill -- mirrors the
  * 'Beginner'/'Intermediate'/'Advanced'/'Expert' scale shared by
@@ -29,7 +36,12 @@ type SkillGroup = {
 type LoadState =
   | { status: "loading" }
   | { status: "error"; error: ApiError }
-  | { status: "ready"; groups: SkillGroup[]; hasSkills: boolean };
+  | {
+      status: "ready";
+      groups: SkillGroup[];
+      hasSkills: boolean;
+      latestAttempts: Map<string, AttemptHistoryItem>;
+    };
 
 /** The Assessments page is fully data-driven:
  *
@@ -54,15 +66,20 @@ export function AssessmentListView({ studentId }: { studentId: string }) {
 
     async function load() {
       try {
-        const [{ assessments }, studentSkills] = await Promise.all([
+        const [{ assessments }, studentSkills, attemptHistory] = await Promise.all([
           listAssessments(),
           fetchStudentSkills(createClient(), studentId),
+          // Best-effort: attempt-status enrichment must never block browsing
+          // the catalog itself. One aggregate call (already-existing
+          // GET /api/v1/attempts), never one request per assessment.
+          getAttemptHistory().catch(() => [] as AttemptHistoryItem[]),
         ]);
         if (cancelled) return;
         setState({
           status: "ready",
           groups: buildGroups(studentSkills, assessments),
           hasSkills: studentSkills.length > 0,
+          latestAttempts: latestAttemptByAssessmentId(attemptHistory),
         });
       } catch (err) {
         if (cancelled) return;
@@ -113,7 +130,7 @@ export function AssessmentListView({ studentId }: { studentId: string }) {
     );
   }
 
-  const { groups, hasSkills } = state;
+  const { groups, hasSkills, latestAttempts } = state;
 
   if (!hasSkills) {
     return (
@@ -151,7 +168,11 @@ export function AssessmentListView({ studentId }: { studentId: string }) {
           ) : (
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
               {group.assessments.map((assessment) => (
-                <AssessmentListCard key={assessment.id} assessment={assessment} />
+                <AssessmentListCard
+                  key={assessment.id}
+                  assessment={assessment}
+                  latestAttempt={latestAttempts.get(assessment.id)}
+                />
               ))}
             </div>
           )}
@@ -192,12 +213,43 @@ function buildGroups(studentSkills: StudentSkill[], assessments: Assessment[]): 
     .sort((a, b) => a.skillName.localeCompare(b.skillName));
 }
 
-function AssessmentListCard({ assessment }: { assessment: Assessment }) {
+/** The route is always the same regardless of attempt state --
+ * AssessmentTakingView (/student/assessment/[id]) already handles
+ * "nothing yet" (start), "real IN_PROGRESS attempt" (resume, via
+ * GET .../attempts/current), and "no in-progress attempt" (offers a fresh
+ * one) -- only the CTA label changes to describe what will actually
+ * happen. There is no route that reopens a COMPLETED attempt's historical
+ * result, so PASSED/NOT_PASSED/COMPLETED all honestly say "Retake"/"Try
+ * Again", never a fabricated "View Result". */
+function ctaLabel(status: AttemptDisplayStatus): string {
+  switch (status) {
+    case "IN_PROGRESS":
+      return "Resume Assessment";
+    case "PASSED":
+      return "Retake Assessment";
+    case "NOT_PASSED":
+      return "Try Again";
+    case "COMPLETED":
+    case "ABANDONED":
+    case "NOT_ATTEMPTED":
+      return "Start Assessment";
+  }
+}
+
+function AssessmentListCard({
+  assessment,
+  latestAttempt,
+}: {
+  assessment: Assessment;
+  latestAttempt: AttemptHistoryItem | undefined;
+}) {
+  const status = attemptDisplayStatus(latestAttempt);
   return (
     <Card className="flex flex-col">
       <CardHeader>
         <div className="flex flex-wrap items-center gap-1.5">
           <Badge variant="outline">{assessment.difficulty}</Badge>
+          <AttemptStatusBadge status={status} />
         </div>
         <CardTitle className="text-base">{assessment.title}</CardTitle>
       </CardHeader>
@@ -222,7 +274,7 @@ function AssessmentListCard({ assessment }: { assessment: Assessment }) {
           render={<Link href={`/student/assessment/${assessment.id}`} />}
           nativeButton={false}
         >
-          Start assessment
+          {ctaLabel(status)}
         </Button>
       </CardFooter>
     </Card>

@@ -128,3 +128,48 @@ export function isUnansweredResult(result: AssessmentResultQuestion): boolean {
   const hasOptions = Array.isArray(answer.selected_option_ids) && answer.selected_option_ids.length > 0;
   return !hasText && !hasOptions;
 }
+
+// ---- Attempt display status (Phase 4) ----
+//
+// Pure relabeling helpers shared by the Assessment list and Assessment
+// History -- neither recomputes pass/fail/verification; both only reshape
+// getAttemptHistory()'s own fields for display, exactly like
+// isUnansweredResult() above.
+
+export type AttemptDisplayStatus =
+  | "NOT_ATTEMPTED"
+  | "IN_PROGRESS"
+  | "PASSED"
+  | "NOT_PASSED"
+  | "COMPLETED"
+  | "ABANDONED";
+
+/** Reduces one assessment's most recent attempt (or none) to a single
+ * student-facing state. `undefined` means no attempt exists at all --
+ * distinct from ABANDONED/COMPLETED, which are real attempt outcomes. */
+export function attemptDisplayStatus(attempt: AttemptHistoryItem | undefined): AttemptDisplayStatus {
+  if (!attempt) return "NOT_ATTEMPTED";
+  if (attempt.status === "ABANDONED") return "ABANDONED";
+  if (attempt.status === "IN_PROGRESS") return "IN_PROGRESS";
+  if (attempt.passed === true) return "PASSED";
+  if (attempt.passed === false) return "NOT_PASSED";
+  return "COMPLETED";
+}
+
+/** `assessment_id -> most recent attempt`, built from getAttemptHistory()'s
+ * own most-recent-first ordering: the first attempt seen per assessment_id
+ * while iterating IS the relevant one, since at most one attempt can ever
+ * be IN_PROGRESS at a time (the DB's own partial unique index) -- so
+ * whenever one exists it is necessarily also the most recent. Same
+ * first-occurrence-wins pattern already used by
+ * student-skills-view.tsx's assessment/attempt lookup. */
+export function latestAttemptByAssessmentId(
+  attempts: AttemptHistoryItem[],
+): Map<string, AttemptHistoryItem> {
+  const map = new Map<string, AttemptHistoryItem>();
+  for (const attempt of attempts) {
+    const id = attempt.assessment?.id;
+    if (id && !map.has(id)) map.set(id, attempt);
+  }
+  return map;
+}

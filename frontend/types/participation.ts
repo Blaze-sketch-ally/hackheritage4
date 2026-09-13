@@ -18,6 +18,11 @@ export const RESOURCE_TYPES: ResourceType[] = ["VIDEO", "DOCUMENT", "LINK", "REF
 
 export type WorkspaceStatus = "ACTIVE" | "COMPLETED";
 export type SubmissionStatus = "SUBMITTED" | "UNDER_REVIEW" | "REVIEWED";
+export const SUBMISSION_STATUS_LABELS: Record<SubmissionStatus, string> = {
+  SUBMITTED: "Submitted",
+  UNDER_REVIEW: "Under Review",
+  REVIEWED: "Reviewed",
+};
 export type ReviewStatus = "REVIEWED" | "NEEDS_REVISION" | "ACCEPTED";
 export const REVIEW_STATUSES: ReviewStatus[] = ["ACCEPTED", "NEEDS_REVISION", "REVIEWED"];
 export const REVIEW_STATUS_LABELS: Record<ReviewStatus, string> = {

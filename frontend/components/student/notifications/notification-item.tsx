@@ -49,13 +49,22 @@ export function NotificationItem({
   notification,
   onMarkRead,
   busy,
+  applicationHrefById,
 }: {
   notification: StudentNotification;
   onMarkRead: (id: string) => void;
   busy: boolean;
+  /** Resolved applications.id -> exact opportunity route, built once by
+   * NotificationsView. Only consulted for related_entity_type
+   * "APPLICATION"; every other type routes via relatedHref() alone. */
+  applicationHrefById?: Map<string, string>;
 }) {
   const Icon = TYPE_ICON[notification.type] ?? Bell;
-  const href = relatedHref(notification);
+  const resolvedApplicationHref =
+    notification.related_entity_type === "APPLICATION" && notification.related_entity_id
+      ? applicationHrefById?.get(notification.related_entity_id)
+      : undefined;
+  const href = resolvedApplicationHref ?? relatedHref(notification);
 
   const body = (
     <div className="flex gap-3">
