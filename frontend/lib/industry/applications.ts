@@ -7,6 +7,7 @@ import type {
   IndustrySettableStatus,
   OpportunityType,
 } from "@/types/application";
+import type { ProvisionJobTrainingResponse } from "@/types/job-training";
 
 /**
  * Talks to the Industry application API
@@ -56,4 +57,18 @@ export function updateApplicationStatus(
   status: IndustrySettableStatus,
 ): Promise<Application> {
   return api.patch(`/api/v1/applications/${id}/status`, { status });
+}
+
+/** Idempotently (re-)provision the Job Training enrollment for a SELECTED
+ * JOB application of one of the caller's own postings
+ * (backend/app/api/applications.py — POST .../provision-job-training). The
+ * SELECTED transition already provisions best-effort; this is the explicit
+ * "Assign Training" action for when the industry authors/publishes the
+ * program after the candidate was already selected. Safe to call more than
+ * once — an already-provisioned application comes back as ALREADY_EXISTS
+ * with the existing enrollment, never a duplicate and never an error. */
+export function provisionJobTraining(
+  applicationId: string,
+): Promise<ProvisionJobTrainingResponse> {
+  return api.post(`/api/v1/applications/${applicationId}/provision-job-training`);
 }

@@ -20,6 +20,7 @@ import {
   type Application,
   type IndustrySettableStatus,
 } from "@/types/application";
+import { ApplicationJobTrainingPanel } from "@/components/industry/applicants/application-job-training-panel";
 import { ApplicationStatusActions } from "@/components/industry/applicants/application-status-actions";
 import { ApplicationStatusBadge } from "@/components/industry/applicants/application-status-badge";
 import { MatchScore } from "@/components/industry/match-score";
@@ -232,6 +233,16 @@ export function ApplicationDetailView({ applicationId }: { applicationId: string
           </Card>
 
           <MatchScore applicationId={state.application.id} />
+
+          {state.application.opportunity_type === "JOB" &&
+          state.application.status === "SELECTED" &&
+          state.application.job_id ? (
+            <ApplicationJobTrainingPanel
+              applicationId={state.application.id}
+              jobId={state.application.job_id}
+              initialProvisioning={state.application.provisioning}
+            />
+          ) : null}
 
           <Card>
             <CardHeader>

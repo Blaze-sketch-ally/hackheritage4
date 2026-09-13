@@ -86,6 +86,10 @@ class ApplicationProvisioning(BaseModel):
                        ALREADY_EXISTS); False for every skipped/failed case.
       * internship_id -- set only for a provisioned INTERNSHIP_WORKSPACE,
                        so the UI can link to that internship's workspace.
+      * enrollment_id -- set only for a provisioned JOB_TRAINING enrollment
+                       (CREATED or ALREADY_EXISTS), so the UI can reference
+                       the job_training_enrollments row without a second
+                       lookup. None for every skipped/failed/revoked case.
     """
 
     kind: Literal["INTERNSHIP_WORKSPACE", "JOB_TRAINING"]
@@ -93,6 +97,7 @@ class ApplicationProvisioning(BaseModel):
     provisioned: bool
     message: str
     internship_id: str | None = None
+    enrollment_id: str | None = None
 
 
 class ApplicationResponse(BaseModel):

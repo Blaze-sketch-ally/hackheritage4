@@ -21,6 +21,7 @@ import { getSkillCatalog, type CatalogSkill } from "@/lib/industry/skills";
 import { JobForm } from "@/components/industry/jobs/job-form";
 import { JobActions } from "@/components/industry/jobs/job-actions";
 import { JobStatusBadge } from "@/components/industry/jobs/job-status-badge";
+import { JobTrainingProgramLink } from "@/components/industry/job-training-program/job-training-program-link";
 import {
   EMPLOYMENT_TYPE_LABELS,
   SKILL_IMPORTANCE_LABELS,
@@ -377,6 +378,8 @@ function ReadView({
           ) : null}
         </CardContent>
       </Card>
+
+      <JobTrainingProgramLink jobId={job.id} />
 
       <Card>
         <CardHeader>
