@@ -153,7 +153,7 @@ export function InstitutionLinkCard() {
               </Button>
             </div>
             <p className="text-xs text-muted-foreground">
-              Ask your institution&apos;s TPO for their AIC Portal username.
+              Ask your institution&apos;s TPO for their SkillBridge username.
             </p>
           </form>
         ) : null}

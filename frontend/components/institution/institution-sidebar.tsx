@@ -19,6 +19,7 @@ import {
   Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { SkillBridgeLogo } from "@/components/branding/skillbridge-logo";
 
 interface NavItem {
   label: string;
@@ -91,15 +92,8 @@ export function InstitutionSidebar({ onNavigate }: { onNavigate?: () => void }) 
   return (
     <div className="flex h-full flex-col">
       <div className="flex h-14 shrink-0 flex-col justify-center gap-0.5 border-b px-4">
-        <Link
-          href="/"
-          className="flex items-center gap-2 font-semibold tracking-tight"
-          onClick={onNavigate}
-        >
-          <span className="flex size-7 items-center justify-center rounded-lg bg-indigo-600 text-sm text-white">
-            A
-          </span>
-          AIC Portal
+        <Link href="/" onClick={onNavigate}>
+          <SkillBridgeLogo />
         </Link>
         <p className="pl-9 text-[11px] font-medium tracking-wide text-muted-foreground">
           Institution Portal

@@ -28,6 +28,7 @@ import {
   TrendingUp,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { SkillBridgeLogo } from "@/components/branding/skillbridge-logo";
 
 interface NavItem {
   label: string;
@@ -127,11 +128,8 @@ export function StudentSidebar({
   return (
     <div className="flex h-full flex-col">
       <div className="flex h-14 shrink-0 items-center gap-2 border-b px-4">
-        <Link href="/" className="flex items-center gap-2 font-semibold tracking-tight" onClick={onNavigate}>
-          <span className="flex size-7 items-center justify-center rounded-lg bg-indigo-600 text-sm text-white">
-            A
-          </span>
-          AIC Portal
+        <Link href="/" onClick={onNavigate}>
+          <SkillBridgeLogo />
         </Link>
       </div>
 

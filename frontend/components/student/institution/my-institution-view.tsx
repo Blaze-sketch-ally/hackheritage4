@@ -115,12 +115,18 @@ function Ready({ data }: { data: StudentInstitutionResponse }) {
 
   return (
     <div className="space-y-6">
-      <Card>
+      <Card className="relative overflow-hidden">
+        <div
+          className="absolute inset-x-0 top-0 h-1 bg-linear-to-r from-brand-blue via-brand-cyan to-brand-green"
+          aria-hidden="true"
+        />
         <CardContent className="space-y-2">
           <div className="flex flex-wrap items-center gap-2">
-            <Landmark className="size-5 text-indigo-600 dark:text-indigo-400" aria-hidden="true" />
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <Landmark className="size-4.5" aria-hidden="true" />
+            </span>
             <h2 className="text-lg font-semibold">{institution?.institution_name ?? "Your institution"}</h2>
-            <Badge variant="default" className="gap-1">
+            <Badge variant="default" className="gap-1 bg-success text-success-foreground">
               <CheckCircle2 className="size-3.5" aria-hidden="true" /> Verified
             </Badge>
           </div>
@@ -175,7 +181,10 @@ function PlacementDrivesSection({ drives }: { drives: StudentPlacementDriveRow[]
         ) : (
           <ul className="divide-y">
             {drives.map((d) => (
-              <li key={d.id} className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <li
+                key={d.id}
+                className="-mx-(--card-spacing) flex flex-col gap-2 px-(--card-spacing) py-3 transition-colors hover:bg-muted/50 sm:flex-row sm:items-center sm:justify-between"
+              >
                 <div className="min-w-0 space-y-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="font-medium">{d.title}</p>
@@ -225,7 +234,10 @@ function InternshipsSection({ internships }: { internships: StudentCuratedIntern
         ) : (
           <ul className="divide-y">
             {internships.map((i) => (
-              <li key={i.id} className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <li
+                key={i.id}
+                className="-mx-(--card-spacing) flex flex-col gap-2 px-(--card-spacing) py-3 transition-colors hover:bg-muted/50 sm:flex-row sm:items-center sm:justify-between"
+              >
                 <div className="min-w-0 space-y-1">
                   <p className="font-medium">{i.title}</p>
                   <p className="text-xs text-muted-foreground">

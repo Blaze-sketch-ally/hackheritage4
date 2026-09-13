@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { createClient } from "@/lib/supabase/client";
 import { NotificationBell } from "@/components/industry/notifications/notification-bell";
+import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { ROLE_LABELS, type PublicRole } from "@/lib/constants";
 import type { Profile } from "@/types/user";
 
@@ -56,6 +57,7 @@ export function IndustryHeader({ profile, onMenuClick }: { profile: Profile; onM
           /api/v1/industry/notifications. */}
 
       <div className="flex flex-1 items-center justify-end gap-1.5">
+        <ThemeToggle />
         <NotificationBell />
         <DropdownMenu>
           <DropdownMenuTrigger className="flex items-center gap-2 rounded-lg py-1 pr-1.5 pl-1 hover:bg-muted focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50">

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { SkillBridgeLogo } from "@/components/branding/skillbridge-logo";
 
 interface AuthShellProps {
   title: string;
@@ -14,8 +15,8 @@ export function AuthShell({ title, description, children, contentClassName }: Au
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-muted/30 px-4 py-10">
       <div className="mb-8 flex flex-col items-center gap-1 text-center">
-        <Link href="/" className="text-lg font-semibold tracking-tight">
-          AIC Portal
+        <Link href="/">
+          <SkillBridgeLogo textClassName="text-xl" />
         </Link>
         <p className="text-xs text-muted-foreground">Academia-Industry Collaboration</p>
       </div>

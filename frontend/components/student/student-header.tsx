@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { NotificationBell } from "@/components/student/notifications/notification-bell";
+import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { createClient } from "@/lib/supabase/client";
 import { ROLE_LABELS, type PublicRole } from "@/lib/constants";
 import type { Profile } from "@/types/user";
@@ -58,6 +59,7 @@ export function StudentHeader({ profile, onMenuClick }: { profile: Profile; onMe
       </div>
 
       <div className="flex flex-1 items-center justify-end gap-1.5 sm:flex-none">
+        <ThemeToggle />
         <NotificationBell />
 
         <DropdownMenu>

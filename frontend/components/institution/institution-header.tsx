@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { createClient } from "@/lib/supabase/client";
+import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { ROLE_LABELS, type PublicRole } from "@/lib/constants";
 import type { Profile } from "@/types/user";
 
@@ -68,6 +69,7 @@ export function InstitutionHeader({ profile, onMenuClick }: { profile: Profile; 
       </div>
 
       <div className="flex flex-1 items-center justify-end gap-1.5 sm:flex-none">
+        <ThemeToggle />
         <Button variant="ghost" size="icon" aria-label="Notifications" className="relative" disabled>
           <Bell />
           <span

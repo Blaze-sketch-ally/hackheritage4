@@ -1,4 +1,4 @@
-export const APP_NAME = "AIC Portal";
+export const APP_NAME = "SkillBridge";
 
 export const USER_ROLES = {
   STUDENT: "STUDENT",
