@@ -106,9 +106,37 @@ def test_migration_numbering_stays_contiguous_and_unique():
     assert len(numbers) == len(set(numbers)), f"duplicate migration numbers: {numbers}"
     assert numbers == list(range(numbers[0], numbers[-1] + 1)), f"gap in numbering: {numbers}"
     assert 52 in numbers
-    # 053 (Job Training completion) is the Job Training migration tip.
-    # 054 (student interview visibility) is an unrelated later migration.
-    assert numbers[-1] in (52, 53, 54), f"unexpected migration tip: {numbers[-1]}"
+
+
+def test_no_later_migration_defines_or_alters_job_training_tables():
+    """The real invariant this guard exists for: Job Training's own tables
+    (052/053) are never redefined or altered by a later, unrelated
+    migration -- not "no migration may exist past a fixed number". The
+    portal has since added migrations well past 053 for entirely separate
+    features (industry notifications, workshop/project/training
+    applications, the participation domain, profile fixes); those are
+    expected and fine. What would NOT be fine is one of them sneaking in a
+    `create table` / `alter table` against a Job Training table -- so this
+    checks DDL on the exact table names, not a substring match, because
+    several later migrations legitimately mention the *words* "job_training"
+    / "JOB_TRAINING_ENROLLMENT" as a notification-type enum literal (e.g.
+    058, 060, 066), which is a cross-reference, not a schema touch."""
+    ddl = re.compile(
+        r"\b(create\s+table\s+if\s+not\s+exists|alter\s+table)\s+(public\.)?("
+        + "|".join(re.escape(t) for t in ALL_NEW_TABLES)
+        + r")\b",
+        re.IGNORECASE,
+    )
+    for path in sorted(MIGRATIONS_DIR.glob("[0-9][0-9][0-9]_*.sql")):
+        if int(path.name[:3]) <= 53:
+            continue
+        body = path.read_text(encoding="utf-8")
+        match = ddl.search(body)
+        assert match is None, (
+            f"{path.name} defines/alters Job Training table "
+            f"{match.group(3) if match else '?'!r} -- Job Training schema "
+            "(052/053) must stay untouched by later migrations"
+        )
 
 
 def test_no_historical_migration_was_modified_by_j1():

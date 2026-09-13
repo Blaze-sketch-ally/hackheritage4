@@ -66,21 +66,50 @@ _CID = "77777777-7777-7777-7777-777777777777"
 # ============================================================
 
 
-def test_migration_053_exists_and_052_unchanged_and_no_054():
+_JOB_TRAINING_TABLES = (
+    "job_programs",
+    "job_program_modules",
+    "job_program_items",
+    "job_program_skills",
+    "job_program_assignments",
+    "job_training_enrollments",
+    "job_training_completions",
+    "job_training_certificates",
+)
+
+
+def test_migration_053_exists_and_052_unchanged_and_no_later_job_training_migration():
     assert M053.is_file()
     names = sorted(p.name for p in MIGRATIONS_DIR.glob("[0-9][0-9][0-9]_*.sql"))
     numbers = sorted(int(n[:3]) for n in names)
     assert numbers == list(range(numbers[0], numbers[-1] + 1)), f"gap: {numbers}"
-    # 053 is the Job Training completion tip. The only migration allowed
-    # past it is 054 (student interview visibility -- an unrelated feature
-    # that adds one read-only RPC and touches no job-training object).
-    assert numbers[-1] in (53, 54), "no Job Training migration may follow 053"
-    if numbers[-1] == 54:
-        assert "054_student_interview_visibility.sql" in names
     assert "053_job_training_completion.sql" in names
     # 052 still defines its own tables and was not edited
     m052 = M052.read_text(encoding="utf-8")
     assert "create table if not exists job_training_enrollments" in m052
+    # The real guard: no migration after 053 may define/alter a Job
+    # Training table. The portal has since grown many unrelated migrations
+    # past 053 (industry notifications, workshop/project/training
+    # applications, the participation domain, profile fixes) -- that's
+    # expected. A DDL hit on one of these exact table names would not be.
+    # (A plain substring check on "job_training" would false-positive on
+    # migrations that legitimately add 'JOB_TRAINING_ENROLLMENT' as a
+    # notification-type enum literal, e.g. 058/060/066 -- not a schema
+    # touch, so this matches DDL keywords + the exact table name instead.)
+    ddl = re.compile(
+        r"\b(create\s+table\s+if\s+not\s+exists|alter\s+table)\s+(public\.)?("
+        + "|".join(re.escape(t) for t in _JOB_TRAINING_TABLES)
+        + r")\b",
+        re.IGNORECASE,
+    )
+    for path in sorted(MIGRATIONS_DIR.glob("[0-9][0-9][0-9]_*.sql")):
+        if int(path.name[:3]) <= 53:
+            continue
+        match = ddl.search(path.read_text(encoding="utf-8"))
+        assert match is None, (
+            f"{path.name} defines/alters Job Training table "
+            f"{match.group(3) if match else '?'!r}"
+        )
 
 
 def test_053_is_additive_and_non_destructive():
@@ -275,18 +304,32 @@ def test_053_makes_no_notification_check_change_and_no_new_app_status():
         assert invented not in M053_L
 
 
-def test_no_post_053_migration_and_internship_schema_untouched():
-    later = sorted(
-        p.name for p in MIGRATIONS_DIR.glob("[0-9][0-9][0-9]_*.sql") if int(p.name[:3]) >= 54
+def test_no_post_053_migration_defines_or_alters_frozen_job_training_or_internship_tables():
+    """Later migrations are expected -- the portal has grown well past 053
+    with unrelated features (industry notifications, workshop/project/
+    training applications, participation, profile fixes). What must NOT
+    happen is one of them defining/altering a frozen Job Training or
+    (specifically) internship_completions/internship_certificates table.
+    Matches DDL + the exact table name rather than a plain substring,
+    because some later migrations legitimately add 'JOB_TRAINING_ENROLLMENT'
+    as a notification-type enum literal (058/060/066) -- a cross-reference,
+    not a schema touch, and a raw "job_training" substring search would
+    false-positive on it."""
+    frozen = _JOB_TRAINING_TABLES + ("internship_completions", "internship_certificates")
+    ddl = re.compile(
+        r"\b(create\s+table\s+if\s+not\s+exists|alter\s+table)\s+(public\.)?("
+        + "|".join(re.escape(t) for t in frozen)
+        + r")\b",
+        re.IGNORECASE,
     )
-    # 054 (student interview visibility) is the only permitted later
-    # migration -- it is a read-only RPC and must not touch job-training
-    # or internship schema.
-    assert later in ([], ["054_student_interview_visibility.sql"]), later
-    for name in later:
-        body = (MIGRATIONS_DIR / name).read_text(encoding="utf-8").lower()
-        for frozen in ("job_training", "internship_completions", "internship_certificates"):
-            assert frozen not in body, (name, frozen)
+    for path in sorted(MIGRATIONS_DIR.glob("[0-9][0-9][0-9]_*.sql")):
+        if int(path.name[:3]) <= 53:
+            continue
+        match = ddl.search(path.read_text(encoding="utf-8"))
+        assert match is None, (
+            f"{path.name} defines/alters frozen table {match.group(3) if match else '?'!r}"
+        )
+    # 053 itself must not touch the Internship Workspace's own tables.
     for t in ("internship_completions", "internship_certificates", "internship_workspaces"):
         assert f"create table if not exists {t}" not in M053_L
         assert f"alter table {t} " not in M053_L

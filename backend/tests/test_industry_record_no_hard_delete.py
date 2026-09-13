@@ -35,7 +35,6 @@ from pathlib import Path
 
 from app.services import (
     industry_collaboration_service,
-    industry_mentorship_service,
     industry_project_service,
     industry_training_service,
     industry_workshop_service,
@@ -63,11 +62,18 @@ OWNER_MANAGE_POLICIES_028 = {
 
 # Phase 10 services that must never issue ANY `.delete(` (single-table
 # resources: no child rows to replace).
+#
+# industry_mentorship_service was removed when the Mentorship feature was
+# replaced by the participation domain (industry_participant_service /
+# participation_program_service / etc.) -- there is no longer a service to
+# check here. The `industry_mentorship` TABLE and its migration-027
+# no-hard-delete RLS guard are unaffected and still checked below
+# (OWNER_MANAGE_POLICIES_027) -- the table is untouched, only its
+# application-layer service was retired.
 PHASE10_SERVICES = {
     "industry_projects": industry_project_service,
     "industry_training": industry_training_service,
     "industry_workshops": industry_workshop_service,
-    "industry_mentorship": industry_mentorship_service,
     "industry_collaborations": industry_collaboration_service,
 }
 
