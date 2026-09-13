@@ -5,6 +5,12 @@ import type {
   WorkshopStatus,
   WorkshopUpdate,
 } from "@/types/industry-workshop";
+import type {
+  IndustrySettableWorkshopStatus,
+  WorkshopApplication,
+  WorkshopApplicationListResponse,
+  WorkshopApplicationStatus,
+} from "@/types/workshop-application";
 
 /**
  * Talks to the Industry workshop API (backend/app/api/industry_workshops.py,
@@ -48,4 +54,23 @@ export function closeWorkshop(id: string): Promise<IndustryWorkshop> {
 
 export function archiveWorkshop(id: string): Promise<IndustryWorkshop> {
   return api.post(`/api/v1/workshops/${id}/archive`);
+}
+
+// ---- Applicants (industry_workshop_applications) ----
+
+export function getWorkshopApplications(
+  workshopId: string,
+  params?: { status?: WorkshopApplicationStatus | "" },
+): Promise<WorkshopApplicationListResponse> {
+  const query = new URLSearchParams();
+  if (params?.status) query.set("status", params.status);
+  const qs = query.toString();
+  return api.get(`/api/v1/workshops/${workshopId}/applications${qs ? `?${qs}` : ""}`);
+}
+
+export function updateWorkshopApplicationStatus(
+  applicationId: string,
+  status: IndustrySettableWorkshopStatus,
+): Promise<WorkshopApplication> {
+  return api.patch(`/api/v1/workshops/applications/${applicationId}/status`, { status });
 }

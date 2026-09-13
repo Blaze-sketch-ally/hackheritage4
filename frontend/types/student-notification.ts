@@ -31,6 +31,12 @@ export const RELATED_ENTITY_TYPES = [
   // Added by migration 052 (job training) -- the id is a
   // job_training_enrollments.id; see relatedHref() below.
   "JOB_TRAINING_ENROLLMENT",
+  // Added by migration 058 -- the id is an industry_workshops.id /
+  // industry_projects.id (the posting, not the application row).
+  "WORKSHOP",
+  "PROJECT",
+  // Added by migration 060 -- the id is an industry_training.id.
+  "TRAINING",
 ] as const;
 export type RelatedEntityType = (typeof RELATED_ENTITY_TYPES)[number];
 
@@ -71,13 +77,23 @@ export function relatedHref(n: StudentNotification): string | null {
     case "EVENT":
       return `/student/events/${encodeURIComponent(id)}`;
     case "MENTORSHIP":
-      return `/student/mentorship/${encodeURIComponent(id)}`;
+      // Industry Mentorship was removed; no student-facing route exists.
+      return null;
     case "INTERNSHIP_WORKSPACE":
       return `/student/my-internships/${encodeURIComponent(id)}`;
     case "JOB_TRAINING_ENROLLMENT":
       // `id` is a job_training_enrollments.id -- the Student Job Training
       // detail route (app/student/job-training/[enrollmentId]/page.tsx).
       return `/student/job-training/${encodeURIComponent(id)}`;
+    case "WORKSHOP":
+      // `id` is an industry_workshops.id (migration 058).
+      return `/student/workshops/${encodeURIComponent(id)}`;
+    case "PROJECT":
+      // `id` is an industry_projects.id (migration 058).
+      return `/student/industry-projects/${encodeURIComponent(id)}`;
+    case "TRAINING":
+      // `id` is an industry_training.id (migration 060).
+      return `/student/trainings/${encodeURIComponent(id)}`;
     case "INTERVIEW":
       // No student-facing interview route exists yet.
       return null;

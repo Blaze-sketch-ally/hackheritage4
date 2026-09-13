@@ -5,6 +5,7 @@ import type {
   StipendSummary,
   UpdateStipendInput,
 } from "@/types/internship-stipend";
+import type { InternshipWorkspaceSummary, WorkspaceStatus } from "@/types/internship-workspace";
 
 /**
  * Talks to the Industry Internship Workspace API
@@ -23,6 +24,20 @@ import type {
 
 function base(workspaceId: string): string {
   return `/api/v1/internship-workspaces/${encodeURIComponent(workspaceId)}`;
+}
+
+/** The caller's own internship workspaces, optionally scoped to one
+ * internship and/or one status -- the Active/Enrolled/Completed list per
+ * internship (GET /api/v1/internship-workspaces). */
+export function getInternshipWorkspaces(params?: {
+  internshipId?: string;
+  status?: WorkspaceStatus | "";
+}): Promise<{ workspaces: InternshipWorkspaceSummary[] }> {
+  const query = new URLSearchParams();
+  if (params?.internshipId) query.set("internship_id", params.internshipId);
+  if (params?.status) query.set("status", params.status);
+  const qs = query.toString();
+  return api.get(`/api/v1/internship-workspaces${qs ? `?${qs}` : ""}`);
 }
 
 export function getWorkspaceCompletion(workspaceId: string): Promise<CompletionSummary> {

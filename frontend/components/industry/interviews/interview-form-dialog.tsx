@@ -15,7 +15,12 @@ import { FieldError } from "@/components/auth/field-error";
 import { FormError } from "@/components/auth/form-error";
 import { ApiError } from "@/lib/api";
 import { rescheduleInterview, scheduleInterview } from "@/lib/industry/interviews";
-import { applicantRef, OPPORTUNITY_TYPE_LABELS, type Application } from "@/types/application";
+import {
+  applicantDisplayName,
+  applicantRef,
+  OPPORTUNITY_TYPE_LABELS,
+  type Application,
+} from "@/types/application";
 import {
   DURATION_OPTIONS,
   INTERVIEW_LOCATION_LABELS,
@@ -67,6 +72,32 @@ export function InterviewFormDialog({
 }) {
   if (!open) return null;
 
+  // When the caller already knows exactly which candidate this dialog is
+  // for (a single preselected `eligibleApplications` entry -- the case for
+  // every entry point outside the Interview Panel's own multi-candidate "+
+  // Schedule interview" button -- or any reschedule, which always targets
+  // one known interview), show who/what it's for right in the header. Pure
+  // display, built only from data the caller already passed in -- never an
+  // extra fetch, and never changes which fields render below.
+  const context =
+    mode === "reschedule" && interview
+      ? {
+          name: applicantDisplayName(interview),
+          opportunity:
+            interview.opportunity?.title ??
+            (interview.opportunity_type ? OPPORTUNITY_TYPE_LABELS[interview.opportunity_type] : null) ??
+            "Opportunity",
+        }
+      : mode === "schedule" && eligibleApplications.length === 1
+        ? {
+            name: applicantDisplayName(eligibleApplications[0]),
+            opportunity:
+              eligibleApplications[0].opportunity?.title ??
+              OPPORTUNITY_TYPE_LABELS[eligibleApplications[0].opportunity_type] ??
+              "Opportunity",
+          }
+        : null;
+
   return (
     <Dialog open onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
@@ -75,9 +106,17 @@ export function InterviewFormDialog({
             {mode === "schedule" ? "Schedule interview" : "Reschedule interview"}
           </DialogTitle>
           <DialogDescription>
-            {mode === "schedule"
-              ? "Set a time for a shortlisted candidate. Times are shown in your local timezone."
-              : "Change the time or details of this scheduled interview."}
+            {context ? (
+              <>
+                <span className="font-medium text-foreground">{context.name}</span>
+                {" · "}
+                {context.opportunity}
+              </>
+            ) : mode === "schedule" ? (
+              "Set a time for a shortlisted candidate. Times are shown in your local timezone."
+            ) : (
+              "Change the time or details of this scheduled interview."
+            )}
           </DialogDescription>
         </DialogHeader>
 

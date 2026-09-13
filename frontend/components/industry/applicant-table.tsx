@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -64,10 +65,31 @@ export function ApplicantTable({
                 <TableCell className="font-medium">
                   <Link
                     href={`/industry/applicants/${application.id}`}
-                    className="hover:underline"
+                    className="block hover:underline"
                   >
                     {applicantDisplayName(application)}
                   </Link>
+                  {application.institution_name || application.department || application.graduation_year ? (
+                    <p className="text-xs font-normal text-muted-foreground">
+                      {[application.institution_name, application.department, application.graduation_year]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </p>
+                  ) : null}
+                  {application.skills && application.skills.length > 0 ? (
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {application.skills.slice(0, 3).map((skill) => (
+                        <Badge key={skill} variant="secondary" className="text-[10px] font-normal">
+                          {skill}
+                        </Badge>
+                      ))}
+                      {application.skills.length > 3 ? (
+                        <span className="text-[10px] text-muted-foreground">
+                          +{application.skills.length - 3}
+                        </span>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </TableCell>
                 <TableCell className="max-w-[15rem] truncate">
                   {application.opportunity?.title ?? "(posting unavailable)"}

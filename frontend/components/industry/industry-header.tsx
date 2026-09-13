@@ -13,6 +13,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { createClient } from "@/lib/supabase/client";
+import { NotificationBell } from "@/components/industry/notifications/notification-bell";
 import { ROLE_LABELS, type PublicRole } from "@/lib/constants";
 import type { Profile } from "@/types/user";
 
@@ -49,11 +50,13 @@ export function IndustryHeader({ profile, onMenuClick }: { profile: Profile; onM
         <Menu />
       </Button>
 
-      {/* Global search and an in-app notification centre are not built for
-          Industry yet; nothing here implies they exist (audit: removed the
-          disabled search box + fake notification bell/dot). */}
+      {/* Global search is not built for Industry yet; nothing here implies
+          it exists (audit: removed the disabled search box). The
+          notification bell below is real -- backed by
+          /api/v1/industry/notifications. */}
 
       <div className="flex flex-1 items-center justify-end gap-1.5">
+        <NotificationBell />
         <DropdownMenu>
           <DropdownMenuTrigger className="flex items-center gap-2 rounded-lg py-1 pr-1.5 pl-1 hover:bg-muted focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50">
             <Avatar size="sm">

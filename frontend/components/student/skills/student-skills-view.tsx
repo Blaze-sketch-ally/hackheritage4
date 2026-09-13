@@ -11,8 +11,8 @@ import { SkillCard } from "@/components/student/skill-card";
 import { SkillSummary } from "@/components/student/skills/skill-summary";
 import { SkillsToolbar } from "@/components/student/skills/skills-toolbar";
 import { createClient } from "@/lib/supabase/client";
-import { listAssessments } from "@/lib/student/assessment";
-import type { Assessment } from "@/types/assessment";
+import { getAttemptHistory, listAssessments } from "@/lib/student/assessment";
+import type { Assessment, AttemptHistoryItem } from "@/types/assessment";
 import {
   addStudentSkill,
   deleteStudentSkill,
@@ -50,26 +50,56 @@ export function StudentSkillsView({
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
 
-  // Matching assessment per (skill_id, difficulty) -- fetched once,
-  // client-side (the FastAPI bridge is browser-only, see lib/api.ts), the
-  // same pattern AssessmentListView already uses. listAssessments() is
-  // already scoped server-side to this student's selected skills, so every
-  // row it returns corresponds to one of the cards below; the
+  // Matching assessment + latest attempt per (skill_id, difficulty) --
+  // fetched once, client-side (the FastAPI bridge is browser-only, see
+  // lib/api.ts), the same pattern AssessmentListView already uses.
+  // listAssessments() is already scoped server-side to this student's
+  // selected skills, and getAttemptHistory() to the caller's own attempts,
+  // so every row either returns corresponds to one of the cards below; the
   // (skill_id, proficiency_level) exact-match lookup still decides which
-  // card actually gets a "Take Assessment" button. A failure here degrades
-  // gracefully to "Assessment not available yet." on every card rather
-  // than blocking the skills page itself.
-  const [assessmentsByKey, setAssessmentsByKey] = useState<Map<string, Assessment>>(new Map());
+  // card actually gets a "Verify Skill" action. Kept as an explicit
+  // loading/error/ready state (rather than defaulting straight to empty
+  // maps) so SkillCard can tell "still checking" and "the lookup itself
+  // failed" apart from the honest "no assessment exists for this skill yet"
+  // case -- collapsing all three into one silent empty-map state would make
+  // every card claim "Assessment not available yet." during the initial
+  // load and on a network failure, which is exactly the dishonest fallback
+  // this feature is supposed to avoid.
+  type AssessmentLookupState =
+    | { status: "loading" }
+    | { status: "error" }
+    | {
+        status: "ready";
+        assessmentsByKey: Map<string, Assessment>;
+        latestAttemptsByKey: Map<string, AttemptHistoryItem>;
+      };
+
+  const [assessmentLookup, setAssessmentLookup] = useState<AssessmentLookupState>({ status: "loading" });
 
   useEffect(() => {
     let cancelled = false;
-    listAssessments()
-      .then(({ assessments }) => {
+    Promise.all([listAssessments(), getAttemptHistory()])
+      .then(([{ assessments }, attempts]) => {
         if (cancelled) return;
-        setAssessmentsByKey(new Map(assessments.map((a) => [keyFor(a.skill_id, a.difficulty), a])));
+        const assessmentsByKey = new Map(assessments.map((a) => [keyFor(a.skill_id, a.difficulty), a]));
+        // getAttemptHistory() returns most-recent-first; keep only the
+        // first (i.e. latest) attempt seen per (skill_id, difficulty) key.
+        // An attempt whose assessment has since been deactivated comes
+        // back with assessment: null (see list_own_attempts) -- it carries
+        // no skill_id/difficulty to key by, so it's skipped here rather
+        // than guessed at.
+        const latestAttemptsByKey = new Map<string, AttemptHistoryItem>();
+        for (const attempt of attempts) {
+          if (!attempt.assessment) continue;
+          const key = keyFor(attempt.assessment.skill_id, attempt.assessment.difficulty);
+          if (!latestAttemptsByKey.has(key)) latestAttemptsByKey.set(key, attempt);
+        }
+        setAssessmentLookup({ status: "ready", assessmentsByKey, latestAttemptsByKey });
       })
       .catch((err) => {
+        if (cancelled) return;
         console.error("Could not load assessments for skill matching:", err);
+        setAssessmentLookup({ status: "error" });
       });
     return () => {
       cancelled = true;
@@ -212,15 +242,20 @@ export function StudentSkillsView({
         <EmptyState icon={Search} title="No skills match your search" description="Try a different search term or category filter." />
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {visibleSkills.map((studentSkill) => (
-            <SkillCard
-              key={studentSkill.id}
-              studentSkill={studentSkill}
-              matchingAssessment={assessmentsByKey.get(keyFor(studentSkill.skill_id, studentSkill.proficiency_level))}
-              onEdit={() => setEditingSkill(studentSkill)}
-              onDelete={() => setDeletingSkill(studentSkill)}
-            />
-          ))}
+          {visibleSkills.map((studentSkill) => {
+            const key = keyFor(studentSkill.skill_id, studentSkill.proficiency_level);
+            return (
+              <SkillCard
+                key={studentSkill.id}
+                studentSkill={studentSkill}
+                lookupStatus={assessmentLookup.status}
+                matchingAssessment={assessmentLookup.status === "ready" ? assessmentLookup.assessmentsByKey.get(key) : undefined}
+                latestAttempt={assessmentLookup.status === "ready" ? assessmentLookup.latestAttemptsByKey.get(key) : undefined}
+                onEdit={() => setEditingSkill(studentSkill)}
+                onDelete={() => setDeletingSkill(studentSkill)}
+              />
+            );
+          })}
         </div>
       )}
 

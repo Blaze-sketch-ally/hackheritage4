@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { AlertCircle, ArrowLeft, ArrowRight, CheckCircle2, Loader2 } from "lucide-react";
+import { AlertCircle, ArrowLeft, ArrowRight, CheckCircle2, Loader2, TrendingUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -476,13 +476,12 @@ function AssessmentResultView({ result }: { result: AssessmentResult }) {
           </div>
           {passed && !skill_verified && (
             <p className="text-xs text-muted-foreground">
-              Passing an assessment verifies a skill only when it is already in your profile at this
-              exact level. Add it under Skills &amp; Assessment (or set the matching level), then
-              retake to verify — an assessment never creates a skill on its own.
+              Passed assessments can verify your skill and may raise your proficiency level based on
+              the assessment completed — but they never lower a level you&apos;ve already proven.
             </p>
           )}
         </CardContent>
-        <CardFooter>
+        <CardFooter className="flex flex-wrap gap-2">
           <Button
             variant="outline"
             size="sm"
@@ -490,6 +489,13 @@ function AssessmentResultView({ result }: { result: AssessmentResult }) {
             nativeButton={false}
           >
             <ArrowLeft className="size-3.5" /> Back to assessments
+          </Button>
+          <Button
+            size="sm"
+            render={<Link href="/student/skill-gap" />}
+            nativeButton={false}
+          >
+            <TrendingUp className="size-3.5" /> View Skill Gap Analysis
           </Button>
         </CardFooter>
       </Card>

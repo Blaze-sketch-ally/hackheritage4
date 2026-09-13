@@ -24,9 +24,25 @@ from app.schemas.industry_project import (
     ProjectStatus,
     ProjectUpdate,
 )
-from app.services import industry_project_service
+from app.schemas.project_application import (
+    ProjectApplicationListResponse,
+    ProjectApplicationResponse,
+    ProjectApplicationStatus,
+    ProjectApplicationStatusUpdate,
+)
+from app.services import (
+    industry_project_application_service,
+    industry_project_service,
+    notification_producer,
+)
 
 router = APIRouter(prefix="/projects", tags=["industry-projects"])
+
+
+def _application_not_found() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND, detail="Project application not found."
+    )
 
 
 def _not_found() -> HTTPException:
@@ -167,3 +183,60 @@ def archive_project(
     if row is None:
         raise _not_found()
     return ProjectResponse(**row)
+
+
+# ============================================================
+# Applicants (industry_project_applications, 057_project_applications.sql)
+# ============================================================
+
+
+@router.get("/{project_id}/applications", response_model=ProjectApplicationListResponse)
+def list_project_applications(
+    project_id: UUID,
+    status_filter: ProjectApplicationStatus | None = Query(default=None, alias="status"),
+    current_user: CurrentUser = Depends(require_industry),
+) -> ProjectApplicationListResponse:
+    """Students who applied to one of the caller's own projects. Human-
+    readable applicant info is attached server-side -- never a raw
+    student_id."""
+    client = build_user_client(current_user.access_token)
+    try:
+        rows = industry_project_application_service.list_applications(
+            client, current_user.id, status=status_filter, project_id=str(project_id)
+        )
+    except Exception as exc:
+        raise _server_error("load applicants") from exc
+    return ProjectApplicationListResponse(applications=rows)
+
+
+@router.patch(
+    "/applications/{application_id}/status", response_model=ProjectApplicationResponse
+)
+def update_project_application_status(
+    application_id: UUID,
+    body: ProjectApplicationStatusUpdate,
+    current_user: CurrentUser = Depends(require_industry),
+) -> ProjectApplicationResponse:
+    client = build_user_client(current_user.access_token)
+    try:
+        row = industry_project_application_service.update_status(
+            client, current_user.id, str(application_id), body.status
+        )
+    except industry_project_application_service.InvalidStatusTransitionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"An application at '{exc.current}' can't be moved to '{exc.target}'.",
+        ) from exc
+    except Exception as exc:
+        raise _server_error("update the application") from exc
+    if row is None:
+        raise _application_not_found()
+
+    notification_producer.emit_project_status_change(
+        student_id=row["student_id"],
+        project_id=row["project_id"],
+        new_status=row["status"],
+        project_title=(row.get("project") or {}).get("title"),
+    )
+
+    return ProjectApplicationResponse(**row)

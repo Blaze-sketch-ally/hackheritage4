@@ -8,6 +8,7 @@ import type {
   OpportunityType,
 } from "@/types/application";
 import type { ProvisionJobTrainingResponse } from "@/types/job-training";
+import type { ProvisionWorkspaceResponse } from "@/types/internship-workspace";
 
 /**
  * Talks to the Industry application API
@@ -71,4 +72,19 @@ export function provisionJobTraining(
   applicationId: string,
 ): Promise<ProvisionJobTrainingResponse> {
   return api.post(`/api/v1/applications/${applicationId}/provision-job-training`);
+}
+
+/** Idempotently (re-)provision the Internship Workspace for a SELECTED
+ * INTERNSHIP application of one of the caller's own postings
+ * (backend/app/api/applications.py — POST .../provision-workspace). Exact
+ * parallel of provisionJobTraining above. The SELECTED transition already
+ * provisions best-effort; this is the explicit "is there a workspace"
+ * check/heal action, safe to call more than once -- an already-provisioned
+ * application comes back as ALREADY_EXISTS with the existing workspace,
+ * never a duplicate and never an error. Never changes the application's
+ * status. */
+export function provisionInternshipWorkspace(
+  applicationId: string,
+): Promise<ProvisionWorkspaceResponse> {
+  return api.post(`/api/v1/applications/${applicationId}/provision-workspace`);
 }

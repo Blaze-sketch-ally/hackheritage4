@@ -5,13 +5,14 @@ import { usePathname } from "next/navigation";
 import {
   BadgeCheck,
   BarChart3,
+  Bell,
   BookOpen,
   Briefcase,
   Building2,
   CalendarDays,
+  Contact,
   FolderKanban,
   GraduationCap,
-  Handshake,
   LayoutDashboard,
   type LucideIcon,
   Network,
@@ -53,7 +54,6 @@ const NAV_GROUPS: NavGroup[] = [
       { label: "Projects", href: "/industry/projects", icon: FolderKanban },
       { label: "Training", href: "/industry/training", icon: BookOpen },
       { label: "Workshops", href: "/industry/workshops", icon: Presentation },
-      { label: "Mentorship", href: "/industry/mentorship", icon: Handshake },
     ],
   },
   {
@@ -63,6 +63,7 @@ const NAV_GROUPS: NavGroup[] = [
       { label: "Shortlisted", href: "/industry/shortlisted", icon: UserCheck },
       { label: "Interviews", href: "/industry/interviews", icon: CalendarDays },
       { label: "Selected", href: "/industry/selected", icon: BadgeCheck },
+      { label: "All Participants", href: "/industry/participants", icon: Contact },
     ],
   },
   {
@@ -74,8 +75,11 @@ const NAV_GROUPS: NavGroup[] = [
     items: [{ label: "Analytics", href: "/industry/analytics", icon: BarChart3 }],
   },
   {
-    label: "System",
-    items: [{ label: "Settings", href: "/industry/settings", icon: Settings }],
+    label: "Account",
+    items: [
+      { label: "Notifications", href: "/industry/notifications", icon: Bell },
+      { label: "Settings", href: "/industry/settings", icon: Settings },
+    ],
   },
 ];
 

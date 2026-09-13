@@ -36,7 +36,6 @@ USAGE
 -----
     python database/seed/industry_demo_seed.py --check     # report only, no writes
     python database/seed/industry_demo_seed.py --apply     # idempotent insert
-    python database/seed/industry_demo_seed.py --emit-sql   # write industry_demo.sql
 
 Requires SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY in backend/.env
 (read automatically), or the same two as environment variables.
@@ -51,6 +50,9 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+from datetime import datetime as _dt
+from datetime import timedelta as _timedelta
+from datetime import timezone as _dt_tz
 from pathlib import Path
 
 # --------------------------------------------------------------------------
@@ -76,12 +78,21 @@ def _load_conn() -> tuple[str, str]:
     return url.rstrip("/"), key
 
 
-SUPABASE_URL, SERVICE_KEY = _load_conn()
+SUPABASE_URL = ""
+SERVICE_KEY = ""
 _HEADERS = {
-    "apikey": SERVICE_KEY,
-    "Authorization": f"Bearer {SERVICE_KEY}",
     "Content-Type": "application/json",
 }
+
+
+def _configure_connection() -> None:
+    """Load credentials only for modes which contact Supabase."""
+    global SUPABASE_URL, SERVICE_KEY
+    SUPABASE_URL, SERVICE_KEY = _load_conn()
+    _HEADERS.update({
+        "apikey": SERVICE_KEY,
+        "Authorization": f"Bearer {SERVICE_KEY}",
+    })
 
 
 def _req(method: str, path: str, body=None, extra_headers=None):
@@ -118,6 +129,12 @@ def insert(table: str, row: dict):
     if status not in (200, 201):
         raise RuntimeError(f"INSERT {table} -> {status}: {payload}\nrow={row}")
     return payload[0] if isinstance(payload, list) and payload else payload
+
+
+def update(table: str, query: str, row: dict) -> None:
+    status, payload = _req("PATCH", f"{table}?{query}", row)
+    if status not in (200, 204):
+        raise RuntimeError(f"UPDATE {table} -> {status}: {payload}\\nrow={row}")
 
 
 # --------------------------------------------------------------------------
@@ -780,6 +797,511 @@ STUDENT_SKILLS = [
 
 
 # ==========================================================================
+# PART 2 -- richer Applicant/Participant demo (added for the Industry
+# Applicant/Participant Management presentation seed).
+# ==========================================================================
+#
+# Everything below is ADDITIVE to the dataset above, on the SAME sanctioned
+# TechNova account (no new demo company) and the SAME idempotent
+# "match on a stable natural key, insert only if absent" pattern the rest
+# of this file already uses. It adds:
+#   * an optional, larger STUDENT roster (env-configurable -- see below)
+#   * the 5 Job / 5 Internship / 4 Project / 4 Workshop / 4 Training
+#     postings named in the demo brief (skipped if a title already exists
+#     under TechNova -- "Machine Learning Engineer" already does)
+#   * Project / Workshop / Training APPLICATIONS -- tables that did not
+#     exist when the dataset above was written
+#   * a couple of real `interviews` rows for the existing / new
+#     INTERVIEW_SCHEDULED applications (fixes a pre-existing gap: the
+#     original SRE INTERVIEW_SCHEDULED application above has no matching
+#     interviews row yet)
+#   * `internship_workspaces` for a few SELECTED internship applications
+#   * `industry_notifications` / `student_notifications` rows
+#
+# ENV-CONFIGURABLE STUDENT ROSTER
+# --------------------------------
+# No code in this repo creates Supabase auth users programmatically, and
+# this script does not start (auth admin calls are a materially different
+# risk than inserting demo rows via PostgREST). Every extra student MUST
+# already exist as a real STUDENT profile:
+#
+#   DEMO_STUDENT_USER_IDS=<uuid1,uuid2,...>   (optional; comma-separated)
+#
+# The roster is STUDENT_1, STUDENT_2 (always) plus whichever ids that env
+# var supplies, in order. With none set, this section still runs -- using
+# only student_demo_1/student_demo_2 -- but most of the demo's per-posting
+# state DIVERSITY (the plans below list the most interesting/terminal
+# status first specifically so a 2-student roster still shows SELECTED /
+# ACCEPTED / COMPLETED examples, not just repeats of APPLIED) and the
+# named "Aarav Sharma / Riya Sen / Rahul Verma apply to several modules"
+# storylines from the brief need 5 real ids to attach to. Each id is
+# TRUSTED as-is (matching how STUDENT_1/STUDENT_2 above are also plain
+# constants, never re-verified) -- if one does not exist or is not a
+# STUDENT profile, the insert that references it fails loudly with the
+# real PostgREST error (a foreign-key violation), exactly like any other
+# bad row in this file would.
+#
+# No auth user is ever created, updated, or deleted by this script.
+
+EXTRA_STUDENT_IDS = [
+    s.strip() for s in os.environ.get("DEMO_STUDENT_USER_IDS", "").split(",") if s.strip()
+]
+STUDENT_ROSTER = [STUDENT_1, STUDENT_2, *EXTRA_STUDENT_IDS]
+
+# 20 fictional personas, cycled onto STUDENT_ROSTER[2:] (STUDENT_1/2 keep
+# their existing "Demo Student One/Two" identity -- see PERSONA_PROFILES
+# below, which only backfills their institution/department/skills, never
+# their name). Only skills confirmed to exist in the live catalog
+# (database/seed/skills.sql) are used here -- "IoT" / "Embedded Systems"
+# are real posting-title words below but are NOT in the skills catalog, so
+# they are never used as a structured student_skills tag.
+DEMO_PERSONAS = [
+    dict(name="Aarav Sharma", institution="Heritage Institute of Technology", department="CSE", graduation_year=2026,
+         skills=["Python", "Machine Learning", "Data Analysis"]),
+    dict(name="Riya Sen", institution="Jadavpur University", department="IT", graduation_year=2027,
+         skills=["JavaScript", "React", "Next.js"]),
+    dict(name="Arjun Mehta", institution="Techno India University", department="ECE", graduation_year=2026,
+         skills=["C++", "Python"]),
+    dict(name="Ananya Das", institution="IEM Kolkata", department="CSE", graduation_year=2025,
+         skills=["Python", "SQL", "Data Analysis"]),
+    dict(name="Rahul Verma", institution="NIT Durgapur", department="IT", graduation_year=2026,
+         skills=["Node.js", "JavaScript", "FastAPI"]),
+    dict(name="Ishita Roy", institution="IIEST Shibpur", department="EE", graduation_year=2027,
+         skills=["Python", "Machine Learning"]),
+    dict(name="Aditya Nair", institution="Heritage Institute of Technology", department="AI/ML", graduation_year=2026,
+         skills=["Python", "Machine Learning", "Cloud Computing"]),
+    dict(name="Sneha Gupta", institution="Jadavpur University", department="CSE", graduation_year=2028,
+         skills=["Java", "SQL"]),
+    dict(name="Rohan Bose", institution="Techno India University", department="IT", graduation_year=2027,
+         skills=["React", "JavaScript", "Git"]),
+    dict(name="Priya Singh", institution="IEM Kolkata", department="ECE", graduation_year=2026,
+         skills=["C++", "Python"]),
+    dict(name="Karan Patel", institution="NIT Durgapur", department="CSE", graduation_year=2025,
+         skills=["Docker", "Cloud Computing", "Git"]),
+    dict(name="Meera Iyer", institution="IIEST Shibpur", department="AI/ML", graduation_year=2027,
+         skills=["Python", "Machine Learning", "Data Analysis"]),
+    dict(name="Sayan Ghosh", institution="Heritage Institute of Technology", department="IT", graduation_year=2026,
+         skills=["Node.js", "JavaScript"]),
+    dict(name="Nisha Kapoor", institution="Jadavpur University", department="EE", graduation_year=2028,
+         skills=["Python", "SQL"]),
+    dict(name="Vikram Rao", institution="Techno India University", department="CSE", graduation_year=2026,
+         skills=["Java", "Docker"]),
+    dict(name="Diya Banerjee", institution="IEM Kolkata", department="AI/ML", graduation_year=2027,
+         skills=["Python", "Machine Learning"]),
+    dict(name="Abhishek Jain", institution="NIT Durgapur", department="ECE", graduation_year=2025,
+         skills=["C++", "Git"]),
+    dict(name="Tanisha Dutta", institution="IIEST Shibpur", department="IT", graduation_year=2026,
+         skills=["React", "Next.js", "JavaScript"]),
+    dict(name="Neel Shah", institution="Heritage Institute of Technology", department="CSE", graduation_year=2027,
+         skills=["Python", "FastAPI", "SQL"]),
+    dict(name="Pooja Menon", institution="Jadavpur University", department="AI/ML", graduation_year=2026,
+         skills=["Python", "Machine Learning", "Cloud Computing"]),
+]
+
+# (student_id, institution, department, graduation_year, skills[]) for
+# every roster member that gets a persona. These are additive hints only:
+# existing profile names and student-profile rows are never overwritten.
+PERSONA_PROFILES = []
+if len(STUDENT_ROSTER) > 0:
+    PERSONA_PROFILES.append(dict(student=STUDENT_1, name=None, **{k: v for k, v in DEMO_PERSONAS[0].items() if k != "name"}))
+if len(STUDENT_ROSTER) > 1:
+    PERSONA_PROFILES.append(dict(student=STUDENT_2, name=None, **{k: v for k, v in DEMO_PERSONAS[1].items() if k != "name"}))
+for _i, _sid in enumerate(EXTRA_STUDENT_IDS):
+    _persona = DEMO_PERSONAS[_i % len(DEMO_PERSONAS)]
+    PERSONA_PROFILES.append(dict(student=_sid, name=None, **{k: v for k, v in _persona.items() if k != "name"}))
+
+# Named storylines from the brief -- only attached to a real account when
+# at least 5 roster members exist (STUDENT_1, STUDENT_2, + 3 extras).
+# Below that, the general per-posting plans (further down) still populate
+# every state; these three roster slots just don't get a *named* arc.
+_HAS_STORY = len(STUDENT_ROSTER) >= 5
+AARAV = STUDENT_ROSTER[2] if _HAS_STORY else None
+RIYA = STUDENT_ROSTER[3] if _HAS_STORY else None
+RAHUL = STUDENT_ROSTER[4] if _HAS_STORY else None
+
+_offset = [0]
+
+
+def _apps_for(posting_title, opportunity_type, plan):
+    """Distributes `plan` (a list of statuses, most-interesting-first) over
+    STUDENT_ROSTER, one distinct student per status -- never the same
+    student twice against the same posting (the DB's own unique
+    (student, posting) index would reject that anyway). Capped to
+    len(STUDENT_ROSTER): with a 2-student roster, only the first two
+    (most interesting) statuses in `plan` are actually created."""
+    n = min(len(plan), len(STUDENT_ROSTER))
+    start = _offset[0]
+    _offset[0] += 1
+    out = []
+    for i in range(n):
+        student = STUDENT_ROSTER[(start + i) % len(STUDENT_ROSTER)]
+        status = plan[i]
+        out.append(dict(student=student, opportunity_type=opportunity_type,
+                         posting_title=posting_title, status=status,
+                         cover_note=f"Demo {status.replace('_', ' ').title()} application."))
+    return out
+
+
+def _mod_apps_for(posting_title, plan):
+    """Same as _apps_for but for the Project/Workshop/Training application
+    tables (no opportunity_type column -- the table itself is the type)."""
+    n = min(len(plan), len(STUDENT_ROSTER))
+    start = _offset[0]
+    _offset[0] += 1
+    out = []
+    for i in range(n):
+        student = STUDENT_ROSTER[(start + i) % len(STUDENT_ROSTER)]
+        out.append(dict(student=student, posting_title=posting_title, status=plan[i]))
+    return out
+
+
+# ---- new postings (skipped automatically if a title already exists) ----
+
+INTERNSHIPS.extend([
+    dict(owner=TECHNOVA, title="AI/ML Intern", status="PUBLISHED",
+         location=REMOTE_IN, work_mode="REMOTE", duration_months=6, stipend_amount=30000,
+         openings=3, application_deadline=DEADLINE, start_date=START,
+         eligibility_criteria="Pre-final/final-year students with an ML/DL course or project.",
+         description="Work with TechNova's AI team on real applied-ML problems: data prep, "
+                      "model training, and evaluation on production-scale datasets."),
+    dict(owner=TECHNOVA, title="Full Stack Development Intern", status="PUBLISHED",
+         location=BLR, work_mode="HYBRID", duration_months=6, stipend_amount=28000,
+         openings=2, application_deadline=DEADLINE, start_date=START,
+         eligibility_criteria="Comfortable with a modern JS framework and a backend language.",
+         description="Build and ship end-to-end features across TechNova's React front-end "
+                      "and FastAPI services, alongside a senior full-stack engineer."),
+    dict(owner=TECHNOVA, title="Data Science Intern", status="PUBLISHED",
+         location=REMOTE_IN, work_mode="REMOTE", duration_months=4, stipend_amount=27000,
+         openings=2, application_deadline=DEADLINE, start_date=START,
+         eligibility_criteria="Strong Python and statistics fundamentals.",
+         description="Analyze product data, build predictive models, and present findings "
+                      "to the product team as part of TechNova's data science pod."),
+    dict(owner=TECHNOVA, title="IoT & Embedded Systems Intern", status="PUBLISHED",
+         location=BLR, work_mode="ONSITE", duration_months=4, stipend_amount=25000,
+         openings=1, application_deadline=DEADLINE, start_date=START,
+         eligibility_criteria="Coursework or projects in embedded C/C++ and sensor hardware.",
+         description="Prototype firmware and sensor integrations for TechNova's Industry 4.0 "
+                      "device line, working closely with the hardware team."),
+    dict(owner=TECHNOVA, title="Cloud Engineering Intern", status="PUBLISHED",
+         location=REMOTE_IN, work_mode="REMOTE", duration_months=6, stipend_amount=29000,
+         openings=2, application_deadline=DEADLINE, start_date=START,
+         eligibility_criteria="Familiar with a major cloud provider and containerization basics.",
+         description="Help build and harden TechNova's cloud infrastructure -- CI/CD, "
+                      "container platforms, and cost/observability tooling."),
+])
+
+JOBS.extend([
+    dict(owner=TECHNOVA, title="Frontend Developer", status="PUBLISHED",
+         location=BLR, work_mode="HYBRID", employment_type="FULL_TIME",
+         salary_min=900000, salary_max=1600000, experience_min_years=1, openings=2,
+         application_deadline=DEADLINE,
+         eligibility_criteria="1+ years building production React applications.",
+         description="Own user-facing features across TechNova's product suite, working "
+                      "closely with design and backend engineering."),
+    dict(owner=TECHNOVA, title="Backend Developer", status="PUBLISHED",
+         location=REMOTE_IN, work_mode="REMOTE", employment_type="FULL_TIME",
+         salary_min=1000000, salary_max=1800000, experience_min_years=1, openings=2,
+         application_deadline=DEADLINE,
+         eligibility_criteria="1+ years with a backend language and relational databases.",
+         description="Design and operate the APIs and services behind TechNova's core "
+                      "product, with an emphasis on correctness and performance."),
+    dict(owner=TECHNOVA, title="Data Analyst", status="PUBLISHED",
+         location=BLR, work_mode="HYBRID", employment_type="FULL_TIME",
+         salary_min=800000, salary_max=1400000, experience_min_years=0, openings=2,
+         application_deadline=DEADLINE,
+         eligibility_criteria="Strong SQL and spreadsheet skills; a BI tool is a plus.",
+         description="Turn TechNova's product and business data into dashboards and "
+                      "recommendations the leadership team acts on."),
+    dict(owner=TECHNOVA, title="Graduate Software Engineer", status="PUBLISHED",
+         location=BLR, work_mode="ONSITE", employment_type="FULL_TIME",
+         salary_min=700000, salary_max=1200000, experience_min_years=0, openings=3,
+         application_deadline=DEADLINE,
+         eligibility_criteria="Recent graduates with solid CS fundamentals.",
+         description="A rotational graduate program across TechNova's product teams, with "
+                      "structured mentorship in the first year."),
+])
+
+PROJECTS.extend([
+    dict(owner=TECHNOVA, title="Smart Manufacturing Analytics", status="PUBLISHED",
+         location=REMOTE_IN, work_mode="REMOTE", duration_months=4, team_size=4,
+         application_deadline=DEADLINE, start_date=START,
+         eligibility_criteria="Comfortable with Python and basic data analysis.",
+         description="Build analytics dashboards on top of a manufacturing partner's "
+                      "production-line sensor data to surface throughput and quality trends."),
+    dict(owner=TECHNOVA, title="Predictive Maintenance Platform", status="PUBLISHED",
+         location=REMOTE_IN, work_mode="REMOTE", duration_months=5, team_size=3,
+         application_deadline=DEADLINE, start_date=START,
+         eligibility_criteria="Some exposure to time-series data or ML is helpful.",
+         description="Prototype a predictive-maintenance model that flags at-risk industrial "
+                      "equipment ahead of failure, using historical sensor readings."),
+    dict(owner=TECHNOVA, title="Industry RAG Knowledge Assistant", status="PUBLISHED",
+         location=REMOTE_IN, work_mode="REMOTE", duration_months=3, team_size=3,
+         application_deadline=DEADLINE, start_date=START,
+         eligibility_criteria="Python + an interest in LLM applications.",
+         description="Build a retrieval-augmented assistant over TechNova's internal "
+                      "documentation, with a small React front-end for querying it."),
+    dict(owner=TECHNOVA, title="IoT Energy Monitoring System", status="PUBLISHED",
+         location=BLR, work_mode="HYBRID", duration_months=4, team_size=3,
+         application_deadline=DEADLINE, start_date=START,
+         eligibility_criteria="Interest in embedded systems and dashboards.",
+         description="Instrument a small facility with energy-usage sensors and build a "
+                      "live monitoring dashboard for consumption trends."),
+])
+
+WORKSHOPS.extend([
+    dict(owner=TECHNOVA, title="Modern React Development", status="PUBLISHED",
+         location=REMOTE_IN, work_mode="REMOTE", duration_days=2, capacity=40,
+         application_deadline=DEADLINE, start_date=START,
+         eligibility_criteria="Basic JavaScript knowledge.",
+         description="A hands-on two-day workshop covering modern React patterns, hooks, "
+                      "and component architecture used in TechNova's own products."),
+    dict(owner=TECHNOVA, title="Building Production APIs with FastAPI", status="PUBLISHED",
+         location=REMOTE_IN, work_mode="REMOTE", duration_days=1, capacity=35,
+         application_deadline=DEADLINE, start_date=START,
+         eligibility_criteria="Basic Python.",
+         description="Learn to design, test, and document production-grade APIs with "
+                      "FastAPI, based on TechNova's own service conventions."),
+    dict(owner=TECHNOVA, title="Introduction to Generative AI", status="PUBLISHED",
+         location=REMOTE_IN, work_mode="REMOTE", duration_days=1, capacity=50,
+         application_deadline=DEADLINE, start_date=START,
+         eligibility_criteria="No prior AI experience required.",
+         description="A practical introduction to LLMs, prompting, and retrieval-augmented "
+                      "generation, with live demos from TechNova's applied-AI team."),
+    dict(owner=TECHNOVA, title="Industry 4.0 & IoT", status="PUBLISHED",
+         location=BLR, work_mode="ONSITE", duration_days=1, capacity=30,
+         application_deadline=DEADLINE, start_date=START,
+         eligibility_criteria="Basic electronics/programming familiarity.",
+         description="An on-site session on industrial IoT: sensors, connectivity, and "
+                      "how TechNova's device line collects and reports data."),
+])
+
+TRAINING.extend([
+    dict(owner=TECHNOVA, title="Python for Industry", status="PUBLISHED",
+         location=REMOTE_IN, work_mode="REMOTE", duration_months=2, capacity=40,
+         application_deadline=DEADLINE, start_date=START,
+         eligibility_criteria="No prior Python experience required.",
+         description="An 8-week upskilling program covering Python fundamentals through "
+                      "building small real-world tools, mentored by TechNova engineers."),
+    dict(owner=TECHNOVA, title="Data Analytics Bootcamp", status="PUBLISHED",
+         location=REMOTE_IN, work_mode="REMOTE", duration_months=2, capacity=35,
+         application_deadline=DEADLINE, start_date=START,
+         eligibility_criteria="Basic spreadsheet/SQL familiarity.",
+         description="A hands-on bootcamp in SQL, data analysis, and dashboarding, using "
+                      "anonymized TechNova datasets as practice material."),
+    dict(owner=TECHNOVA, title="Cloud Fundamentals", status="PUBLISHED",
+         location=REMOTE_IN, work_mode="REMOTE", duration_months=1, capacity=40,
+         application_deadline=DEADLINE, start_date=START,
+         eligibility_criteria="Comfortable with the command line.",
+         description="A foundational course on cloud computing concepts, containers, and "
+                      "deployment basics, taught by TechNova's platform team."),
+    dict(owner=TECHNOVA, title="Applied Machine Learning", status="PUBLISHED",
+         location=REMOTE_IN, work_mode="REMOTE", duration_months=2, capacity=30,
+         application_deadline=DEADLINE, start_date=START,
+         eligibility_criteria="Python fundamentals.",
+         description="A project-based ML training program: classical models, evaluation, "
+                      "and a capstone mini-project reviewed by TechNova's ML team."),
+])
+
+# ---- extra Job/Internship applications (reuses the APPLICATIONS loop
+# already in run(), further down) ----
+
+APPLICATIONS.extend([
+    *_apps_for("AI/ML Intern", "INTERNSHIP",
+               ["SELECTED", "SHORTLISTED", "INTERVIEW_SCHEDULED", "SHORTLISTED", "APPLIED", "APPLIED", "REJECTED"]),
+    *_apps_for("Full Stack Development Intern", "INTERNSHIP",
+               ["SELECTED", "SHORTLISTED", "WITHDRAWN", "APPLIED", "REJECTED"]),
+    *_apps_for("Data Science Intern", "INTERNSHIP",
+               ["SHORTLISTED", "INTERVIEW_SCHEDULED", "APPLIED", "REJECTED"]),
+    *_apps_for("IoT & Embedded Systems Intern", "INTERNSHIP", ["SHORTLISTED", "APPLIED", "REJECTED"]),
+    *_apps_for("Cloud Engineering Intern", "INTERNSHIP", ["SELECTED", "SHORTLISTED", "APPLIED"]),
+    # One more SELECTED on the pre-existing REMOTE internship, so
+    # internship_workspaces below has a 4th, distinct example.
+    dict(student=STUDENT_2, opportunity_type="INTERNSHIP",
+         posting_title="Machine Learning Engineering Intern", status="SELECTED",
+         cover_note="Demo Selected application."),
+
+    *_apps_for("Frontend Developer", "JOB",
+               ["SHORTLISTED", "SELECTED", "INTERVIEW_SCHEDULED", "SHORTLISTED", "APPLIED", "APPLIED",
+                "UNDER_REVIEW", "REJECTED", "REJECTED"]),
+    *_apps_for("Backend Developer", "JOB",
+               ["INTERVIEW_SCHEDULED", "SHORTLISTED", "SELECTED", "APPLIED", "APPLIED", "WITHDRAWN"]),
+    *_apps_for("Data Analyst", "JOB", ["SELECTED", "SHORTLISTED", "APPLIED", "APPLIED", "REJECTED"]),
+    *_apps_for("Graduate Software Engineer", "JOB", ["SHORTLISTED", "APPLIED", "REJECTED"]),
+])
+
+# Named storylines get the *specific* status the brief calls for, replacing
+# whichever generic entry _apps_for assigned that roster slot (safe: same
+# natural key, so this just overwrites the intent before insertion -- the
+# list is deduplicated by (student, posting) at insert time regardless).
+if _HAS_STORY:
+    APPLICATIONS.extend([
+        dict(student=AARAV, opportunity_type="INTERNSHIP", posting_title="AI/ML Intern",
+             status="SELECTED", cover_note="Aarav Sharma -- demo Selected application."),
+        dict(student=RIYA, opportunity_type="JOB", posting_title="Frontend Developer",
+             status="SHORTLISTED", cover_note="Riya Sen -- demo Shortlisted application."),
+        dict(student=RAHUL, opportunity_type="JOB", posting_title="Backend Developer",
+             status="INTERVIEW_SCHEDULED", cover_note="Rahul Verma -- demo Interview application."),
+    ])
+
+# ---- Project / Workshop / Training applications (new tables) ----
+
+PROJECT_APPLICATIONS = [
+    *_mod_apps_for("Smart Manufacturing Analytics",
+                   ["ACTIVE", "SELECTED", "SHORTLISTED", "APPLIED", "APPLIED", "REJECTED"]),
+    *_mod_apps_for("Predictive Maintenance Platform", ["COMPLETED", "SELECTED", "SHORTLISTED", "APPLIED"]),
+    *_mod_apps_for("Industry RAG Knowledge Assistant",
+                   ["SELECTED", "SHORTLISTED", "APPLIED", "APPLIED", "REJECTED"]),
+    *_mod_apps_for("IoT Energy Monitoring System", ["ACTIVE", "COMPLETED", "SHORTLISTED", "APPLIED", "WITHDRAWN"]),
+]
+if _HAS_STORY:
+    PROJECT_APPLICATIONS.extend([
+        dict(student=AARAV, posting_title="Smart Manufacturing Analytics", status="ACTIVE"),
+        dict(student=RIYA, posting_title="Industry RAG Knowledge Assistant", status="SELECTED"),
+    ])
+
+WORKSHOP_APPLICATIONS = [
+    *_mod_apps_for("Modern React Development", ["ACCEPTED", "ACCEPTED", "COMPLETED", "APPLIED", "APPLIED", "REJECTED"]),
+    *_mod_apps_for("Building Production APIs with FastAPI", ["ACCEPTED", "COMPLETED", "APPLIED", "WITHDRAWN"]),
+    *_mod_apps_for("Introduction to Generative AI", ["COMPLETED", "ACCEPTED", "COMPLETED", "APPLIED", "REJECTED"]),
+    *_mod_apps_for("Industry 4.0 & IoT", ["ACCEPTED", "APPLIED", "REJECTED"]),
+]
+if _HAS_STORY:
+    WORKSHOP_APPLICATIONS.extend([
+        dict(student=RAHUL, posting_title="Building Production APIs with FastAPI", status="ACCEPTED"),
+        dict(student=AARAV, posting_title="Introduction to Generative AI", status="COMPLETED"),
+    ])
+
+TRAINING_APPLICATIONS = [
+    *_mod_apps_for("Python for Industry",
+                   ["ACCEPTED", "ACCEPTED", "COMPLETED", "COMPLETED", "APPLIED", "APPLIED", "REJECTED"]),
+    *_mod_apps_for("Data Analytics Bootcamp", ["ACCEPTED", "COMPLETED", "APPLIED", "WITHDRAWN"]),
+    *_mod_apps_for("Cloud Fundamentals", ["ACCEPTED", "APPLIED", "REJECTED"]),
+    *_mod_apps_for("Applied Machine Learning", ["ACCEPTED", "COMPLETED", "APPLIED"]),
+]
+if _HAS_STORY:
+    TRAINING_APPLICATIONS.append(
+        dict(student=RIYA, posting_title="Python for Industry", status="ACCEPTED")
+    )
+
+
+def _last_application_intent(entries):
+    """Keep one final intent per student/posting before any rows are inserted.
+
+    Named demo storylines are deliberately appended after the broad status
+    coverage.  Without this consolidation the first generic row would win
+    the database's unique constraint and the storyline would silently be
+    skipped.
+    """
+    by_key = {}
+    for entry in entries:
+        by_key[(entry["student"], entry["posting_title"])] = entry
+    return list(by_key.values())
+
+
+APPLICATIONS[:] = _last_application_intent(APPLICATIONS)
+PROJECT_APPLICATIONS[:] = _last_application_intent(PROJECT_APPLICATIONS)
+WORKSHOP_APPLICATIONS[:] = _last_application_intent(WORKSHOP_APPLICATIONS)
+TRAINING_APPLICATIONS[:] = _last_application_intent(TRAINING_APPLICATIONS)
+
+# ---- interviews (real rows for INTERVIEW_SCHEDULED applications) ----
+# scheduled_at is computed relative to "now" so it is always future-safe.
+
+_NOW = _dt.now(_dt_tz.utc)
+# Resolved purely by posting (not a specific student): run() finds
+# whichever application on that posting already holds a SHORTLISTED or
+# INTERVIEW_SCHEDULED status (set above -- required by
+# set_interview_derived_ids, 030) and attaches the interview to it. This
+# is deliberately posting-based, not roster-index-based: which roster slot
+# ends up with that status depends on how many students are configured.
+INTERVIEWS = [
+    dict(opportunity_type="JOB", posting_title="Site Reliability Engineer",
+         scheduled_at=(_NOW + _timedelta(days=2, hours=3)).isoformat(),
+         duration_minutes=45, mode="ONLINE", location="https://meet.example.com/technova-sre-demo"),
+    dict(opportunity_type="JOB", posting_title="Backend Developer",
+         scheduled_at=(_NOW + _timedelta(days=1, hours=2)).isoformat(),
+         duration_minutes=45, mode="ONLINE", location="https://meet.example.com/technova-backend-demo"),
+    dict(opportunity_type="INTERNSHIP", posting_title="AI/ML Intern",
+         scheduled_at=(_NOW + _timedelta(days=4)).isoformat(),
+         duration_minutes=30, mode="ONLINE", location="https://meet.example.com/technova-aiml-demo"),
+    dict(opportunity_type="INTERNSHIP", posting_title="Data Science Intern",
+         scheduled_at=(_NOW + _timedelta(days=3, hours=5)).isoformat(),
+         duration_minutes=30, mode="ONLINE", location="https://meet.example.com/technova-ds-demo"),
+]
+
+# ---- internship workspaces (for SELECTED, REMOTE/HYBRID internships) ----
+
+INTERNSHIP_WORKSPACES = [
+    dict(opportunity_type="INTERNSHIP", posting_title="AI/ML Intern", target_status="IN_PROGRESS"),
+    dict(opportunity_type="INTERNSHIP", posting_title="Cloud Engineering Intern", target_status="ACCEPTED"),
+    dict(opportunity_type="INTERNSHIP", posting_title="Machine Learning Engineering Intern", target_status="COMPLETED"),
+    dict(opportunity_type="INTERNSHIP", posting_title="Full Stack Development Intern", target_status=None),
+]
+
+# ---- notifications ----
+# Only the vocabularies from 055/060 (industry_notifications) and
+# 035/039/052/058/060 (student_notifications) are used -- nothing invented.
+
+INDUSTRY_NOTIFICATIONS = [
+    dict(kind="NEW_APPLICATION", opp_kind="JOB", posting_title="Frontend Developer",
+         title="New application for Frontend Developer",
+         body="A student applied to your Frontend Developer job.", read=False),
+    dict(kind="NEW_APPLICATION", opp_kind="INTERNSHIP", posting_title="AI/ML Intern",
+         title="New application for AI/ML Intern",
+         body="A student applied to your AI/ML Intern internship.", read=False),
+    dict(kind="WITHDRAWAL", opp_kind="JOB", posting_title="Backend Developer",
+         title="Applicant withdrew (Backend Developer)",
+         body="A student withdrew their application for Backend Developer.", read=True),
+    dict(kind="NEW_APPLICATION", opp_kind="JOB", posting_title="Data Analyst",
+         title="New application for Data Analyst",
+         body="A student applied to your Data Analyst job.", read=True),
+    dict(kind="NEW_APPLICATION", opp_kind="PROJECT", posting_title="Smart Manufacturing Analytics",
+         title="New project application",
+         body="A student applied to your Smart Manufacturing Analytics project.", read=False),
+    dict(kind="NEW_APPLICATION", opp_kind="PROJECT", posting_title="Industry RAG Knowledge Assistant",
+         title="New project application",
+         body="A student applied to your Industry RAG Knowledge Assistant project.", read=True),
+    dict(kind="NEW_APPLICATION", opp_kind="WORKSHOP", posting_title="Modern React Development",
+         title="New workshop registration",
+         body="A student registered for your Modern React Development workshop.", read=False),
+    dict(kind="NEW_APPLICATION", opp_kind="WORKSHOP", posting_title="Introduction to Generative AI",
+         title="New workshop registration",
+         body="A student registered for your Introduction to Generative AI workshop.", read=True),
+    dict(kind="NEW_APPLICATION", opp_kind="TRAINING", posting_title="Python for Industry",
+         title="New training registration",
+         body="A student registered for your Python for Industry program.", read=False),
+    dict(kind="NEW_APPLICATION", opp_kind="TRAINING", posting_title="Cloud Fundamentals",
+         title="New training registration",
+         body="A student registered for your Cloud Fundamentals program.", read=True),
+    dict(kind="WITHDRAWAL", opp_kind="WORKSHOP", posting_title="Building Production APIs with FastAPI",
+         title="Applicant withdrew (Building Production APIs with FastAPI)",
+         body="A student withdrew their registration.", read=True),
+]
+
+STUDENT_NOTIFICATIONS = [
+    dict(student=None, kind="APPLICATION_STATUS", posting_title="Frontend Developer", opp_kind="JOB",
+         status_for="SHORTLISTED",
+         title="You've been shortlisted", body='Your application for "Frontend Developer" has been shortlisted.',
+         entity_type="APPLICATION"),
+    dict(student=None, kind="APPLICATION_STATUS", posting_title="AI/ML Intern", opp_kind="INTERNSHIP",
+         status_for="SELECTED",
+         title="You've been selected", body='Your application for "AI/ML Intern" was selected.',
+         entity_type="APPLICATION"),
+    dict(student=None, kind="APPLICATION_STATUS", posting_title="Smart Manufacturing Analytics", opp_kind="PROJECT",
+         status_for="ACTIVE",
+         title="Project active", body='Your project application for "Smart Manufacturing Analytics" is now active.',
+         entity_type="PROJECT"),
+    dict(student=None, kind="APPLICATION_STATUS", posting_title="Building Production APIs with FastAPI", opp_kind="WORKSHOP",
+         status_for="ACCEPTED",
+         title="You've been enrolled", body='You have been enrolled in "Building Production APIs with FastAPI".',
+         entity_type="WORKSHOP"),
+    dict(student=None, kind="APPLICATION_STATUS", posting_title="Introduction to Generative AI", opp_kind="WORKSHOP",
+         status_for="COMPLETED",
+         title="Workshop completed", body='Your workshop "Introduction to Generative AI" is marked completed.',
+         entity_type="WORKSHOP"),
+]
+
+
+# ==========================================================================
 # APPLY
 # ==========================================================================
 
@@ -789,7 +1311,6 @@ OPP_TABLES = {
     "industry_projects": ("industry_projects", None, None),
     "industry_training": ("industry_training", None, None),
     "industry_workshops": ("industry_workshops", None, None),
-    "industry_mentorship": ("industry_mentorship", None, None),
 }
 
 _OPP_FIELDS = {
@@ -808,15 +1329,11 @@ _OPP_FIELDS = {
     "industry_workshops": ("title", "description", "location", "work_mode",
                            "duration_days", "capacity", "eligibility_criteria",
                            "application_deadline", "start_date", "status"),
-    "industry_mentorship": ("title", "description", "location", "work_mode",
-                            "duration_months", "capacity", "eligibility_criteria",
-                            "application_deadline", "start_date", "status"),
 }
 
 _MODULE_LISTS = {
     "internships": INTERNSHIPS, "jobs": JOBS, "industry_projects": PROJECTS,
     "industry_training": TRAINING, "industry_workshops": WORKSHOPS,
-    "industry_mentorship": MENTORSHIP,
 }
 
 
@@ -1088,9 +1605,254 @@ def run(apply: bool):
             insert("job_training_enrollments", {"application_id": app_id})
         stats.bump("job_training_enrollments", created=True)
 
+    # ---- Part 2: persona profiles (add missing student_profiles + skills) ----
+    for p in PERSONA_PROFILES:
+        sid = p["student"]
+        profile = get(f"profiles?id=eq.{sid}&select=id,role")
+        if not profile or profile[0].get("role") != "STUDENT":
+            print(f"  WARN not a STUDENT profile, skipping persona: {sid}")
+            stats.bump("student_profiles", created=False)
+            continue
+        sp = get(f"student_profiles?id=eq.{sid}&select=id,institution_name")
+        payload = {
+            "institution_name": p["institution"], "department": p["department"],
+            "graduation_year": p["graduation_year"],
+        }
+        if sp:
+            stats.bump("student_profiles", created=False)
+        elif apply:
+            insert("student_profiles", {"id": sid, **payload})
+            stats.bump("student_profiles", created=True)
+        else:
+            stats.bump("student_profiles", created=True)
+
+        for skill_name in p.get("skills", []):
+            sid2 = skills.get(skill_name.lower())
+            if not sid2:
+                print(f"  WARN persona skill not in catalog: {skill_name}")
+                continue
+            found = get(f"student_skills?student_id=eq.{sid}&skill_id=eq.{sid2}&select=id")
+            if found:
+                stats.bump("student_skills", created=False)
+                continue
+            if apply:
+                insert("student_skills", {
+                    "student_id": sid, "skill_id": sid2, "proficiency_level": "Intermediate",
+                })
+            stats.bump("student_skills", created=True)
+
+    # ---- Part 2: Project / Workshop / Training applications ----
+    _MOD_APP_TABLES = {
+        "industry_projects": ("industry_project_applications", "project_id", PROJECT_APPLICATIONS, "project_applications"),
+        "industry_workshops": ("industry_workshop_applications", "workshop_id", WORKSHOP_APPLICATIONS, "workshop_applications"),
+        "industry_training": ("industry_training_applications", "training_id", TRAINING_APPLICATIONS, "training_applications"),
+    }
+    for posting_table, (app_table, fk, entries, tag) in _MOD_APP_TABLES.items():
+        for a in entries:
+            postings = get(
+                f"{posting_table}?industry_id=eq.{TECHNOVA}"
+                f"&title=eq.{urllib.parse.quote(a['posting_title'])}&select=id"
+            )
+            if not postings:
+                print(f"  WARN {tag} target not found (seed postings first): {a['posting_title']}")
+                stats.bump(tag, created=False)
+                continue
+            pid = postings[0]["id"]
+            existing = get(f"{app_table}?student_id=eq.{a['student']}&{fk}=eq.{pid}&select=id")
+            if existing:
+                stats.bump(tag, created=False)
+                continue
+            if apply:
+                insert(app_table, {"student_id": a["student"], fk: pid, "status": a["status"]})
+            stats.bump(tag, created=True)
+
+    # ---- Part 2: interviews (real rows for SHORTLISTED/INTERVIEW_SCHEDULED applications) ----
+    for iv in INTERVIEWS:
+        if iv["opportunity_type"] == "INTERNSHIP":
+            postings = get(
+                f"internships?industry_id=eq.{TECHNOVA}"
+                f"&title=eq.{urllib.parse.quote(iv['posting_title'])}&select=id"
+            )
+            fk = "internship_id"
+        else:
+            postings = get(
+                f"jobs?industry_id=eq.{TECHNOVA}"
+                f"&title=eq.{urllib.parse.quote(iv['posting_title'])}&select=id"
+            )
+            fk = "job_id"
+        if not postings:
+            print(f"  WARN interview target posting not found: {iv['posting_title']}")
+            stats.bump("interviews", created=False)
+            continue
+        pid = postings[0]["id"]
+        apps = get(
+            f"applications?{fk}=eq.{pid}&status=in.(SHORTLISTED,INTERVIEW_SCHEDULED)"
+            "&select=id&order=status.desc&limit=1"
+        )
+        if not apps:
+            print(f"  WARN no SHORTLISTED/INTERVIEW_SCHEDULED application for interview: {iv['posting_title']}")
+            stats.bump("interviews", created=False)
+            continue
+        app_id = apps[0]["id"]
+        existing = get(f"interviews?application_id=eq.{app_id}&status=eq.SCHEDULED&select=id")
+        if existing:
+            stats.bump("interviews", created=False)
+            continue
+        if apply:
+            insert("interviews", {
+                "application_id": app_id, "scheduled_at": iv["scheduled_at"],
+                "duration_minutes": iv["duration_minutes"], "mode": iv["mode"],
+                "location": iv["location"],
+            })
+            # The application is likely already INTERVIEW_SCHEDULED (seeded
+            # directly above); if this posting's slot only reached
+            # SHORTLISTED, advance it now that a real interview exists.
+            update("applications", f"id=eq.{app_id}", {"status": "INTERVIEW_SCHEDULED"})
+        stats.bump("interviews", created=True)
+
+    # ---- Part 2: internship workspaces ----
+    for w in INTERNSHIP_WORKSPACES:
+        postings = get(
+            f"internships?industry_id=eq.{TECHNOVA}"
+            f"&title=eq.{urllib.parse.quote(w['posting_title'])}&select=id,work_mode"
+        )
+        if not postings:
+            print(f"  WARN workspace target internship not found: {w['posting_title']}")
+            stats.bump("internship_workspaces", created=False)
+            continue
+        if postings[0]["work_mode"] not in ("REMOTE", "HYBRID"):
+            print(f"  WARN internship is not REMOTE/HYBRID, no workspace possible: {w['posting_title']}")
+            stats.bump("internship_workspaces", created=False)
+            continue
+        iid = postings[0]["id"]
+        apps = get(
+            f"applications?internship_id=eq.{iid}&status=eq.SELECTED&select=id&limit=1"
+        )
+        if not apps:
+            print(f"  WARN no SELECTED application to provision a workspace for: {w['posting_title']}")
+            stats.bump("internship_workspaces", created=False)
+            continue
+        app_id = apps[0]["id"]
+        existing = get(f"internship_workspaces?application_id=eq.{app_id}&select=id,workspace_status")
+        if existing:
+            stats.bump("internship_workspaces", created=False)
+            ws_id = existing[0]["id"]
+            workspace_created = False
+        elif not apply:
+            stats.bump("internship_workspaces", created=True)
+            ws_id = None
+            workspace_created = False
+        else:
+            ws_id = insert("internship_workspaces", {"application_id": app_id})["id"]
+            stats.bump("internship_workspaces", created=True)
+            workspace_created = True
+
+        if ws_id and workspace_created and w["target_status"] and apply:
+            patch = {"workspace_status": w["target_status"]}
+            if w["target_status"] == "ACCEPTED":
+                patch["accepted_at"] = _NOW.isoformat()
+            elif w["target_status"] == "IN_PROGRESS":
+                patch["accepted_at"] = _NOW.isoformat()
+                patch["started_at"] = _NOW.isoformat()
+            elif w["target_status"] == "COMPLETED":
+                patch["accepted_at"] = _NOW.isoformat()
+                patch["started_at"] = _NOW.isoformat()
+                patch["completed_at"] = _NOW.isoformat()
+            update("internship_workspaces", f"id=eq.{ws_id}", patch)
+
+    # ---- Part 2: industry notifications ----
+    _NOTIF_POSTING_TABLE = {
+        "JOB": ("jobs", "job_id", "JOB_APPLICATION"),
+        "INTERNSHIP": ("internships", "internship_id", "INTERNSHIP_APPLICATION"),
+        "PROJECT": ("industry_projects", "project_id", "PROJECT_APPLICATION"),
+        "WORKSHOP": ("industry_workshops", "workshop_id", "WORKSHOP_APPLICATION"),
+        "TRAINING": ("industry_training", "training_id", "TRAINING_APPLICATION"),
+    }
+    for n in INDUSTRY_NOTIFICATIONS:
+        posting_table, fk, entity_type = _NOTIF_POSTING_TABLE[n["opp_kind"]]
+        postings = get(
+            f"{posting_table}?industry_id=eq.{TECHNOVA}"
+            f"&title=eq.{urllib.parse.quote(n['posting_title'])}&select=id"
+        )
+        if not postings:
+            print(f"  WARN notification target posting not found: {n['posting_title']}")
+            stats.bump("industry_notifications", created=False)
+            continue
+        pid = postings[0]["id"]
+        if n["opp_kind"] in ("JOB", "INTERNSHIP"):
+            apps = get(f"applications?{fk}=eq.{pid}&select=id&limit=1")
+            related_id = apps[0]["id"] if apps else None
+        else:
+            related_id = pid
+        if not related_id:
+            stats.bump("industry_notifications", created=False)
+            continue
+        existing = get(
+            f"industry_notifications?industry_id=eq.{TECHNOVA}"
+            f"&title=eq.{urllib.parse.quote(n['title'])}"
+            f"&related_entity_id=eq.{related_id}&select=id"
+        )
+        if existing:
+            stats.bump("industry_notifications", created=False)
+            continue
+        if apply:
+            payload = {
+                "industry_id": TECHNOVA, "type": n["kind"], "title": n["title"], "body": n["body"],
+                "related_entity_type": entity_type, "related_entity_id": related_id,
+            }
+            if n["read"]:
+                payload["read_at"] = _NOW.isoformat()
+            insert("industry_notifications", payload)
+        stats.bump("industry_notifications", created=True)
+
+    # ---- Part 2: student notifications (a small, illustrative set) ----
+    for n in STUDENT_NOTIFICATIONS:
+        posting_table, fk, _ = _NOTIF_POSTING_TABLE[n["opp_kind"]]
+        postings = get(
+            f"{posting_table}?industry_id=eq.{TECHNOVA}"
+            f"&title=eq.{urllib.parse.quote(n['posting_title'])}&select=id"
+        )
+        if not postings:
+            stats.bump("student_notifications", created=False)
+            continue
+        pid = postings[0]["id"]
+        if n["opp_kind"] in ("JOB", "INTERNSHIP"):
+            apps = get(f"applications?{fk}=eq.{pid}&status=eq.{n['status_for']}&select=id,student_id&limit=1")
+            if not apps:
+                stats.bump("student_notifications", created=False)
+                continue
+            student_id, related_id = apps[0]["student_id"], apps[0]["id"]
+        else:
+            app_table = {"PROJECT": "industry_project_applications", "WORKSHOP": "industry_workshop_applications",
+                         "TRAINING": "industry_training_applications"}[n["opp_kind"]]
+            apps = get(f"{app_table}?{fk}=eq.{pid}&status=eq.{n['status_for']}&select=id,student_id&limit=1")
+            if not apps:
+                stats.bump("student_notifications", created=False)
+                continue
+            student_id, related_id = apps[0]["student_id"], pid
+        existing = get(
+            f"student_notifications?student_id=eq.{student_id}&title=eq.{urllib.parse.quote(n['title'])}"
+            f"&related_entity_id=eq.{related_id}&select=id"
+        )
+        if existing:
+            stats.bump("student_notifications", created=False)
+            continue
+        if apply:
+            insert("student_notifications", {
+                "student_id": student_id, "type": n["kind"], "title": n["title"], "body": n["body"],
+                "related_entity_type": n["entity_type"], "related_entity_id": related_id,
+            })
+        stats.bump("student_notifications", created=True)
+
     stats.report()
     if not apply:
         print("\n(check mode — nothing was written)")
+        print(f"\nRoster: {len(STUDENT_ROSTER)} students "
+              f"({len(EXTRA_STUDENT_IDS)} from DEMO_STUDENT_USER_IDS). "
+              + ("Named storylines (Aarav/Riya/Rahul) are attached to real accounts."
+                 if _HAS_STORY else
+                 "Set DEMO_STUDENT_USER_IDS with 3+ ids for the named Aarav/Riya/Rahul "
+                 "storylines and fuller per-posting state coverage."))
 
 
 def emit_sql():
@@ -1229,11 +1991,17 @@ def emit_sql():
 
 if __name__ == "__main__":
     mode = sys.argv[1] if len(sys.argv) > 1 else "--check"
-    if mode == "--check":
+    if mode in ("--help", "-h"):
+        print("usage: python database/seed/industry_demo_seed.py [--check | --apply]")
+        print("  --check  inspect the live demo rows and report planned inserts; writes nothing")
+        print("  --apply  add missing demo rows only; never deletes or updates existing rows")
+    elif mode == "--check":
+        _configure_connection()
         run(apply=False)
     elif mode == "--apply":
+        _configure_connection()
         run(apply=True)
     elif mode == "--emit-sql":
-        emit_sql()
+        sys.exit("--emit-sql is retired: its legacy export omits the current application/workspace data. Use --apply.")
     else:
-        sys.exit(f"unknown mode {mode!r} (use --check | --apply | --emit-sql)")
+        sys.exit(f"unknown mode {mode!r} (use --check | --apply)")

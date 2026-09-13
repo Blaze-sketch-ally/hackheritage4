@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { Briefcase, CalendarDays, FileText, Gauge, GraduationCap } from "lucide-react";
+import { Briefcase, Building2, CalendarDays, FileText, Gauge, GraduationCap } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ApplicationStatusActions } from "@/components/industry/applicants/application-status-actions";
@@ -73,10 +74,28 @@ export function CandidateCard({
                 <OppIcon className="size-3.5 shrink-0" aria-hidden="true" />
                 {OPPORTUNITY_TYPE_LABELS[application.opportunity_type]} · {opportunityTitle}
               </p>
+              {application.institution_name || application.department || application.graduation_year ? (
+                <p className="flex items-center gap-1 truncate text-xs text-muted-foreground">
+                  <Building2 className="size-3.5 shrink-0" aria-hidden="true" />
+                  {[application.institution_name, application.department, application.graduation_year]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </p>
+              ) : null}
             </div>
           </div>
           <ApplicationStatusBadge status={application.status} />
         </div>
+
+        {application.skills && application.skills.length > 0 ? (
+          <div className="flex flex-wrap gap-1.5">
+            {application.skills.map((skill) => (
+              <Badge key={skill} variant="secondary" className="text-xs">
+                {skill}
+              </Badge>
+            ))}
+          </div>
+        ) : null}
 
         <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
           {applied ? (

@@ -315,14 +315,23 @@ def test_list_applications_attaches_resolved_student_names():
         _row(id="app-2"),
     ]
     supabase.rpc.return_value.execute.return_value.data = [
-        {"application_id": "app-1", "student_name": "Arunangshu Pal"},
+        {
+            "application_id": "app-1",
+            "student_name": "Arunangshu Pal",
+            "institution_name": "IIT Bombay",
+            "department": "CSE",
+            "graduation_year": 2026,
+            "skills": ["Python"],
+        },
         {"application_id": "app-2", "student_name": None},
     ]
     rows = application_service.list_applications(supabase, "industry-1")
     assert rows[0]["student_name"] == "Arunangshu Pal"
+    assert rows[0]["institution_name"] == "IIT Bombay"
+    assert rows[0]["skills"] == ["Python"]
     assert rows[1]["student_name"] is None
     supabase.rpc.assert_called_once_with(
-        "application_applicant_names", {"application_ids": ["app-1", "app-2"]}
+        "application_applicant_profiles", {"application_ids": ["app-1", "app-2"]}
     )
 
 

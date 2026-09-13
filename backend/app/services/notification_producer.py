@@ -337,3 +337,386 @@ def emit_stipend_status_change(
                 "related_entity_id": workspace_id,
             }
         ).execute()
+
+
+# ============================================================
+# Industry-facing producers (industry_notifications,
+# database/migrations/055_industry_notifications.sql). Same best-effort,
+# service-role, swallow-your-own-errors contract as every function above
+# -- a missing notification must never turn a successful apply/withdraw
+# into a failure for the STUDENT request that triggered it (these are
+# invoked from Student request handlers, the mirror image of the
+# Industry-triggered student producers above).
+# ============================================================
+
+_NEW_APPLICATION_ENTITY_TYPE: dict[str, str] = {
+    "INTERNSHIP": "INTERNSHIP_APPLICATION",
+    "JOB": "JOB_APPLICATION",
+    "PROJECT": "PROJECT_APPLICATION",
+    "WORKSHOP": "WORKSHOP_APPLICATION",
+    "TRAINING": "TRAINING_APPLICATION",
+}
+
+_KIND_LABEL: dict[str, str] = {
+    "INTERNSHIP": "internship",
+    "JOB": "job",
+    "PROJECT": "project",
+    "WORKSHOP": "workshop",
+    "TRAINING": "training",
+}
+
+
+def emit_new_application(
+    *,
+    industry_id: str,
+    kind: str,
+    related_entity_id: str,
+    opportunity_title: str | None,
+    student_name: str | None,
+) -> None:
+    """Notify an Industry account that a student applied to one of its
+    postings. `kind` is one of INTERNSHIP/JOB/PROJECT/WORKSHOP.
+
+    `related_entity_id` is the APPLICATION id for INTERNSHIP/JOB (Industry
+    already has a per-application detail route,
+    /industry/applicants/{id}), and the POSTING id for PROJECT/WORKSHOP
+    (there is no per-application detail route there -- the destination is
+    that posting's Applicants view). See app.schemas.industry_notification
+    for the exact related_entity_type vocabulary.
+
+    Writes exactly one `industry_notifications` row via the service-role
+    client (the table has no insert policy). Best-effort: a failed write
+    never turns a successful application submission into an error."""
+    entity_type = _NEW_APPLICATION_ENTITY_TYPE.get(kind)
+    if entity_type is None or not industry_id or not related_entity_id:
+        return
+
+    who = student_name or "A student"
+    where = f' for "{opportunity_title}"' if opportunity_title else ""
+    label = _KIND_LABEL.get(kind, "opportunity")
+    body = f"{who} applied to your {label}{where}."
+
+    with contextlib.suppress(Exception):
+        get_supabase().table("industry_notifications").insert(
+            {
+                "industry_id": industry_id,
+                "type": "NEW_APPLICATION",
+                "title": f"New {label} application",
+                "body": body,
+                "related_entity_type": entity_type,
+                "related_entity_id": related_entity_id,
+            }
+        ).execute()
+
+
+def emit_application_withdrawn(
+    *,
+    industry_id: str,
+    kind: str,
+    related_entity_id: str,
+    opportunity_title: str | None,
+    student_name: str | None,
+) -> None:
+    """Notify an Industry account that a student withdrew their
+    application. Same id/entity-type convention as emit_new_application.
+    Best-effort, service-role, never fatal to the withdrawal itself."""
+    entity_type = _NEW_APPLICATION_ENTITY_TYPE.get(kind)
+    if entity_type is None or not industry_id or not related_entity_id:
+        return
+
+    who = student_name or "A student"
+    where = f' for "{opportunity_title}"' if opportunity_title else ""
+    label = _KIND_LABEL.get(kind, "opportunity")
+    body = f"{who} withdrew their application{where}."
+
+    with contextlib.suppress(Exception):
+        get_supabase().table("industry_notifications").insert(
+            {
+                "industry_id": industry_id,
+                "type": "WITHDRAWAL",
+                "title": f"Applicant withdrew ({label})",
+                "body": body,
+                "related_entity_type": entity_type,
+                "related_entity_id": related_entity_id,
+            }
+        ).execute()
+
+
+# ---- Workshop / Project status changes -> student (student_notifications,
+# widened by 058_student_notifications_workshop_project.sql) ----
+
+_WORKSHOP_STATUS_TITLE: dict[str, str] = {
+    "ACCEPTED": "You've been accepted",
+    "REJECTED": "Update on your workshop application",
+    "COMPLETED": "Workshop completed",
+}
+
+_WORKSHOP_STATUS_PHRASE: dict[str, str] = {
+    "ACCEPTED": "has been accepted",
+    "REJECTED": "was not accepted this time",
+    "COMPLETED": "is marked completed",
+}
+
+
+def emit_workshop_status_change(
+    *,
+    student_id: str,
+    workshop_id: str,
+    new_status: str,
+    workshop_title: str | None,
+) -> None:
+    """Notify a student that the Industry side moved their Workshop
+    application to `new_status`. No-op for APPLIED/WITHDRAWN (student's
+    own actions). `related_entity_id` is the workshop id -- links to
+    /student/workshops/{id}."""
+    title = _WORKSHOP_STATUS_TITLE.get(new_status)
+    if title is None or not student_id or not workshop_id:
+        return
+
+    phrase = _WORKSHOP_STATUS_PHRASE[new_status]
+    where = f' for "{workshop_title}"' if workshop_title else ""
+    body = f"Your workshop application{where} {phrase}."
+
+    with contextlib.suppress(Exception):
+        get_supabase().table("student_notifications").insert(
+            {
+                "student_id": student_id,
+                "type": "APPLICATION_STATUS",
+                "title": title,
+                "body": body,
+                "related_entity_type": "WORKSHOP",
+                "related_entity_id": workshop_id,
+            }
+        ).execute()
+
+
+_PROJECT_STATUS_TITLE: dict[str, str] = {
+    "SHORTLISTED": "You've been shortlisted",
+    "SELECTED": "You've been selected",
+    "REJECTED": "Update on your project application",
+    "COMPLETED": "Project completed",
+}
+
+_PROJECT_STATUS_PHRASE: dict[str, str] = {
+    "SHORTLISTED": "has been shortlisted",
+    "SELECTED": "was selected",
+    "REJECTED": "was not selected this time",
+    "COMPLETED": "is marked completed",
+}
+
+
+def emit_project_status_change(
+    *,
+    student_id: str,
+    project_id: str,
+    new_status: str,
+    project_title: str | None,
+) -> None:
+    """Notify a student that the Industry side moved their Project
+    application to `new_status`. No-op for a status with no student-facing
+    meaning (APPLIED, ACTIVE, WITHDRAWN). `related_entity_id` is the
+    project id -- links to /student/industry-projects/{id}."""
+    title = _PROJECT_STATUS_TITLE.get(new_status)
+    if title is None or not student_id or not project_id:
+        return
+
+    phrase = _PROJECT_STATUS_PHRASE[new_status]
+    where = f' for "{project_title}"' if project_title else ""
+    body = f"Your project application{where} {phrase}."
+
+    with contextlib.suppress(Exception):
+        get_supabase().table("student_notifications").insert(
+            {
+                "student_id": student_id,
+                "type": "APPLICATION_STATUS",
+                "title": title,
+                "body": body,
+                "related_entity_type": "PROJECT",
+                "related_entity_id": project_id,
+            }
+        ).execute()
+
+
+_TRAINING_STATUS_TITLE: dict[str, str] = {
+    "ACCEPTED": "You've been enrolled",
+    "REJECTED": "Update on your training application",
+    "COMPLETED": "Training completed",
+}
+
+_TRAINING_STATUS_PHRASE: dict[str, str] = {
+    "ACCEPTED": "has been accepted — you're enrolled",
+    "REJECTED": "was not accepted this time",
+    "COMPLETED": "is marked completed",
+}
+
+
+def emit_training_status_change(
+    *,
+    student_id: str,
+    training_id: str,
+    new_status: str,
+    training_title: str | None,
+) -> None:
+    """Notify a student that the Industry side moved their Training
+    application to `new_status`. No-op for APPLIED/WITHDRAWN.
+    `related_entity_id` is the training id -- links to
+    /student/trainings/{id}."""
+    title = _TRAINING_STATUS_TITLE.get(new_status)
+    if title is None or not student_id or not training_id:
+        return
+
+    phrase = _TRAINING_STATUS_PHRASE[new_status]
+    where = f' for "{training_title}"' if training_title else ""
+    body = f"Your training application{where} {phrase}."
+
+    with contextlib.suppress(Exception):
+        get_supabase().table("student_notifications").insert(
+            {
+                "student_id": student_id,
+                "type": "APPLICATION_STATUS",
+                "title": title,
+                "body": body,
+                "related_entity_type": "TRAINING",
+                "related_entity_id": training_id,
+            }
+        ).execute()
+
+
+# ============================================================
+# Participation Workspace producers (database/migrations/066_participation_notifications.sql).
+# Both sides point related_entity_id at the participation_workspaces.id --
+# one deep-link target for every event in this domain, never a specific
+# assignment/submission/review row (mirrors the WORKSHOP/PROJECT/TRAINING
+# convention above of linking at the coarsest useful level).
+# ============================================================
+
+
+def emit_participation_new_assignment(*, student_id: str, workspace_id: str, assignment_title: str) -> None:
+    """Notify a student that Industry published a new assignment in their
+    workspace. Best-effort, never fatal to the publish action."""
+    if not student_id or not workspace_id:
+        return
+    with contextlib.suppress(Exception):
+        get_supabase().table("student_notifications").insert(
+            {
+                "student_id": student_id,
+                "type": "PARTICIPATION",
+                "title": "New assignment added",
+                "body": f'A new assignment, "{assignment_title}", was added to your workspace.',
+                "related_entity_type": "PARTICIPATION_WORKSPACE",
+                "related_entity_id": workspace_id,
+            }
+        ).execute()
+
+
+_REVIEW_VERDICT_TITLE_PARTICIPATION: dict[str, str] = {
+    "ACCEPTED": "Your submission was accepted",
+    "NEEDS_REVISION": "Revision requested",
+    "REVIEWED": "Your submission was reviewed",
+}
+
+
+def emit_participation_submission_reviewed(
+    *, student_id: str, workspace_id: str, verdict: str, assignment_title: str
+) -> None:
+    """Notify a student that Industry reviewed one of their submissions."""
+    title = _REVIEW_VERDICT_TITLE_PARTICIPATION.get(verdict)
+    if title is None or not student_id or not workspace_id:
+        return
+    with contextlib.suppress(Exception):
+        get_supabase().table("student_notifications").insert(
+            {
+                "student_id": student_id,
+                "type": "PARTICIPATION",
+                "title": title,
+                "body": f'Your submission for "{assignment_title}" was reviewed.',
+                "related_entity_type": "PARTICIPATION_WORKSPACE",
+                "related_entity_id": workspace_id,
+            }
+        ).execute()
+
+
+def emit_participation_new_feedback(*, student_id: str, workspace_id: str) -> None:
+    if not student_id or not workspace_id:
+        return
+    with contextlib.suppress(Exception):
+        get_supabase().table("student_notifications").insert(
+            {
+                "student_id": student_id,
+                "type": "PARTICIPATION",
+                "title": "New feedback from Industry",
+                "body": "Industry left new feedback on your participation workspace.",
+                "related_entity_type": "PARTICIPATION_WORKSPACE",
+                "related_entity_id": workspace_id,
+            }
+        ).execute()
+
+
+def emit_participation_new_recommendation(*, student_id: str, workspace_id: str, skill_name: str) -> None:
+    if not student_id or not workspace_id:
+        return
+    with contextlib.suppress(Exception):
+        get_supabase().table("student_notifications").insert(
+            {
+                "student_id": student_id,
+                "type": "PARTICIPATION",
+                "title": "New skill recommendation",
+                "body": f'Industry recommended you strengthen "{skill_name}".',
+                "related_entity_type": "PARTICIPATION_WORKSPACE",
+                "related_entity_id": workspace_id,
+            }
+        ).execute()
+
+
+def emit_participation_evaluation_finalized(*, student_id: str, workspace_id: str) -> None:
+    if not student_id or not workspace_id:
+        return
+    with contextlib.suppress(Exception):
+        get_supabase().table("student_notifications").insert(
+            {
+                "student_id": student_id,
+                "type": "PARTICIPATION",
+                "title": "Final evaluation completed",
+                "body": "Industry finalized your evaluation for this workspace.",
+                "related_entity_type": "PARTICIPATION_WORKSPACE",
+                "related_entity_id": workspace_id,
+            }
+        ).execute()
+
+
+def emit_participation_completed(*, student_id: str, workspace_id: str) -> None:
+    if not student_id or not workspace_id:
+        return
+    with contextlib.suppress(Exception):
+        get_supabase().table("student_notifications").insert(
+            {
+                "student_id": student_id,
+                "type": "PARTICIPATION",
+                "title": "Participation completed",
+                "body": "Your participation has been marked completed.",
+                "related_entity_type": "PARTICIPATION_WORKSPACE",
+                "related_entity_id": workspace_id,
+            }
+        ).execute()
+
+
+def emit_participation_submission(
+    *, industry_id: str, workspace_id: str, student_name: str | None, assignment_title: str, is_resubmission: bool
+) -> None:
+    """Notify Industry that a student submitted (or resubmitted) an
+    assignment in a participation workspace they own."""
+    if not industry_id or not workspace_id:
+        return
+    who = student_name or "A student"
+    verb = "resubmitted" if is_resubmission else "submitted"
+    with contextlib.suppress(Exception):
+        get_supabase().table("industry_notifications").insert(
+            {
+                "industry_id": industry_id,
+                "type": "NEW_APPLICATION",
+                "title": f"Assignment {verb}",
+                "body": f'{who} {verb} "{assignment_title}".',
+                "related_entity_type": "PARTICIPATION_WORKSPACE",
+                "related_entity_id": workspace_id,
+            }
+        ).execute()

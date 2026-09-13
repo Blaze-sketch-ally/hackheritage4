@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   AlertCircle,
   Briefcase,
@@ -9,7 +10,6 @@ import {
   ExternalLink,
   FolderKanban,
   GraduationCap,
-  Handshake,
   Network,
   Presentation,
 } from "lucide-react";
@@ -25,7 +25,6 @@ import { getJobs } from "@/lib/industry/jobs";
 import { getProjects } from "@/lib/industry/projects";
 import { getTrainings } from "@/lib/industry/training";
 import { getWorkshops } from "@/lib/industry/workshops";
-import { getMentorshipOpportunities } from "@/lib/industry/mentorship-opportunities";
 import { getCollaborations } from "@/lib/industry/collaborations";
 import { getIndustryProfileCompletion, type IndustryProfile } from "@/types/industry";
 import type { ApplicationSummary } from "@/types/application";
@@ -34,7 +33,6 @@ import { JOB_STATUSES, JOB_STATUS_LABELS } from "@/types/job";
 import { PROJECT_STATUSES, PROJECT_STATUS_LABELS } from "@/types/industry-project";
 import { TRAINING_STATUSES, TRAINING_STATUS_LABELS } from "@/types/industry-training";
 import { WORKSHOP_STATUSES, WORKSHOP_STATUS_LABELS } from "@/types/industry-workshop";
-import { MENTORSHIP_STATUSES, MENTORSHIP_STATUS_LABELS } from "@/types/industry-mentorship";
 import { COLLABORATION_STATUSES, COLLABORATION_STATUS_LABELS } from "@/types/industry-collaboration";
 
 /**
@@ -82,9 +80,6 @@ function fetchTrainingItems() {
 function fetchWorkshopItems() {
   return getWorkshops().then((r) => r.workshops);
 }
-function fetchMentorshipItems() {
-  return getMentorshipOpportunities().then((r) => r.mentorship_opportunities);
-}
 function fetchCollaborationItems() {
   return getCollaborations().then((r) => r.collaborations);
 }
@@ -118,6 +113,7 @@ function useModuleSummary(fetchItems: () => Promise<{ status: string }[]>): Modu
 }
 
 export function DashboardView() {
+  const router = useRouter();
   const [profileState, setProfileState] = useState<ProfileLoadState>({ status: "loading" });
   const [summaryState, setSummaryState] = useState<SummaryLoadState>({ status: "loading" });
 
@@ -164,7 +160,6 @@ export function DashboardView() {
   const projectsState = useModuleSummary(fetchProjectItems);
   const trainingState = useModuleSummary(fetchTrainingItems);
   const workshopsState = useModuleSummary(fetchWorkshopItems);
-  const mentorshipState = useModuleSummary(fetchMentorshipItems);
   const collaborationsState = useModuleSummary(fetchCollaborationItems);
 
   const completion =
@@ -245,7 +240,12 @@ export function DashboardView() {
           </Card>
         ) : null}
 
-        {summaryState.status === "ready" ? <RecruitmentFunnel summary={summaryState.summary} /> : null}
+        {summaryState.status === "ready" ? (
+          <RecruitmentFunnel
+            summary={summaryState.summary}
+            onStageClick={(status) => router.push(`/industry/applicants?status=${status}`)}
+          />
+        ) : null}
       </div>
 
       {/* 4. Industry Opportunity/Collaboration Module Summary */}
@@ -300,15 +300,6 @@ export function DashboardView() {
             state={workshopsState}
           />
           <ModuleSummaryCard
-            title="Mentorship"
-            icon={Handshake}
-            listHref="/industry/mentorship"
-            createHref="/industry/mentorship/create"
-            statusOrder={MENTORSHIP_STATUSES}
-            statusLabels={MENTORSHIP_STATUS_LABELS}
-            state={mentorshipState}
-          />
-          <ModuleSummaryCard
             title="Collaborations"
             icon={Network}
             listHref="/industry/collaborations"
@@ -340,9 +331,6 @@ export function DashboardView() {
           </Button>
           <Button size="sm" variant="outline" render={<Link href="/industry/workshops/create" />} nativeButton={false}>
             Create Workshop
-          </Button>
-          <Button size="sm" variant="outline" render={<Link href="/industry/mentorship/create" />} nativeButton={false}>
-            Create Mentorship
           </Button>
           <Button size="sm" variant="outline" render={<Link href="/industry/collaborations/create" />} nativeButton={false}>
             Propose Collaboration
