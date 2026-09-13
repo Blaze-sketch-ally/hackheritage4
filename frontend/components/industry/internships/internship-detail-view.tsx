@@ -310,6 +310,22 @@ function ReadView({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            render={<Link href={`/industry/applicants?internship_id=${internship.id}`} />}
+            nativeButton={false}
+          >
+            View Applicants
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            render={<Link href={`/industry/internships/${internship.id}/workspaces`} />}
+            nativeButton={false}
+          >
+            Active &amp; Completed
+          </Button>
           {canEdit ? (
             <Button size="sm" variant="outline" onClick={onEdit} disabled={pending}>
               Edit

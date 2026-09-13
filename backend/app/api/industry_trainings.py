@@ -24,9 +24,25 @@ from app.schemas.industry_training import (
     TrainingStatus,
     TrainingUpdate,
 )
-from app.services import industry_training_service
+from app.schemas.training_application import (
+    TrainingApplicationListResponse,
+    TrainingApplicationResponse,
+    TrainingApplicationStatus,
+    TrainingApplicationStatusUpdate,
+)
+from app.services import (
+    industry_training_application_service,
+    industry_training_service,
+    notification_producer,
+)
 
 router = APIRouter(prefix="/trainings", tags=["industry-training"])
+
+
+def _application_not_found() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND, detail="Training application not found."
+    )
 
 
 def _not_found() -> HTTPException:
@@ -167,3 +183,60 @@ def archive_training(
     if row is None:
         raise _not_found()
     return TrainingResponse(**row)
+
+
+# ============================================================
+# Applicants (industry_training_applications, 059_training_applications.sql)
+# ============================================================
+
+
+@router.get("/{training_id}/applications", response_model=TrainingApplicationListResponse)
+def list_training_applications(
+    training_id: UUID,
+    status_filter: TrainingApplicationStatus | None = Query(default=None, alias="status"),
+    current_user: CurrentUser = Depends(require_industry),
+) -> TrainingApplicationListResponse:
+    """Students who applied to one of the caller's own training records.
+    Human-readable applicant info is attached server-side -- never a raw
+    student_id."""
+    client = build_user_client(current_user.access_token)
+    try:
+        rows = industry_training_application_service.list_applications(
+            client, current_user.id, status=status_filter, training_id=str(training_id)
+        )
+    except Exception as exc:
+        raise _server_error("load applicants") from exc
+    return TrainingApplicationListResponse(applications=rows)
+
+
+@router.patch(
+    "/applications/{application_id}/status", response_model=TrainingApplicationResponse
+)
+def update_training_application_status(
+    application_id: UUID,
+    body: TrainingApplicationStatusUpdate,
+    current_user: CurrentUser = Depends(require_industry),
+) -> TrainingApplicationResponse:
+    client = build_user_client(current_user.access_token)
+    try:
+        row = industry_training_application_service.update_status(
+            client, current_user.id, str(application_id), body.status
+        )
+    except industry_training_application_service.InvalidStatusTransitionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"An application at '{exc.current}' can't be moved to '{exc.target}'.",
+        ) from exc
+    except Exception as exc:
+        raise _server_error("update the application") from exc
+    if row is None:
+        raise _application_not_found()
+
+    notification_producer.emit_training_status_change(
+        student_id=row["student_id"],
+        training_id=row["training_id"],
+        new_status=row["status"],
+        training_title=(row.get("training") or {}).get("title"),
+    )
+
+    return TrainingApplicationResponse(**row)

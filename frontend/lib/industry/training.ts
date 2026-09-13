@@ -5,6 +5,12 @@ import type {
   TrainingStatus,
   TrainingUpdate,
 } from "@/types/industry-training";
+import type {
+  IndustrySettableTrainingStatus,
+  TrainingApplication,
+  TrainingApplicationListResponse,
+  TrainingApplicationStatus,
+} from "@/types/training-application";
 
 /**
  * Talks to the Industry training API (backend/app/api/industry_trainings.py,
@@ -48,4 +54,23 @@ export function closeTraining(id: string): Promise<IndustryTraining> {
 
 export function archiveTraining(id: string): Promise<IndustryTraining> {
   return api.post(`/api/v1/trainings/${id}/archive`);
+}
+
+// ---- Applicants (industry_training_applications) ----
+
+export function getTrainingApplications(
+  trainingId: string,
+  params?: { status?: TrainingApplicationStatus | "" },
+): Promise<TrainingApplicationListResponse> {
+  const query = new URLSearchParams();
+  if (params?.status) query.set("status", params.status);
+  const qs = query.toString();
+  return api.get(`/api/v1/trainings/${trainingId}/applications${qs ? `?${qs}` : ""}`);
+}
+
+export function updateTrainingApplicationStatus(
+  applicationId: string,
+  status: IndustrySettableTrainingStatus,
+): Promise<TrainingApplication> {
+  return api.patch(`/api/v1/trainings/applications/${applicationId}/status`, { status });
 }

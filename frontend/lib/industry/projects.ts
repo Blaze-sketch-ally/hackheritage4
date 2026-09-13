@@ -5,6 +5,12 @@ import type {
   ProjectStatus,
   ProjectUpdate,
 } from "@/types/industry-project";
+import type {
+  IndustrySettableProjectStatus,
+  ProjectApplication,
+  ProjectApplicationListResponse,
+  ProjectApplicationStatus,
+} from "@/types/project-application";
 
 /**
  * Talks to the Industry project API (backend/app/api/industry_projects.py,
@@ -48,4 +54,23 @@ export function closeProject(id: string): Promise<IndustryProject> {
 
 export function archiveProject(id: string): Promise<IndustryProject> {
   return api.post(`/api/v1/projects/${id}/archive`);
+}
+
+// ---- Applicants (industry_project_applications) ----
+
+export function getProjectApplications(
+  projectId: string,
+  params?: { status?: ProjectApplicationStatus | "" },
+): Promise<ProjectApplicationListResponse> {
+  const query = new URLSearchParams();
+  if (params?.status) query.set("status", params.status);
+  const qs = query.toString();
+  return api.get(`/api/v1/projects/${projectId}/applications${qs ? `?${qs}` : ""}`);
+}
+
+export function updateProjectApplicationStatus(
+  applicationId: string,
+  status: IndustrySettableProjectStatus,
+): Promise<ProjectApplication> {
+  return api.patch(`/api/v1/projects/applications/${applicationId}/status`, { status });
 }

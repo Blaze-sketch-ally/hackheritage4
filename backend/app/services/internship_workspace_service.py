@@ -444,6 +444,32 @@ def list_student_workspaces(client: Client, student_id: str) -> list[dict]:
     return shaped
 
 
+def _attach_applicant_names(client: Client, rows: list[dict]) -> list[dict]:
+    """Best-effort attach `student_name` to each workspace row via the
+    existing public.application_applicant_names RPC (036), keyed by this
+    workspace's own `application_id` -- the same SECURITY DEFINER function
+    application_service already uses, scoped to the caller's own
+    industry-owned applications. Never raises: a lookup failure just
+    leaves `student_name` as None on every row, matching the same
+    best-effort convention application_service._attach_applicant_names
+    uses. Only used for the Industry list view (the raw-UUID-as-identity
+    gap this closes) -- other read paths in this module are unaffected."""
+    if not rows:
+        return rows
+    names: dict[str, str | None] = {}
+    try:
+        response = client.rpc(
+            "application_applicant_names",
+            {"application_ids": [row["application_id"] for row in rows]},
+        ).execute()
+        names = {r["application_id"]: r["student_name"] for r in (response.data or [])}
+    except Exception:  # noqa: BLE001 -- names are optional enrichment, never fatal
+        names = {}
+    for row in rows:
+        row["student_name"] = names.get(row["application_id"])
+    return rows
+
+
 def list_industry_workspaces(
     client: Client,
     industry_id: str,
@@ -465,7 +491,7 @@ def list_industry_workspaces(
     if workspace_status:
         query = query.eq("workspace_status", workspace_status)
     response = query.order("created_at", desc=True).execute()
-    return [_shape(row) for row in (response.data or [])]
+    return _attach_applicant_names(client, [_shape(row) for row in (response.data or [])])
 
 
 def _read_industry_workspace(client: Client, industry_id: str, workspace_id: str) -> dict | None:

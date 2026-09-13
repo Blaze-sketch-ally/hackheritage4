@@ -78,6 +78,11 @@ class InternshipWorkspaceSummary(BaseModel):
     application_id: str
     internship_id: str
     student_id: str
+    # Resolved server-side (Industry list view only) via the existing
+    # public.application_applicant_names RPC (036), keyed by this
+    # workspace's own application_id -- never a raw student_id shown as
+    # identity. None on a lookup failure or for reads that don't attach it.
+    student_name: str | None = None
     industry_id: str
     work_mode: str
     workspace_status: str

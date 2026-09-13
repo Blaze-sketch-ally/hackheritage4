@@ -130,4 +130,14 @@ describe("InternshipDetailView", () => {
     expect(await screen.findByRole("heading", { name: "Edit Internship" })).toBeInTheDocument();
     expect(screen.getByLabelText("Title")).toHaveValue("Backend Intern");
   });
+
+  it("shows a View Applicants link scoped to this exact internship", async () => {
+    mocks.getInternship.mockResolvedValueOnce(internship());
+    mocks.getSkillCatalog.mockResolvedValue({ skills: [] });
+    render(<InternshipDetailView internshipId="int-1" />);
+    await screen.findByRole("heading", { name: "Backend Intern" });
+
+    const link = screen.getByRole("button", { name: "View Applicants" });
+    expect(link).toHaveAttribute("href", "/industry/applicants?internship_id=int-1");
+  });
 });

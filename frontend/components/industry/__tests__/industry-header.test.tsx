@@ -1,16 +1,20 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   refresh: vi.fn(),
   createClient: vi.fn(),
+  listNotifications: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mocks.push, refresh: mocks.refresh }),
 }));
 vi.mock("@/lib/supabase/client", () => ({ createClient: mocks.createClient }));
+vi.mock("@/lib/industry/notifications", () => ({
+  listNotifications: mocks.listNotifications,
+}));
 
 import { IndustryHeader } from "@/components/industry/industry-header";
 import type { Profile } from "@/types/user";
@@ -30,14 +34,21 @@ function profile(overrides: Partial<Profile> = {}): Profile {
 }
 
 describe("IndustryHeader", () => {
+  beforeEach(() => {
+    mocks.listNotifications.mockResolvedValue({ notifications: [], unread_count: 0 });
+  });
+
   it("renders the profile dropdown trigger", () => {
     render(<IndustryHeader profile={profile()} onMenuClick={vi.fn()} />);
     expect(screen.getByText("Tara Recruiter")).toBeInTheDocument();
   });
 
-  it("does not imply notifications exist (no bell / notification control)", () => {
+  it("renders a working notification bell linking to /industry/notifications", () => {
     render(<IndustryHeader profile={profile()} onMenuClick={vi.fn()} />);
-    expect(screen.queryByRole("button", { name: /notification/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /notification/i })).toHaveAttribute(
+      "href",
+      "/industry/notifications",
+    );
   });
 
   it("does not render a disabled global search input", () => {

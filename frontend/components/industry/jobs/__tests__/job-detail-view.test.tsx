@@ -148,4 +148,14 @@ describe("JobDetailView", () => {
     expect(await screen.findByRole("heading", { name: "Edit Job" })).toBeInTheDocument();
     expect(screen.getByLabelText("Title")).toHaveValue("Backend Engineer");
   });
+
+  it("shows a View Applicants link scoped to this exact job", async () => {
+    mocks.getJob.mockResolvedValueOnce(job());
+    mocks.getSkillCatalog.mockResolvedValue({ skills: [] });
+    render(<JobDetailView jobId="job-1" />);
+    await screen.findByRole("heading", { name: "Backend Engineer" });
+
+    const link = screen.getByRole("button", { name: "View Applicants" });
+    expect(link).toHaveAttribute("href", "/industry/applicants?job_id=job-1");
+  });
 });

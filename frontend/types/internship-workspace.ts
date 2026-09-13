@@ -53,6 +53,10 @@ export interface InternshipWorkspaceSummary {
   application_id: string;
   internship_id: string;
   student_id: string;
+  /** Resolved server-side (Industry list view only), via the same RPC the
+   * Applicants view uses. Null on lookup failure -- fall back to a
+   * truncated student_id, never show the raw id as the primary label. */
+  student_name?: string | null;
   industry_id: string;
   work_mode: string;
   workspace_status: WorkspaceStatus;
@@ -198,4 +202,28 @@ export interface CreateSubmissionInput {
   live_url?: string | null;
   attachment_url?: string | null;
   notes?: string | null;
+}
+
+// ============================================================
+// industry self-heal endpoint response
+// (POST /api/v1/applications/{id}/provision-workspace)
+// Parallel to ProvisionJobTrainingResponse in types/job-training.ts.
+// ============================================================
+
+export type WorkspaceProvisionOutcome =
+  | "CREATED"
+  | "ALREADY_EXISTS"
+  | "SKIPPED_WORK_MODE"
+  | "SKIPPED_NO_PROGRAM"
+  | "SKIPPED_NOT_SELECTED"
+  | "SKIPPED_NOT_INTERNSHIP";
+
+/** `workspace` is populated for CREATED / ALREADY_EXISTS, null for every
+ * no-op (SKIPPED_*) outcome -- mirrors the backend's own
+ * ProvisionWorkspaceResponse exactly. */
+export interface ProvisionWorkspaceResponse {
+  outcome: WorkspaceProvisionOutcome;
+  detail: string;
+  work_mode: string | null;
+  workspace: InternshipWorkspaceSummary | null;
 }

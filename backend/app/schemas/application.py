@@ -9,16 +9,16 @@ by the `prevent_application_identity_change` trigger and by only ever
 sending `{"status": ...}` from the service.
 
 Student identity: `profiles` RLS still only permits a user to read their
-own row (001_profiles.sql) -- that is unchanged. `student_name` is
-resolved server-side through `public.application_applicant_names`
-(036_application_applicant_names.sql), a SECURITY DEFINER function scoped
-to the exact same "Industry can view applications to their own postings"
-predicate as the applications table's own RLS SELECT policy, so it can
-never name a student for an application the caller doesn't already own.
-It returns only `profiles.full_name` -- no email, avatar, or any other
-profile data. When name resolution fails (or the student has no
-full_name), `student_name` is None and the frontend falls back to a
-truncated `student_id` reference.
+own row (001_profiles.sql) -- that is unchanged. `student_name` /
+`institution_name` / `department` / `graduation_year` / `skills` are
+resolved server-side through `public.application_applicant_profiles`
+(061_application_applicant_profiles.sql), a SECURITY DEFINER function
+scoped to the exact same "Industry can view applications to their own
+postings" predicate as the applications table's own RLS SELECT policy, so
+it can never profile a student for an application the caller doesn't
+already own. No email or avatar is ever exposed. When resolution fails
+(or a field was never filled in), that field is None and the frontend
+falls back to a truncated `student_id` reference for identity.
 """
 
 from typing import Literal
@@ -103,9 +103,14 @@ class ApplicationProvisioning(BaseModel):
 class ApplicationResponse(BaseModel):
     id: str
     student_id: str
-    # Resolved via public.application_applicant_names -- see module
-    # docstring. None if resolution fails or the student has no full_name.
+    # Resolved via public.application_applicant_profiles (061) -- see
+    # module docstring. None if resolution fails or the student has no
+    # full_name / no student_profiles row / no listed skills.
     student_name: str | None = None
+    institution_name: str | None = None
+    department: str | None = None
+    graduation_year: int | None = None
+    skills: list[str] | None = None
     industry_id: str
     opportunity_type: str
     internship_id: str | None = None

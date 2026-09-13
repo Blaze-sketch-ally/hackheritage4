@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
 const mocks = vi.hoisted(() => ({
   getIndustryProfile: vi.fn(),
@@ -9,9 +10,11 @@ const mocks = vi.hoisted(() => ({
   getProjects: vi.fn(),
   getTrainings: vi.fn(),
   getWorkshops: vi.fn(),
-  getMentorshipOpportunities: vi.fn(),
   getCollaborations: vi.fn(),
+  push: vi.fn(),
 }));
+
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
 
 vi.mock("@/lib/industry/profile", () => ({ getIndustryProfile: mocks.getIndustryProfile }));
 vi.mock("@/lib/industry/applications", () => ({ getApplicationsSummary: mocks.getApplicationsSummary }));
@@ -20,9 +23,6 @@ vi.mock("@/lib/industry/jobs", () => ({ getJobs: mocks.getJobs }));
 vi.mock("@/lib/industry/projects", () => ({ getProjects: mocks.getProjects }));
 vi.mock("@/lib/industry/training", () => ({ getTrainings: mocks.getTrainings }));
 vi.mock("@/lib/industry/workshops", () => ({ getWorkshops: mocks.getWorkshops }));
-vi.mock("@/lib/industry/mentorship-opportunities", () => ({
-  getMentorshipOpportunities: mocks.getMentorshipOpportunities,
-}));
 vi.mock("@/lib/industry/collaborations", () => ({ getCollaborations: mocks.getCollaborations }));
 
 import { DashboardView } from "@/components/industry/dashboard/dashboard-view";
@@ -79,7 +79,6 @@ function mockAllModulesResolved() {
   mocks.getProjects.mockResolvedValue({ projects: [] });
   mocks.getTrainings.mockResolvedValue({ trainings: [{ id: "t1", status: "DRAFT" }] });
   mocks.getWorkshops.mockResolvedValue({ workshops: [] });
-  mocks.getMentorshipOpportunities.mockResolvedValue({ mentorship_opportunities: [] });
   mocks.getCollaborations.mockResolvedValue({
     collaborations: [{ id: "c1", status: "SENT" }, { id: "c2", status: "ACCEPTED" }],
   });
@@ -96,7 +95,6 @@ describe("DashboardView", () => {
     mocks.getProjects.mockReturnValue(new Promise(() => {}));
     mocks.getTrainings.mockReturnValue(new Promise(() => {}));
     mocks.getWorkshops.mockReturnValue(new Promise(() => {}));
-    mocks.getMentorshipOpportunities.mockReturnValue(new Promise(() => {}));
     mocks.getCollaborations.mockReturnValue(new Promise(() => {}));
 
     render(<DashboardView />);
@@ -144,7 +142,19 @@ describe("DashboardView", () => {
     expect(screen.getByText("4 applications")).toBeInTheDocument();
   });
 
-  it("renders all seven module summary cards with correct counts", async () => {
+  it("clicking a recruitment funnel stage navigates to the Applicants page pre-filtered by that status", async () => {
+    mocks.getIndustryProfile.mockResolvedValueOnce(profile());
+    mocks.getApplicationsSummary.mockResolvedValueOnce(summary());
+    mockAllModulesResolved();
+
+    render(<DashboardView />);
+    const funnel = await screen.findByRole("region", { name: "Recruitment pipeline" });
+
+    await userEvent.click(within(funnel).getByRole("button", { name: /Under review/i }));
+    expect(mocks.push).toHaveBeenCalledWith("/industry/applicants?status=UNDER_REVIEW");
+  });
+
+  it("renders all six module summary cards with correct counts", async () => {
     mocks.getIndustryProfile.mockResolvedValueOnce(profile());
     mocks.getApplicationsSummary.mockResolvedValueOnce(summary());
     mockAllModulesResolved();
@@ -156,7 +166,6 @@ describe("DashboardView", () => {
     expect(screen.getByText("Projects")).toBeInTheDocument();
     expect(screen.getByText("Training")).toBeInTheDocument();
     expect(screen.getByText("Workshops")).toBeInTheDocument();
-    expect(screen.getByText("Mentorship")).toBeInTheDocument();
     expect(screen.getByText("Collaborations")).toBeInTheDocument();
 
     await waitFor(() => expect(totalIn(cardFor("Internships"))).toBe("2"));
@@ -168,13 +177,13 @@ describe("DashboardView", () => {
   it("handles empty module data (zero-count modules render 'None yet.')", async () => {
     mocks.getIndustryProfile.mockResolvedValueOnce(profile());
     mocks.getApplicationsSummary.mockResolvedValueOnce(summary());
-    mockAllModulesResolved(); // projects, workshops, mentorship all empty arrays
+    mockAllModulesResolved(); // projects, workshops all empty arrays
 
     render(<DashboardView />);
 
     await screen.findByText("Internships");
     const noneYet = await screen.findAllByText("None yet.");
-    expect(noneYet.length).toBe(3); // Projects, Workshops, Mentorship
+    expect(noneYet.length).toBe(2); // Projects, Workshops
   });
 
   it("handles an individual module request failure without crashing the rest of the dashboard", async () => {
@@ -185,7 +194,6 @@ describe("DashboardView", () => {
     mocks.getProjects.mockResolvedValueOnce({ projects: [] });
     mocks.getTrainings.mockResolvedValueOnce({ trainings: [] });
     mocks.getWorkshops.mockResolvedValueOnce({ workshops: [] });
-    mocks.getMentorshipOpportunities.mockResolvedValueOnce({ mentorship_opportunities: [] });
     mocks.getCollaborations.mockResolvedValueOnce({ collaborations: [] });
 
     render(<DashboardView />);
@@ -226,7 +234,6 @@ describe("DashboardView", () => {
       ["/industry/projects", "Projects"],
       ["/industry/training", "Training"],
       ["/industry/workshops", "Workshops"],
-      ["/industry/mentorship", "Mentorship"],
       ["/industry/collaborations", "Collaborations"],
     ];
     // <Button render={<Link/>} nativeButton={false}> -> <a href role="button">
@@ -262,10 +269,6 @@ describe("DashboardView", () => {
     expect(screen.getByRole("button", { name: "Create Workshop" })).toHaveAttribute(
       "href",
       "/industry/workshops/create",
-    );
-    expect(screen.getByRole("button", { name: "Create Mentorship" })).toHaveAttribute(
-      "href",
-      "/industry/mentorship/create",
     );
     expect(screen.getByRole("button", { name: "Propose Collaboration" })).toHaveAttribute(
       "href",

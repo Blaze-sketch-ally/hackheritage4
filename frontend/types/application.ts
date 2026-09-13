@@ -110,6 +110,13 @@ export interface Application {
    * no full_name — use `applicantDisplayName` rather than reading this
    * directly. */
   student_name?: string | null;
+  /** Resolved server-side (public.application_applicant_profiles, 061),
+   * same best-effort convention as student_name — any of these can be
+   * null/undefined. */
+  institution_name?: string | null;
+  department?: string | null;
+  graduation_year?: number | null;
+  skills?: string[] | null;
   industry_id: string;
   opportunity_type: OpportunityType;
   internship_id: string | null;

@@ -18,12 +18,12 @@ import {
   Handshake,
   LayoutDashboard,
   type LucideIcon,
+  Presentation,
   Settings,
   Sparkles,
   Target,
   Trophy,
   User,
-  Users,
   Layers,
   TrendingUp,
 } from "lucide-react";
@@ -97,9 +97,10 @@ function navGroups(hasJobTraining: boolean): NavGroup[] {
   {
     label: "Network",
     items: [
-      { label: "Mentorship", href: "/student/mentorship", icon: Users },
       { label: "Events", href: "/student/events", icon: CalendarDays },
-      { label: "Industry Projects", icon: Handshake },
+      { label: "Industry Projects", href: "/student/industry-projects", icon: Handshake },
+      { label: "Workshops", href: "/student/workshops", icon: Presentation },
+      { label: "Training", href: "/student/trainings", icon: GraduationCap },
     ],
   },
   {

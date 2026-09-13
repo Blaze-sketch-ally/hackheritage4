@@ -24,9 +24,25 @@ from app.schemas.industry_workshop import (
     WorkshopStatus,
     WorkshopUpdate,
 )
-from app.services import industry_workshop_service
+from app.schemas.workshop_application import (
+    WorkshopApplicationListResponse,
+    WorkshopApplicationResponse,
+    WorkshopApplicationStatus,
+    WorkshopApplicationStatusUpdate,
+)
+from app.services import (
+    industry_workshop_application_service,
+    industry_workshop_service,
+    notification_producer,
+)
 
 router = APIRouter(prefix="/workshops", tags=["industry-workshops"])
+
+
+def _application_not_found() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND, detail="Workshop application not found."
+    )
 
 
 def _not_found() -> HTTPException:
@@ -167,3 +183,60 @@ def archive_workshop(
     if row is None:
         raise _not_found()
     return WorkshopResponse(**row)
+
+
+# ============================================================
+# Applicants (industry_workshop_applications, 056_workshop_applications.sql)
+# ============================================================
+
+
+@router.get("/{workshop_id}/applications", response_model=WorkshopApplicationListResponse)
+def list_workshop_applications(
+    workshop_id: UUID,
+    status_filter: WorkshopApplicationStatus | None = Query(default=None, alias="status"),
+    current_user: CurrentUser = Depends(require_industry),
+) -> WorkshopApplicationListResponse:
+    """Students who applied to one of the caller's own workshops. Human-
+    readable applicant info (name/institution/department/year/skills) is
+    attached server-side -- never a raw student_id."""
+    client = build_user_client(current_user.access_token)
+    try:
+        rows = industry_workshop_application_service.list_applications(
+            client, current_user.id, status=status_filter, workshop_id=str(workshop_id)
+        )
+    except Exception as exc:
+        raise _server_error("load applicants") from exc
+    return WorkshopApplicationListResponse(applications=rows)
+
+
+@router.patch(
+    "/applications/{application_id}/status", response_model=WorkshopApplicationResponse
+)
+def update_workshop_application_status(
+    application_id: UUID,
+    body: WorkshopApplicationStatusUpdate,
+    current_user: CurrentUser = Depends(require_industry),
+) -> WorkshopApplicationResponse:
+    client = build_user_client(current_user.access_token)
+    try:
+        row = industry_workshop_application_service.update_status(
+            client, current_user.id, str(application_id), body.status
+        )
+    except industry_workshop_application_service.InvalidStatusTransitionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"An application at '{exc.current}' can't be moved to '{exc.target}'.",
+        ) from exc
+    except Exception as exc:
+        raise _server_error("update the application") from exc
+    if row is None:
+        raise _application_not_found()
+
+    notification_producer.emit_workshop_status_change(
+        student_id=row["student_id"],
+        workshop_id=row["workshop_id"],
+        new_status=row["status"],
+        workshop_title=(row.get("workshop") or {}).get("title"),
+    )
+
+    return WorkshopApplicationResponse(**row)

@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AlertCircle, Inbox, RefreshCw, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -31,6 +33,8 @@ import {
 import { ApplicantTable } from "@/components/industry/applicant-table";
 import { CandidateCard } from "@/components/industry/candidate-card";
 import { RecruitmentFunnel } from "@/components/industry/recruitment-funnel";
+import { InterviewFormDialog } from "@/components/industry/interviews/interview-form-dialog";
+import type { Interview } from "@/types/interview";
 
 type LoadState =
   | { status: "loading" }
@@ -76,23 +80,55 @@ export function RecruitmentApplications({
   showTypeFilter?: boolean;
   layout?: "table" | "cards";
 }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  // Deep-link scope from a specific posting's own "View Applicants" (Job
+  // Detail / Internship Detail) — sent straight to the server filter
+  // (getApplications already supports both), never fetched-all-then-
+  // filtered-client-side. Only one is ever expected to be set at once, but
+  // nothing here assumes that -- an unlikely combination is just an
+  // (empty) intersection, same as any other over-narrow filter.
+  const jobIdParam = searchParams.get("job_id");
+  const internshipIdParam = searchParams.get("internship_id");
+  // Deep-link initial stage from the Dashboard's recruitment funnel
+  // (?status=SHORTLISTED) -- seeds the SAME statusFilter state the
+  // funnel/dropdown already drive client-side, rather than a second,
+  // independent status concept.
+  const statusParam = searchParams.get("status");
+
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [reloadKey, setReloadKey] = useState(0);
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<ApplicationStatus | "all">("all");
+  const [statusFilter, setStatusFilter] = useState<ApplicationStatus | "all">(() =>
+    statusParam && (APPLICATION_STATUSES as readonly string[]).includes(statusParam)
+      ? (statusParam as ApplicationStatus)
+      : "all",
+  );
   const [typeFilter, setTypeFilter] = useState("all");
 
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<{ id: string; target: IndustrySettableStatus } | null>(
     null,
   );
+  // Scheduling an interview is not a bare status flip -- it needs real
+  // date/time/mode/location, so "Schedule interview" (the INTERVIEW_SCHEDULED
+  // transition) opens the real scheduling dialog instead of the generic
+  // confirm-and-PATCH flow every other transition uses. Holds the one
+  // application id being scheduled for, so the dialog opens preselected to
+  // it -- the recruiter never re-picks the candidate they just clicked from.
+  const [scheduleForId, setScheduleForId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     Promise.all([
-      getApplications(),
+      getApplications({
+        job_id: jobIdParam ?? undefined,
+        internship_id: internshipIdParam ?? undefined,
+      }),
       showFunnel ? getApplicationsSummary() : Promise.resolve(null),
     ])
       .then(([{ applications }, summary]) => {
@@ -108,11 +144,26 @@ export function RecruitmentApplications({
     return () => {
       cancelled = true;
     };
-  }, [reloadKey, showFunnel]);
+  }, [reloadKey, showFunnel, jobIdParam, internshipIdParam]);
 
   function reload() {
     setState({ status: "loading" });
     setReloadKey((k) => k + 1);
+  }
+
+  // Reflects a status change into the URL (so the current view is
+  // shareable/persistent, e.g. after a Dashboard funnel deep-link) without
+  // introducing a second status concept -- `statusFilter` state stays the
+  // single source of truth locally; this just keeps the URL in sync with
+  // it. Stage-locked views (Shortlisted/Selected) have no status filter UI
+  // at all, so they never call this. Preserves job_id/internship_id.
+  function setStatusFilterAndSync(next: ApplicationStatus | "all") {
+    setStatusFilter(next);
+    const params = new URLSearchParams(searchParams.toString());
+    if (next === "all") params.delete("status");
+    else params.set("status", next);
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname);
   }
 
   const inScope = useMemo(() => {
@@ -133,6 +184,44 @@ export function RecruitmentApplications({
       return matchesStatus && matchesType && matchesSearch;
     });
   }, [inScope, search, statusFilter, typeFilter]);
+
+  function handlePick(id: string, target: IndustrySettableStatus) {
+    if (target === "INTERVIEW_SCHEDULED") {
+      // Real scheduling (date/time/mode/location), not a bare status PATCH
+      // -- see scheduleForId's own comment above.
+      setScheduleForId(id);
+      return;
+    }
+    setConfirming({ id, target });
+  }
+
+  // Mirrors the funnel-count patch in runTransition below -- an interview
+  // being scheduled always moves its application from SHORTLISTED to
+  // INTERVIEW_SCHEDULED server-side (interview_service.create_interview),
+  // so the local list/funnel are kept in sync the same way any other
+  // transition already is, without a full reload.
+  function handleInterviewScheduled(interview: Interview) {
+    setScheduleForId(null);
+    setState((prev) => {
+      if (prev.status !== "ready") return prev;
+      const before = prev.applications.find((a) => a.id === interview.application_id);
+      let summary = prev.summary;
+      if (summary && before && before.status !== "INTERVIEW_SCHEDULED") {
+        const counts = { ...summary.counts };
+        counts[before.status] = Math.max(0, (counts[before.status] ?? 0) - 1);
+        counts.INTERVIEW_SCHEDULED = (counts.INTERVIEW_SCHEDULED ?? 0) + 1;
+        summary = { ...summary, counts };
+      }
+      return {
+        ...prev,
+        applications: prev.applications.map((a) =>
+          a.id === interview.application_id ? { ...a, status: "INTERVIEW_SCHEDULED" as const } : a,
+        ),
+        summary,
+      };
+    });
+    setActionSuccess("Interview scheduled.");
+  }
 
   async function runTransition(id: string, target: IndustrySettableStatus) {
     setConfirming(null);
@@ -178,11 +267,35 @@ export function RecruitmentApplications({
 
   const showToolbar = showStatusFilter || showTypeFilter || inScope.length > 0;
 
+  // A posting-scoped deep link (Job/Internship Detail's "View Applicants")
+  // -- the title comes from the already-fetched applications themselves
+  // (every row's own embedded `opportunity`), never a dedicated extra
+  // fetch just for this label.
+  const hasPostingScope = !!(jobIdParam || internshipIdParam);
+  const scopedOpportunityTitle =
+    hasPostingScope && state.status === "ready"
+      ? (state.applications[0]?.opportunity?.title ?? null)
+      : null;
+
   return (
     <div className="space-y-6">
-      <div>
+      <div className="space-y-1">
         <h1 className="text-xl font-semibold">{heading}</h1>
-        <p className="text-sm text-muted-foreground">{description}</p>
+        <p className="text-sm text-muted-foreground">
+          {hasPostingScope
+            ? scopedOpportunityTitle
+              ? `Applicants for ${scopedOpportunityTitle}`
+              : "Applicants for this posting"
+            : description}
+        </p>
+        {hasPostingScope ? (
+          <Link
+            href="/industry/applicants"
+            className="inline-block text-sm text-indigo-600 hover:underline dark:text-indigo-400"
+          >
+            View all applicants
+          </Link>
+        ) : null}
       </div>
 
       <FormError message={actionError} />
@@ -224,7 +337,7 @@ export function RecruitmentApplications({
               summary={state.summary ?? EMPTY_SUMMARY}
               activeStatus={statusFilter}
               onStageClick={(status) =>
-                setStatusFilter((prev) => (prev === status ? "all" : status))
+                setStatusFilterAndSync(statusFilter === status ? "all" : status)
               }
             />
           ) : null}
@@ -244,7 +357,7 @@ export function RecruitmentApplications({
                   {showStatusFilter ? (
                     <Filters
                       value={statusFilter}
-                      onChange={(v) => setStatusFilter(v as ApplicationStatus | "all")}
+                      onChange={(v) => setStatusFilterAndSync(v as ApplicationStatus | "all")}
                       options={statusOptions}
                       aria-label="Filter by status"
                     />
@@ -266,7 +379,7 @@ export function RecruitmentApplications({
                 <ApplicantTable
                   applications={visible}
                   pendingId={pendingId}
-                  onPick={(id, target) => setConfirming({ id, target })}
+                  onPick={handlePick}
                 />
               ) : (
                 <div className="space-y-3">
@@ -275,7 +388,7 @@ export function RecruitmentApplications({
                       key={application.id}
                       application={application}
                       pending={pendingId === application.id}
-                      onPick={(target) => setConfirming({ id: application.id, target })}
+                      onPick={(target) => handlePick(application.id, target)}
                     />
                   ))}
                 </div>
@@ -298,6 +411,18 @@ export function RecruitmentApplications({
         destructive={confirming?.target === "REJECTED"}
         loading={!!pendingId}
         onConfirm={() => confirming && runTransition(confirming.id, confirming.target)}
+      />
+
+      <InterviewFormDialog
+        open={!!scheduleForId}
+        onOpenChange={(open) => !open && setScheduleForId(null)}
+        mode="schedule"
+        eligibleApplications={
+          state.status === "ready"
+            ? state.applications.filter((a) => a.id === scheduleForId)
+            : []
+        }
+        onSubmitted={handleInterviewScheduled}
       />
     </div>
   );
